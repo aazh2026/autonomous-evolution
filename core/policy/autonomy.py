@@ -11,13 +11,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+
+from core.immutable import FrozenDict
 
 
 class AutonomyLevel(StrEnum):
@@ -66,6 +69,51 @@ class DecisionKind(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class TaskContext:
+    """任务级授权上下文。
+
+    R-063：**Agent 身份不能替代任务身份**。一次操作授权必须绑定到具体的
+    任务，而不只是"是谁在问"。所以这里带的是任务身份，不是 Agent 身份 ——
+    Agent 可以同时在多个任务里干活，它的身份不构成任何授权。
+
+    三个字段各自对应一条可判定的边界：
+
+    - ``allowed_operations`` —— 本任务被授权的操作范围。策略说"允许改代码"
+      不等于**这个任务**被允许改代码；任务范围比策略更窄时以任务为准。
+    - ``expiry`` —— 授权有效期。过期后同一条策略不再为这个任务背书。
+    - ``task_id`` / ``agent_id`` / ``project_id`` / ``workspace_id`` ——
+      归属信息，写进 :class:`Decision` 供审计追溯。
+
+    ``allowed_operations`` 为空集表示"不额外收窄"，而不是"什么都不许做" ——
+    空集与"未提供范围"无法区分，所以统一解释为不收窄。
+    """
+
+    agent_id: str
+    task_id: str
+    project_id: str = ""
+    workspace_id: str = ""
+    expiry: datetime | None = None
+    allowed_operations: frozenset[Operation] = frozenset()
+
+    def expired_at(self, now: datetime) -> bool:
+        """授权是否已过期。
+
+        无有效期（``expiry is None``）视为**长期有效** —— 不是所有授权都需要
+        过期时间，但需要的时候必须真的能过期。
+        """
+        if self.expiry is None:
+            return False
+        expiry = self.expiry if self.expiry.tzinfo is not None else self.expiry.replace(tzinfo=UTC)
+        return expiry <= now
+
+    def permits(self, operation: Operation) -> bool:
+        """本任务是否在授权范围内。空范围视为不收窄。"""
+        if not self.allowed_operations:
+            return True
+        return operation in self.allowed_operations
+
+
+@dataclass(frozen=True, slots=True)
 class Decision:
     """一次授权判定的结果。"""
 
@@ -73,6 +121,7 @@ class Decision:
     operation: Operation
     reason: str
     granted_level: AutonomyLevel | None = None
+    task_ctx: TaskContext | None = None
 
     @property
     def is_allowed(self) -> bool:
@@ -136,6 +185,18 @@ class AutonomyPolicy(BaseModel):
             raise ValueError(f"策略缺少以下操作的规则：{names}")
         return value
 
+    @field_validator("rules", mode="after")
+    @classmethod
+    def _freeze_rules(
+        cls, value: Mapping[Operation, OperationRule]
+    ) -> Mapping[Operation, OperationRule]:
+        """把规则映射换成只读的。
+
+        见 :class:`FrozenDict` —— 这一步是"policy 修改需走审批"从**约定**
+        变成**类型保证**的地方。
+        """
+        return FrozenDict(value)
+
     def rule_for(self, operation: Operation) -> OperationRule:
         return self.rules[operation]
 
@@ -185,10 +246,22 @@ def default_policy() -> AutonomyPolicy:
 
 
 class PolicyManager:
-    """判定某操作在当前策略下是否被允许。"""
+    """判定某操作在当前策略下是否被允许。
 
-    def __init__(self, policy: AutonomyPolicy) -> None:
+    **没有修改策略的接口** —— 这是刻意的。策略只能来自外部配置（见
+    :meth:`from_file`），而外部配置的变更走的是版本控制 + 人工审批那条路。
+    进程内不存在任何可以放宽权限的入口，所以"Director 改自己的权限"这件事
+    在类型上就做不到（见 :class:`FrozenDict`）。
+    """
+
+    def __init__(
+        self,
+        policy: AutonomyPolicy,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
         self._policy = policy
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     @property
     def policy(self) -> AutonomyPolicy:
@@ -227,8 +300,32 @@ class PolicyManager:
             rules[op] = OperationRule.model_validate(rule_raw)
         return cls(AutonomyPolicy(rules=rules))
 
-    def check(self, operation: Operation) -> Decision:
-        """判定操作权限。"""
+    def check(self, operation: Operation, task_ctx: TaskContext | None = None) -> Decision:
+        """判定操作权限。
+
+        判定顺序是**先任务、后策略**：任务授权范围与有效期是策略的**上界**。
+        策略说"允许改代码"（L4 自主），但这个任务只被授权做分析 ——
+        那么改代码就是被拒。反过来（任务范围更宽、策略更严）以策略为准。
+
+        两道检查都在策略判定之前做，因为它们都是"没有授权"而不是
+        "有授权但要审批"—— 语义上更接近拒绝。
+        """
+        if task_ctx is not None:
+            if task_ctx.expired_at(self._clock()):
+                return Decision(
+                    kind=DecisionKind.DENY,
+                    operation=operation,
+                    reason=f"任务 {task_ctx.task_id} 的授权已过期",
+                    task_ctx=task_ctx,
+                )
+            if not task_ctx.permits(operation):
+                return Decision(
+                    kind=DecisionKind.DENY,
+                    operation=operation,
+                    reason=(f"操作 {operation.value} 不在任务 {task_ctx.task_id} 的授权范围内"),
+                    task_ctx=task_ctx,
+                )
+
         rule = self._policy.rule_for(operation)
         match rule.permission:
             case Permission.AUTONOMOUS:
@@ -237,6 +334,7 @@ class PolicyManager:
                     operation=operation,
                     reason=f"操作 {operation.value} 已授权自主执行（{rule.level.value}）",
                     granted_level=rule.level,
+                    task_ctx=task_ctx,
                 )
             case Permission.APPROVAL_REQUIRED:
                 return Decision(
@@ -244,6 +342,7 @@ class PolicyManager:
                     operation=operation,
                     reason=f"操作 {operation.value} 需人工审批（{rule.level.value}）",
                     granted_level=rule.level,
+                    task_ctx=task_ctx,
                 )
             case Permission.ADVISORY_ONLY:
                 return Decision(
@@ -251,6 +350,7 @@ class PolicyManager:
                     operation=operation,
                     reason=f"操作 {operation.value} 仅允许产出建议，不得执行（{rule.level.value}）",
                     granted_level=rule.level,
+                    task_ctx=task_ctx,
                 )
             case Permission.DENIED:
                 return Decision(
@@ -258,10 +358,11 @@ class PolicyManager:
                     operation=operation,
                     reason=f"操作 {operation.value} 被策略显式禁止",
                     granted_level=rule.level,
+                    task_ctx=task_ctx,
                 )
 
-    def allows(self, operation: Operation) -> bool:
-        return self.check(operation).is_allowed
+    def allows(self, operation: Operation, task_ctx: TaskContext | None = None) -> bool:
+        return self.check(operation, task_ctx).is_allowed
 
     def __repr__(self) -> str:
         return f"PolicyManager(operations={len(self._policy.rules)})"
@@ -283,10 +384,12 @@ __all__ = [
     "AutonomyPolicy",
     "Decision",
     "DecisionKind",
+    "FrozenDict",
     "Operation",
     "OperationRule",
     "Permission",
     "PolicyManager",
+    "TaskContext",
     "default_policy",
     "load_policy",
 ]

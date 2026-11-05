@@ -247,7 +247,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **预估**：0.5d
 - **验证结果**：T1 ① `tests/unit/project/test_models.py::test_missing_element_is_reported`（参数化六要素，断言报错点名缺哪一项）、`::test_missing_metric_is_rejected`、`::test_non_comparable_target_is_rejected`、`::test_metric_type_must_match_target_type`；T1 ② `::test_same_metric_different_unit_and_eval_method`、`::test_arbitrary_metric_names_are_accepted`。T4 —— `docs/examples/project.yaml`，由 `::test_example_project_file_is_valid` 断言示例文件真能被模型载入（示例不是装饰）。
 
-### [ ] TASK-P1-011 Policy Manager 与四级自主权判定器
+### [x] TASK-P1-011 Policy Manager 与四级自主权判定器
 
 - **工作流**：CP
 - **设计要求**：R-012, R-015, R-019, R-100, R-101, R-102, R-104（§3.1 Autonomy Policy；§7 四级自主权与初始基线；防自改验收标准）
@@ -258,6 +258,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证（T3）**：架构评审确认"policy 修改需走审批"路径存在且不可由 Director 绕过
 - **自主权**：L2
 - **预估**：0.5d
+- **验证结果**：T1 ① —— `tests/unit/policy/test_autonomy.py::TestInitialBaseline`：`test_autonomous_operations_are_allowed`（参数化 5 个操作，断言 ALLOW 且授予 L4）、`test_merge_to_main_requires_approval`（REQUIRE_APPROVAL + 授予 L2）、`test_dangerous_operations_are_denied`（参数化 `production_deployment` / `modify_governance`，断言 DENY + 授予 L1）、`test_modify_governance_is_advisory_only`（理由含"建议"）；T1 ② —— `::TestPolicyIsExternal`：`test_changing_external_file_changes_decision`（改外部 YAML 后 `merge_to_main` 由 REQUIRE_APPROVAL 变 ALLOW）、`test_baseline_and_external_policy_differ`（内置基线与外部配置对同一操作给出不同结论）、`test_missing_file_falls_back_to_conservative_baseline`（文件缺失回退基线且回退结果仍保守）、`test_incomplete_policy_is_rejected`（缺一条操作规则即拒绝加载 —— 缺规则等于把决定权交给隐式默认值）。T3 —— 实现期代码评审（自审，尚未经第二人复核）：审查结论是本任务原先的 T3 表述"policy 修改需走审批路径存在"**在实现前是假的** —— `AutonomyPolicy.rules` 声明为 `Mapping` 但运行时仍是可写的 `dict`，进程内改一条规则就能放宽权限且不留痕迹。已补上不可改写机制（`core/immutable.py::FrozenDict`，覆盖 `__setitem__` / `__delitem__` / `clear` / `pop` / `popitem` / `setdefault` / `update` 全部 mutator —— `dict.update` 是 C 实现的，不会走 `__setitem__`，只堵一个是不够的），并由 `::TestPolicyCannotBeMutatedInProcess` 断言：`test_rules_mapping_rejects_item_assignment`、参数化 `test_rules_mapping_rejects_every_mutator`（5 个 mutator）、`test_mutating_a_policy_does_not_affect_a_manager`（改写被拒后判定结果原封不动）、`test_policy_manager_exposes_no_mutating_api`（判定器上没有 `set_`/`update`/`grant`/`revoke`/`override`/`patch`/`mutate`/`relax` 开头的公开方法）、`test_policy_still_serializes`（只读化不破坏持久化）。另按 R-063 补 `TaskContext`（`agent_id`/`task_id`/`project_id`/`workspace_id`/`expiry`/`allowed_operations`）与 `check(operation, task_ctx)`：判定顺序为 过期 → 任务范围收窄 → 策略，任务上下文**只能收紧不能放宽**（`test_task_scope_cannot_widen_a_stricter_policy`），同一 Agent 在不同 task 下各有范围（`test_same_agent_in_another_task_has_its_own_scope`）。
 
 ### [ ] TASK-P1-012 Budget Manager
 
