@@ -138,7 +138,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 
 ### 2.1 基础设施与工程骨架（INF）
 
-### [ ] TASK-P1-001 仓库骨架与工具链
+### [x] TASK-P1-001 仓库骨架与工具链
 
 - **工作流**：INF
 - **设计要求**：R-105, R-107（§8 目录结构）
@@ -148,6 +148,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证（T2）**：CI 在 PR 上从推送到结果 < 5 分钟
 - **自主权**：L2（自动执行）
 - **预估**：0.5d
+- **验证结果**：T1 —— `make check` 全绿：ruff "All checks passed!"、mypy "Success: no issues found in 119 source files"、pytest "342 passed, 73 deselected"；`core/` 无 `Any` 逃逸由 `tests/unit/core/test_no_any_escape.py` 的 AST 门禁断言（不用 mypy 的报错位置判定 —— Pydantic v2 的 `BaseModel.__init__(**data: Any)` 继承会把 `disallow_any_explicit` 的违规归到每个子类定义行，改用按模块覆写 + AST 门禁）。T2 —— PR #1 的 CI run 42078392146 从推送（17:49:39Z）到四个 job 全部完成（17:51:10Z）耗时 **91 秒**（预算 300 秒）；静态检查 / 单元测试 / 集成测试 / 本地全栈四个 job 全绿。
 
 ### [x] TASK-P1-002 配置与密钥管理
 
