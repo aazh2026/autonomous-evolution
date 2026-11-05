@@ -77,6 +77,10 @@ ignore = [
 # 没人会注意到，可它恰好是"这轮到底变没变好"的唯一依据。全部关键字参数，
 # 参数名本身就是文档。
 "core/metrics/cycle.py" = ["PLR0913"]
+# 指标登记条目同理：`_define` 把 `MetricDefinition` 的六个字段一一对应成
+# 参数。收成一个 dict 只会把"这个指标属于哪一层、单位是什么"这份契约
+# 藏进调用点的字典字面量里 —— 而读注册表的人要能一眼看到它。
+"evaluation/registry.py" = ["PLR0913", "PLR0917"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
