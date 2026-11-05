@@ -283,7 +283,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证结果**：T1 —— `tests/unit/project/test_registry.py`：`::TestRegistration`（注册 / 按 id 查询 / 列举按 id 排序 / `__contains__` / `__len__` / 按仓库查）、`::TestIsolation`（两个项目的目标、policy、预算、**环境配置**互不污染 —— `test_each_project_keeps_its_own_environment` 断言 alpha 的环境是 `{"target": "staging"}` 而 beta 是 `{"target": "prod", "region": "cn-north-1"}`；`test_registered_project_is_immutable` 断言领域模型深度不可变；`test_environment_mapping_is_immutable` 断言环境映射在进程内不可改写）、`::TestPolicyChangeNeedsApproval`（`replace` 无 `approval_ref` 抛 `MissingApprovalError`；有审批则记录 `RegistryChange` 且保留**替换前**的定义；改一个项目不影响另一个；对未注册项目替换抛 `ProjectNotFoundError`）。补上环境配置的原因：design.md §3.1 说 Project Registry 管"仓库、环境和技术栈"，而 `core/project/models.py::Project.environment` 此前在落库时被静默丢弃 —— 已补 ORM 列与迁移 `0002_project_environment`，并在 `tests/integration/test_entity_crud.py` 的往返断言中覆盖；**领域模型 ↔ 持久化实体的转换层此前完全没有测试覆盖**（`grep -rn "from_domain\|to_domain" tests/` 无命中），而转换层正是"字段搬运"这类静默丢数据发生的地方 —— 已补 `tests/unit/entities/test_project_conversion.py::TestEnvironmentSurvivesTheConversion`（`from_domain` 搬、`to_domain` 搬、往返不丢、未配置环境时是空字典而非 `None`），并做反向验证：临时从 `from_domain` 删掉 `environment=` 后三个用例转红，从 `to_domain` 删掉后同样三个用例转红。
 
 
-### [ ] TASK-P1-014 Stop Conditions 求值与目标达成度计算
+### [x] TASK-P1-014 Stop Conditions 求值与目标达成度计算
 
 - **工作流**：CP
 - **设计要求**：R-009, R-011, R-128（§3.1 Stop Conditions；§12 可验证的改善）
@@ -293,6 +293,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证（T2）**：目标达成度 ∈ [0, 1]，且随指标单调变化
 - **自主权**：L2
 - **预估**：0.5d
+- **验证结果**：T1 ① —— `tests/unit/project/test_stop_conditions.py::TestGoalAttainment`：`test_satisfied_key_result_has_attainment_one`（达标即 1.0）、`test_unsatisfied_key_result_has_partial_attainment`（未达标给**接近程度** 0.5/0.95，而非一律记 0 —— 否则"差 1%"和"差 100%"看起来一样）、`test_overall_is_the_mean_of_key_results`、`test_lower_is_better_direction`（越小越好的指标：目标/实际 = 0.5）、`test_boolean_key_result`、`test_unmeasured_key_result_counts_as_zero_and_lowers_coverage`（没测不给通行券，但 `coverage` 与 `unmeasured` 把"测得不全"显式摆出来）；T1 ② —— `::TestValidationAtStartup`：`test_unregistered_metric_is_rejected`（引用没人会提供的指标 → **启动时**报错，不是运行期恒 false）、`test_unparseable_expression_is_rejected`、`test_custom_expression_needing_threshold_without_one_is_rejected`、`test_missing_threshold_on_builtin_is_rejected`（纵深防御，用 `model_copy(update=...)` 绕过模型校验造出非法状态）、`test_evaluator_validates_on_construction`（校验发生在构造时 —— 那就是"启动"）；另 `::TestPredicateEvaluation::test_missing_fact_raises_instead_of_returning_false` 与 `::TestStopEvaluation::test_missing_actuals_make_the_condition_undecidable_not_false` —— **不可判定 ≠ 未触发**：缺事实与缺实测值分别落在 `StopEvaluation.undecidable`，与 `triggered` 分开记。T2 —— `::TestAttainmentIsMonotonic`：`test_attainment_stays_within_zero_and_one`（7 个取值遍历，断言 ∈ [0,1]）、`test_attainment_is_monotonic_in_a_higher_is_better_metric` / `..._lower_is_better_metric`（`itertools.pairwise` 逐对断言单调不减）。**不用 eval()**：表达式来自项目配置是外部输入，只支持三种明确形态（布尔事实 / 数值比较 / 阈值比较 `X`），解析不了就在启动时报错 —— `::TestPredicateParsing::test_code_injection_attempt_is_rejected` 用 `__import__("os").system(...)` 断言它被拒。**反向验证**（证明断言有牙而非恒真）：对生产代码做 8 处定点变异，每次都让对应用例转红 —— ① 未达标一律记 0（5 个用例红）、② 去掉上下夹取（`test_attainment_stays_within_zero_and_one` 红）、③ 启动校验不查未登记指标（2 个用例红）、④ 启动校验不查缺失 threshold（1 个用例红）、⑤ 缺事实返回 false 而非报错（1 个用例红）、⑥ 无法解析的表达式当成事实放行（5 个用例红）、⑦ 缺实测值记为"未达成"而非"不可判定"（1 个用例红）、⑧ `delta` 符号反转（1 个用例红）；8 处变异全部被抓住，文件还原后与原文逐字节一致。
 
 ---
 
@@ -1210,6 +1211,12 @@ design.md 有 **8 处**需要裁决的问题：前 6 处是**内部不一致**�
 - **矛盾**：§3.6 列出十二个核心实体，覆盖项目、演进、执行、证据、知识五类，但**没有任何一张表能承载"已消耗多少预算"**。§3.1 要求 Budget Manager 管 Token / 模型调用 / 计算资源 / 时间预算，R-013 / R-018 要求币种与指标可配置，而 TASK-P1-012 的 T1 ② 明确要求"用**真实并发写库**验证" —— 这要求一张能承载累计额、且能对其加行级锁的表。
 - **推荐默认**：**新增两张表**，作为十二个实体之外的补充：`budget_account`（累计额，主键 `(scope, metric, period)`，靠行级锁串行化扣减）与 `budget_entry`（append-only 流水，每次扣减一条，含被拒绝的尝试）。`scope` 用自由文本列而非项目外键 —— TASK-P1-012 不依赖项目注册，预算口径不该被项目表的生命周期绑住；阶段四多项目时再取 project id。**理由**：把这张表硬塞进现有十二个实体里（例如让 `project.budget` 的 JSONB 兼任账本）会同时失去三样东西 —— 行级锁的粒度（`FOR UPDATE` 锁的是整行，JSONB 里的数字无法单独加锁）、append-only 的可执行性（JSONB 里的数字可以被原地改写，且没有"只增不减"这个概念）、以及账本与项目定义解耦的能力。周期（`day:YYYY-MM-DD` / `lifetime`）做进主键还有一个附带好处：日切不需要删除任何记录，新的一天自然是一行从零开始的累计额 —— 这与 append-only 账本天然相容。
 - **影响任务**：TASK-P1-012, TASK-P1-020（实体数由 12 变 14，`docs/architecture/data-model.md` 与 `tests/unit/database/test_schema.py` 已同步）
+
+### 待裁决 9 — TASK-P1-014 ↔ TASK-P1-070 ↔ TASK-P1-071 构成依赖环
+
+- **矛盾**：按原文的依赖字段，三条任务首尾相接 —— TASK-P1-014（Stop Conditions 求值与目标达成度计算）**依赖** TASK-P1-071（Phase 1 指标三层子集），TASK-P1-071 **依赖** TASK-P1-070（EvolutionCycle 记录），而 TASK-P1-070 的交付物里写着"目标达成度变化" —— 那个数字只有 TASK-P1-014 的 `GoalAttainmentCalculator` 算得出来。三条任务构成一个环，按依赖顺序一条都开不了工。这不是实现时的疏漏，是拆解时把"依赖"写成了"数据流上下游"造成的。
+- **推荐默认**：**按 014 → 070 → 071 的顺序实现**，并把环上那条"目标达成度变化"降级为 TASK-P1-070 的**可选字段**（有则填，无则留空），使 070 不再硬依赖 014。**理由**：三条任务之间真正的语义边界是 —— 014 提供**计算达成度**的能力（纯函数，无副作用，不依赖指标注册表）；070 负责**记录**一轮演进的元数据与前后达成度差值；071 负责**把达成度差值纳入指标注册表**并与其他指标一起算。达成度的*计算*是 071 用到的**上游**能力，而不是它的**前置条件**：071 完全可以先用"达成度差值"这个占位输入跑通其余六个指标，达成度计算晚一步接上。硬依赖会让一个本可并行的能力被另一个更小的任务卡住 —— 而两个任务加起来不到 1.5d，这个环的代价不值。
+- **影响任务**：TASK-P1-014, TASK-P1-070, TASK-P1-071（已按推荐默认实施：TASK-P1-014 已完成；TASK-P1-070 的"目标达成度变化"字段设计为可选；TASK-P1-071 的指标注册表不因缺达成度计算而无法开工）
 
 ---
 
