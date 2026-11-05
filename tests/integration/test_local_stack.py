@@ -197,8 +197,8 @@ async def _insert_project(project_id: str) -> None:
             """
             INSERT INTO project (id, name, goal, policy, repository_url,
                                  default_branch, tech_stack, budget,
-                                 created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                                 environment, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (id) DO NOTHING
             """,
             project_id,
@@ -208,6 +208,7 @@ async def _insert_project(project_id: str) -> None:
             "https://example.invalid/persistence-check.git",
             "main",
             json.dumps(["python"]),
+            json.dumps({}),
             json.dumps({}),
             now,
             now,

@@ -270,7 +270,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **自主权**：L2
 - **预估**：0.5d
 
-### [ ] TASK-P1-013 Project Registry
+### [x] TASK-P1-013 Project Registry
 
 - **工作流**：CP
 - **设计要求**：R-008, R-016（§3.1 管理多项目及其仓库、环境和技术栈）
@@ -279,6 +279,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证（T1）**：pytest —— 注册 2 个项目后按 id 查询各自返回独立的目标与 policy，互不污染
 - **自主权**：L2
 - **预估**：0.25d
+- **验证结果**：T1 —— `tests/unit/project/test_registry.py`：`::TestRegistration`（注册 / 按 id 查询 / 列举按 id 排序 / `__contains__` / `__len__` / 按仓库查）、`::TestIsolation`（两个项目的目标、policy、预算、**环境配置**互不污染 —— `test_each_project_keeps_its_own_environment` 断言 alpha 的环境是 `{"target": "staging"}` 而 beta 是 `{"target": "prod", "region": "cn-north-1"}`；`test_registered_project_is_immutable` 断言领域模型深度不可变；`test_environment_mapping_is_immutable` 断言环境映射在进程内不可改写）、`::TestPolicyChangeNeedsApproval`（`replace` 无 `approval_ref` 抛 `MissingApprovalError`；有审批则记录 `RegistryChange` 且保留**替换前**的定义；改一个项目不影响另一个；对未注册项目替换抛 `ProjectNotFoundError`）。补上环境配置的原因：design.md §3.1 说 Project Registry 管"仓库、环境和技术栈"，而 `core/project/models.py::Project.environment` 此前在落库时被静默丢弃 —— 已补 ORM 列与迁移 `0002_project_environment`，并在 `tests/integration/test_entity_crud.py` 的往返断言中覆盖；**领域模型 ↔ 持久化实体的转换层此前完全没有测试覆盖**（`grep -rn "from_domain\|to_domain" tests/` 无命中），而转换层正是"字段搬运"这类静默丢数据发生的地方 —— 已补 `tests/unit/entities/test_project_conversion.py::TestEnvironmentSurvivesTheConversion`（`from_domain` 搬、`to_domain` 搬、往返不丢、未配置环境时是空字典而非 `None`），并做反向验证：临时从 `from_domain` 删掉 `environment=` 后三个用例转红，从 `to_domain` 删掉后同样三个用例转红。
 
 ### [ ] TASK-P1-014 Stop Conditions 求值与目标达成度计算
 
@@ -305,7 +306,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证（T4）**：ER 关系图写入 `docs/architecture/data-model.md`
 - **自主权**：L2
 - **预估**：1d
-- **验证结果**：T1 —— `tests/integration/test_entity_crud.py` 覆盖十二个实体各一轮 CRUD 往返与全部点名关键字段；`tests/unit/database/test_schema.py` 在元数据层断言表集合、关键列、外键指向与约束具名。T4 —— `docs/architecture/data-model.md`（含 ER 图），并由 `tests/unit/database/test_data_model_doc.py` 把文档钉在 ORM 元数据上：十二张表、24 条外键、design.md 点名字段逐条比对，正向与反向都断言（文档多出的"幽灵表"同样会失败）。该测试经变异验证（删外键行 / 插幽灵表 / 删字段明细行，各自对应断言转红）。
+- **验证结果**：T1 —— `tests/integration/test_entity_crud.py` 覆盖十二个实体各一轮 CRUD 往返与全部点名关键字段；`tests/unit/database/test_schema.py` 在元数据层断言表集合、关键列、外键指向与约束具名。T4 —— `docs/architecture/data-model.md`（含 ER 图），并由 `tests/unit/database/test_data_model_doc.py` 把文档钉在 ORM 元数据上：十二张表、24 条外键、design.md 点名字段逐条比对，正向与反向都断言（文档多出的"幽灵表"同样会失败）。该测试经变异验证（删外键行 / 插幽灵表 / 删字段明细行，各自对应断言转红）。另补 `tests/unit/entities/test_project_conversion.py` —— **领域模型 ↔ 持久化实体的转换层此前无任何测试覆盖**（`grep -rn "from_domain\|to_domain" tests/` 无命中），而这一层正是静默丢字段发生的地方：环境配置 / tech_stack / 预算 / 六要素逐项断言往返不丢；`policy` 列与 `goal.autonomy` 必须一致（治理策略要以可读形式存在、可被审计 —— design.md §7 / R-103）；**往返两次必须幂等** —— 否则"读出来再写回去"这个看似无害的动作就是在篡改治理策略；库里被改坏的残缺目标必须在 `to_domain` 当场抛 `GoalValidationError` 并点名缺哪一项，而不是带着残缺继续跑。
 
 ### [x] TASK-P1-021 Task 状态机（14 态）
 

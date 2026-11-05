@@ -37,11 +37,11 @@ _INSERT_PROJECT_SQL = text(
     """
     INSERT INTO project
         (id, name, goal, policy, budget, repository_url, default_branch,
-         tech_stack, created_at, updated_at)
+         tech_stack, environment, created_at, updated_at)
     VALUES
         (:id, :name, CAST(:goal AS jsonb), CAST(:policy AS jsonb),
          CAST(:budget AS jsonb), :url, 'main', CAST(:tech_stack AS jsonb),
-         now(), now())
+         CAST(:environment AS jsonb), now(), now())
     """
 )
 
@@ -57,6 +57,7 @@ async def _insert_project(session: AsyncSession, project_id: str = "p-demo") -> 
             "budget": "{}",
             "url": "https://example.invalid/repo.git",
             "tech_stack": "[]",
+            "environment": "{}",
         },
     )
     await session.commit()

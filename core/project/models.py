@@ -30,6 +30,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from pydantic.config import ExtraValues
 
+from core.immutable import FrozenDict
 from core.policy.autonomy import AutonomyPolicy, default_policy
 from core.policy.budget import Budget
 
@@ -551,7 +552,16 @@ class RepositoryRef(BaseModel):
 
 
 class Project(BaseModel):
-    """项目。"""
+    """项目。
+
+    design.md §3.1 的 Project Registry 管三样东西：**仓库、环境和技术栈**。
+    这里都有对应字段 —— 仓库是 :class:`RepositoryRef`，环境是
+    :attr:`environment`，技术栈是 :attr:`tech_stack`。
+
+    ``environment`` 刻意做成扁平的 ``str → str`` 而不是嵌套结构：
+    不同项目的环境配置项完全不一样（部署目标、区域、镜像标签…），
+    写死嵌套 schema 等于把系统锁死在一个项目上。要结构化时用 JSON 字符串值。
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -561,6 +571,13 @@ class Project(BaseModel):
     budget: Budget = Field(default_factory=Budget)
     repository: RepositoryRef
     tech_stack: tuple[str, ...] = ()
+    environment: Mapping[str, str] = Field(default_factory=dict)
+
+    @field_validator("environment", mode="after")
+    @classmethod
+    def _freeze_environment(cls, value: Mapping[str, str]) -> Mapping[str, str]:
+        """环境配置只读 —— 它是部署口径，不是运行时可改的临时状态。"""
+        return FrozenDict(value)
 
     @classmethod
     def from_mapping(cls, raw: Mapping[str, object]) -> Project:

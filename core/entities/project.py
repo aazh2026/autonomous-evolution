@@ -40,6 +40,12 @@ class Project(TimestampMixin, Base):
     repository_url: Mapped[str] = mapped_column(String(1024), nullable=False)
     default_branch: Mapped[str] = mapped_column(String(255), nullable=False, default="main")
     tech_stack: Mapped[list[str]] = mapped_column(JSONDocument, nullable=False, default=list)
+    #: 环境配置（design.md §3.1 Project Registry 管"仓库、环境和技术栈"）。
+    #: 领域模型里它是只读映射，这里存成 JSONB —— 不同项目的环境项完全不一样，
+    #: 写死成列等于把系统锁死在一个项目上。
+    environment: Mapped[dict[str, object]] = mapped_column(
+        JSONDocument, nullable=False, default=dict
+    )
 
     snapshots: Mapped[list[ProjectSnapshot]] = relationship(
         back_populates="project", lazy="selectin", cascade="all, delete-orphan"
@@ -63,6 +69,7 @@ class Project(TimestampMixin, Base):
                     "default_branch": self.default_branch,
                 },
                 "tech_stack": list(self.tech_stack),
+                "environment": dict(self.environment),
             }
         )
 
@@ -78,6 +85,7 @@ class Project(TimestampMixin, Base):
             repository_url=spec.repository.url,
             default_branch=spec.repository.default_branch,
             tech_stack=list(spec.tech_stack),
+            environment=dict(spec.environment),
         )
 
 

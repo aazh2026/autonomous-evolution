@@ -100,7 +100,7 @@ class TestMigratedDatabase:
             return [row[0] for row in result]
 
     async def test_alembic_version_tracks_head(self, engine: AsyncEngine) -> None:
-        assert await self._alembic_version(engine) == "0001"
+        assert await self._alembic_version(engine) == "0002"
 
     async def test_twelve_entity_tables_exist(self, engine: AsyncEngine) -> None:
         tables = await self._tables(engine)

@@ -119,6 +119,7 @@ class TestProjectAndSnapshot:
             policy={},
             budget={},
             repository_url="https://example.invalid/x.git",
+            environment={"stage": "staging", "region": "cn-north-1"},
         )
         session.add(project)
         await session.commit()
@@ -127,12 +128,32 @@ class TestProjectAndSnapshot:
         assert loaded is not None
         assert loaded.name == "往返项目"
         assert loaded.repository_url == "https://example.invalid/x.git"
+        # 环境配置必须往返不丢 —— 领域模型里有、库里没有的话，
+        # 落库这一层会把它静默吃掉。
+        assert loaded.environment == {"stage": "staging", "region": "cn-north-1"}
 
         loaded.name = "改名后的项目"
         await session.commit()
         reloaded = await session.get(Project, "p-round")
         assert reloaded is not None
         assert reloaded.name == "改名后的项目"
+
+    async def test_project_environment_defaults_to_empty(self, session: AsyncSession) -> None:
+        """没给环境配置的项目也是合法的 —— 不该因为补了一列就被判非法。"""
+        project = Project(
+            id="p-no-env",
+            name="无环境项目",
+            goal={"objective": []},
+            policy={},
+            budget={},
+            repository_url="https://example.invalid/y.git",
+        )
+        session.add(project)
+        await session.commit()
+
+        loaded = await session.get(Project, "p-no-env")
+        assert loaded is not None
+        assert loaded.environment == {}
 
     async def test_snapshot_carries_version_commit_and_metrics(self, session: AsyncSession) -> None:
         chain = await _seed_chain(session)

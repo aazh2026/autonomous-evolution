@@ -5,7 +5,7 @@
 TASK-P1-024（证据 append-only）。
 
 这份文档是**从代码生成后手工整理**的，权威来源是 `core/entities/` 下的 ORM
-模型与 `migrations/versions/0001_initial_schema.py`。`tests/unit/database/test_data_model_doc.py`
+模型与 `migrations/versions/` 下的迁移脚本。`tests/unit/database/test_data_model_doc.py`
 会断言本文档与模型一致 —— 改了模型不改文档，测试会红。
 
 ## 0. 存储职责分离
@@ -252,6 +252,7 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 | `repository_url` | VARCHAR(1024) | NOT NULL | |
 | `default_branch` | VARCHAR(255) | NOT NULL | |
 | `tech_stack` | JSONB | NOT NULL | |
+| `environment` | JSONB | NOT NULL | 环境配置（迁移 `0002` 补上） |
 | `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
 
 ### 6.2 `project_snapshot`
@@ -453,6 +454,7 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 | 修订 | 内容 |
 | --- | --- |
 | `0001` | 十二张表 + 三表分离约束 + 验收契约 CHECK + 决策三态 CHECK + append-only 触发器 |
+| `0002` | `project.environment` 列（JSONB）—— 领域模型有、库里缺 |
 
 迁移工具链的验证见 `tests/integration/test_migrations.py`：
 `upgrade head` → `downgrade base` → `upgrade head` 可逆；空库从零迁移 < 30s；
@@ -467,5 +469,5 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 - `docs/design.md` —— 系统总设计
 - `docs/tasks.md` —— 任务清单（本模型的验收标准在 TASK-P1-020 / 022 / 024）
 - `core/entities/` —— ORM 模型（本文档的权威来源）
-- `migrations/versions/0001_initial_schema.py` —— 迁移脚本
+- `migrations/versions/` —— 迁移脚本
 - `core/task/state_machine.py` —— 14 态状态机
