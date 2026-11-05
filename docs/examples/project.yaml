@@ -1,0 +1,177 @@
+# ASES 项目配置示例
+#
+# 对应 docs/design.md §3.1 的目标六要素结构。
+# 六要素缺一不可 —— 载入时会逐项校验，缺哪一项会直接报错并指出。
+#
+# 三条使用约定：
+#   1. metric / unit / eval_method 是自由字符串，系统不硬编码任何指标名。
+#      同一个 metric 配不同 unit 或 eval_method 是允许的。
+#   2. target 必须是可比较表达式（">= 0.95" / "<= 250" / "== true"）。
+#      解析不使用 eval()，配置里的表达式没有代码执行权。
+#   3. budget 的 currency 可配置 —— 不同项目可用不同币种，不写死 USD。
+
+project:
+  id: my-product
+  name: 在线PPT制作平台
+
+  # ---------- 六要素之一：Objective ----------
+  # 希望通过哪些指标判断实现。
+  objective:
+    - id: OBJ-001
+      description: 建成完整的在线PPT制作平台
+    - id: OBJ-002
+      description: 支持AI生成和编辑SVG页面
+    - id: OBJ-003
+      description: 支持模板提取和复用
+
+  # ---------- 六要素之二：Key Results ----------
+  # 通过哪些指标判断实现。metric 不做白名单校验。
+  key_results:
+    - id: KR-001
+      metric: e2e_success_rate
+      target: ">= 0.95"
+      unit: ratio
+      metric_type: percentage
+      eval_method: automated_test
+      direction: higher_is_better
+      baseline: "0.72"
+      description: 端到端生成成功率
+
+    - id: KR-002
+      metric: svg_render_success_rate
+      target: ">= 0.99"
+      unit: ratio
+      metric_type: percentage
+      eval_method: ci_measurement
+      direction: higher_is_better
+
+    - id: KR-003
+      metric: p99_render_latency
+      target: "<= 2500"
+      unit: ms
+      metric_type: duration
+      eval_method: ci_measurement
+      direction: lower_is_better
+      description: 越大越差的指标 —— direction 显式声明，判定方向不会猜错
+
+    - id: KR-004
+      metric: regression_suite_enabled
+      target: "== true"
+      unit: ""
+      metric_type: boolean
+      eval_method: manual_review
+
+  # ---------- 六要素之三：Constraints ----------
+  # 哪些条件不能违反。machine_checkable 为真时必须有 expression。
+  constraints:
+    - id: C-001
+      description: 不允许未经授权修改生产环境
+      kind: no_unauthorized_production_change
+      machine_checkable: true
+      expression: production_write_count == 0
+
+    - id: C-002
+      description: 所有代码变更必须通过自动化测试
+      kind: all_changes_must_pass_tests
+      machine_checkable: true
+      expression: tests_passed == true
+
+    - id: C-003
+      description: 不允许绕过权限和安全策略
+      kind: no_bypass_security_policy
+      machine_checkable: true
+      expression: policy_violations == 0
+
+    - id: C-004
+      description: 长期密钥不得出现在 Prompt 中
+      kind: no_long_term_secrets_in_prompt
+      machine_checkable: true
+      expression: secret_leaks == 0
+
+    - id: C-005
+      description: 本项目暂不引入新的第三方支付依赖
+      kind: custom
+      machine_checkable: false
+
+  # ---------- 六要素之四：Non-goals ----------
+  # 明确不做什么。没有这一项，系统无法判断"什么算跑偏"。
+  non_goals:
+    - id: NG-001
+      description: 不做移动端原生适配
+    - id: NG-002
+      description: 不重构与演进目标无关的历史模块
+    - id: NG-003
+      description: 不修改验收标准与权限策略本身
+
+  # ---------- 六要素之五：Autonomy Policy ----------
+  # 允许系统自主做哪些事情。八个操作必须全部列出，缺一条就拒绝加载。
+  # 这一节是"外部配置"—— 改它要走审批，不能由 Director 自行放宽。
+  autonomy:
+    rules:
+      analyze_project:
+        level: L4
+        permission: autonomous
+      plan_tasks:
+        level: L4
+        permission: autonomous
+      code_changes:
+        level: L4
+        permission: autonomous
+      test_execution:
+        level: L4
+        permission: autonomous
+      branch_creation:
+        level: L4
+        permission: autonomous
+      merge_to_main:
+        level: L2
+        permission: approval_required
+      production_deployment:
+        level: L1
+        permission: advisory_only
+      modify_governance:
+        level: L1
+        permission: advisory_only
+
+  # ---------- 六要素之六：Stop Conditions ----------
+  # 满足什么条件后停止演进。这些必须机器可判定。
+  stop_conditions:
+    - id: SC-001
+      description: 全部关键结果达成
+      kind: all_key_results_met
+
+    - id: SC-002
+      description: 预算耗尽
+      kind: budget_exhausted
+
+    - id: SC-003
+      description: 连续 3 轮演进没有产生新的可验证改善
+      kind: consecutive_failures_exceeded
+      threshold: "3"
+
+    - id: SC-004
+      description: 累计演进时长超过 30 天
+      kind: time_elapsed
+      threshold: "43200"
+
+  # ---------- 预算 ----------
+  # 币种与各项上限均可配置。超限时显式抛错，不静默截断。
+  budget:
+    currency: USD
+    max_daily_cost: "50"
+    max_total_cost: "2000"
+    max_model_calls: 5000
+    max_token_usage: 20000000
+    max_wall_clock_minutes: 43200
+    max_parallel_agents: 4
+
+  # ---------- 仓库与环境 ----------
+  repository:
+    url: https://github.com/example/my-product
+    default_branch: main
+
+  tech_stack:
+    - python
+    - fastapi
+    - postgresql
+    - playwright

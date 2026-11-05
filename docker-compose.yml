@@ -1,0 +1,49 @@
+name: ases
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ases-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ases}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ases}
+      POSTGRES_DB: ${POSTGRES_DB:-ases}
+      # 只监听容器网络；宿主机端口由 ports 映射暴露给本地开发
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ases} -d ${POSTGRES_DB:-ases}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: ases-minio
+    command: server /data --console-address ":9001"
+    environment:
+      # 本地默认凭证。design.md §3.5D / settings.py 禁止它出现在非本地环境 ——
+      # 那是生产环境的红线，本地开发用它只是省事。
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  miniodata:

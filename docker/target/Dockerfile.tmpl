@@ -1,0 +1,77 @@
+# ASES 目标项目测试镜像模板
+#
+# 用途：为**被演进的目标项目**构建一个可复现的测试环境。
+# 沙箱基础镜像（``docker/sandbox/Dockerfile``）是通用的；
+# 这个模板把它变成"能跑某个项目自己的测试"的镜像。
+#
+# 用法（``{{...}}`` 是构建参数，不是字面量）：
+#
+#   docker build -f docker/target/Dockerfile.tmpl \
+#     --build-arg BASE_IMAGE=python:3.12-slim-bookworm \
+#     --build-arg INSTALL_CMD="pip install -r requirements.txt" \
+#     --build-arg TEST_CMD="pytest -q" \
+#     -t target/my-project:latest .
+#
+# 模板只做三件事：装依赖、留好工作目录、默认跑测试命令。
+# 刻意**不**做的事：不 COPY 宿主机配置、不装凭据、不给 root。
+# 目标项目自己的 Dockerfile 如果需要这些，那是它自己的决定，
+# 但 ASES 侧的默认模板必须保持干净 —— 否则"沙箱是干净的"就无从验证。
+#
+# 硬要求（与 ``docker/sandbox/Dockerfile`` 同源）：
+#   - 非 root 运行
+#   - 镜像里不存在 ~/.ssh / ~/.aws / ~/.docker
+#   - 出站网络默认关闭（运行时的默认网络模式是 ``none``）
+
+ARG BASE_IMAGE=python:3.12-slim-bookworm
+FROM ${BASE_IMAGE}
+
+ARG SANDBOX_UID=1000
+ARG SANDBOX_GID=1000
+ARG SANDBOX_USER=ases
+#: 安装项目依赖的命令。留空表示镜像里不装任何东西。
+ARG INSTALL_CMD=""
+#: 镜像的默认命令 —— 通常是跑测试。
+ARG TEST_CMD=""
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HOME=/home/ases
+
+RUN apt-get update \
+ && apt-get install --no-install-recommends -y \
+      ca-certificates \
+      git \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN addgroup --gid "${SANDBOX_GID}" "${SANDBOX_USER}" \
+ && adduser --uid "${SANDBOX_UID}" --gid "${SANDBOX_GID}" \
+            --home "/home/${SANDBOX_USER}" --no-create-home \
+            --gecos "" --disabled-password --shell /bin/bash "${SANDBOX_USER}" \
+ && mkdir -p /workspace "/home/${SANDBOX_USER}" \
+ && chown -R "${SANDBOX_UID}:${SANDBOX_GID}" /workspace "/home/${SANDBOX_USER}"
+
+# 依赖安装以沙箱用户身份执行 —— 有些包管理器拒绝以 root 安装。
+USER ${SANDBOX_UID}:${SANDBOX_GID}
+WORKDIR /workspace
+
+RUN if [ -n "${INSTALL_CMD}" ]; then \
+      sh -c "${INSTALL_CMD}"; \
+    fi
+
+# 把 TEST_CMD 烤进环境变量。``ARG`` 只在构建期可见 —— 运行时 ${TEST_CMD}
+# 是空的，容器会退化成"睡到天亮"，看起来像成功其实是没跑测试。
+ENV ASES_TARGET_TEST_CMD="${TEST_CMD}"
+
+RUN set -eu; \
+    for path in "${HOME}/.ssh" "${HOME}/.aws" "${HOME}/.docker" "/root/.ssh" "/root/.aws"; do \
+      if [ -e "${path}" ]; then \
+        echo "目标项目测试镜像里不允许存在 ${path}" >&2; exit 1; \
+      fi; \
+    done; \
+    if [ "$(id -u)" = "0" ]; then \
+      echo "目标项目测试镜像不允许以 root 运行" >&2; exit 1; \
+    fi
+
+CMD ["/bin/bash", "-lc", "if [ -n \"${ASES_TARGET_TEST_CMD}\" ]; then exec sh -c \"${ASES_TARGET_TEST_CMD}\"; else exec sleep infinity; fi"]

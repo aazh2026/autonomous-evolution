@@ -1,0 +1,1246 @@
+# ASES 开发任务清单
+
+> 本文把 [`design.md`](./design.md) 的技术设计拆解为可执行、可验证的开发任务。
+> 每条任务都绑定**具体的完成判据**，并可回溯到设计文档的章节与要求编号。
+
+---
+
+## 0. 阅读指引
+
+### 0.1 这份清单解决什么问题
+
+`design.md` 是一份完整的散文式设计，回答了"系统应该长成什么样"，但没有回答三个工程问题：
+
+| 工程问题 | design.md 的回答 | 本清单的回答 |
+| --- | --- | --- |
+| **要做什么** | 六个子系统、12 个核心实体、14 个任务状态 | 55 条阶段一任务 + 阶段二~四里程碑，每条有交付物 |
+| **先做什么** | 四阶段路线（§9） | 阶段一按 9 个工作流分组 + M0/M1/M2 三道验收门 |
+| **怎样算做完了** | 散落在各章的验收描述（"所有代码变更必须通过自动化测试"） | 每条任务的 `验证（T1）` ~ `验证（T4）` 字段，写明断言什么、测什么数、演示什么 |
+
+**核心主张**：如果一条任务无法被客观验证，它就没有被拆解完成。本清单强制每条任务至少声明一个验证形态 —— 包括那些"我知道现在验不了"的降级声明（见 [第 5 节](#5-验证盲区当前阶段无法客观验证的要求)），而不是用弱证据冒充强证据。
+
+### 0.2 编号体系
+
+| 格式 | 含义 | 示例 |
+| --- | --- | --- |
+| `TASK-P1-0xx` | 阶段一任务 | `TASK-P1-042` |
+| `TASK-P2-0xx` | 阶段二任务 | `TASK-P2-010` |
+| `TASK-P3-0xx` | 阶段三任务 | `TASK-P3-020` |
+| `TASK-P4-0xx` | 阶段四任务 | `TASK-P4-010` |
+| `MS-P1-M0` | 验收门（milestone） | `MS-P1-M1` |
+| `R-0xx` | 设计要求编号，指向 design.md 对应章节 | `R-063` |
+| `I-0x` | 隐含工程约束编号，design.md 未明说但必须覆盖 | `I-09` |
+| `T1`/`T2`/`T3`/`T4` | 验证形态标签 | `T1` |
+
+**设计要求编号 `R-0xx` 的来源**：对 design.md 十二章逐节穷举出的 130 条可交付要求，按章节顺序编号。第 [4 节](#4-验证矩阵) 给出完整对照。
+
+### 0.3 验证等级（分层验证法）
+
+| 标签 | 含义 | 典型断言方式 | 证据强度 |
+| --- | --- | --- | --- |
+| **T1** | 自动化测试可验证 | pytest 单元/契约测试、集成测试 | 强（可重复、CI 可跑） |
+| **T2** | 可量化指标可验证 | 明确的数字阈值：成功率、覆盖率、成本、次数、时延 | 强（但需基线，否则无意义） |
+| **T3** | 人工演示/评审可验证 | demo 脚本、代码评审、架构评审纪要 | 中（依赖评审者） |
+| **T4** | 文档/设计产物可验证 | 写下来即可检查完备性：ADR、状态机定义、目录骨架 | 弱（只证明"想清楚了"） |
+
+**规则**：一条任务的完成判据中，**必须至少有一个 T1 或 T2**。只有 T3/T4 的任务必须在条目里显式写明"为什么本阶段只能弱验证"，并指向第 5 节的对应盲区编号。
+
+**T2 的前提**：任何 T2 阈值必须有来源。design.md 给出的是示意值（如 `test_coverage >= 0.85`、`max_daily_cost: 50`），不是可用的基线。阶段一需要先采集基线（见 `TASK-P1-072`），否则所有 T2 指标都是空转。
+
+### 0.4 任务条目字段
+
+````markdown
+### [ ] TASK-P1-042 覆盖率模块基线机制
+- **工作流**：Harness / Verification
+- **设计要求**：R-055（§3.5B 脚注）、I-09
+- **依赖**：TASK-P1-020, TASK-P1-023
+- **交付物**：`core/task/coverage_baseline.py` — 每模块基线存储 + 阈值计算
+- **验证（T1）**：pytest 断言 — 修改模块基线后阈值同步变化；尝试下调基线被拒绝并留审计记录
+- **验证（T2）**：阈值 = max(模块基线, 全局地板)，下限 0.85；基线下调次数 = 0
+- **自主权**：L2（自动执行）
+- **预估**：1d
+````
+
+| 字段 | 必填 | 说明 |
+| --- | --- | --- |
+| 工作流 | ✅ | 归属的子系统（见 §1.2） |
+| 设计要求 | ✅ | 至少一个 `R-0xx`；没有 `R-` 的说明是本文新增的设计补强（会标注） |
+| 依赖 | ✅ | 前置任务 ID；留空表示无依赖 |
+| 交付物 | ✅ | 具体到文件 / 模块 / 接口；不写"实现 X 功能"这种无边界表述 |
+| 验证 | ✅ | 至少一条 T1 或 T2 |
+| 自主权 | ✅ | L1~L4，见 design.md §7；标明该任务在哪个级别下可自动执行 |
+| 预估 | ✅ | 单人快速开发估算；阶段一全量合计 **31.75 人日**。design.md §9 给的"1~2 周"对应的是约 13~16 人日的 **Thin Slice** 子集（见 §2 前言与附录 B） |
+
+### 0.5 勾选与推进规则
+
+- 任务状态用 `[ ]` / `[x]`，由执行者手动勾选。
+- **一条任务的 `[x]` 意味着它的全部验证字段都已通过**，而不只是代码写完了。验证没过的任务保持 `[ ]`。
+- 任务完成后，把实际验证产出（测试报告、指标快照、评审纪要）登记到对应 `EvolutionCycle` 的产物库，而不是留在本地。
+
+---
+
+## 1. 任务清单总览
+
+### 1.1 阶段与验收门
+
+| 阶段 | 名称 | 出口门 | 出口条件 |
+| --- | --- | --- | --- |
+| **阶段一** | 最小自主演进闭环 | `MS-P1-M2` | 只给项目目标（不给具体任务），系统能自主发现问题 → 生成任务 → 开发 → 独立验证 → 产出下一轮计划 |
+| 阶段二 | 自主研发能力增强 | `MS-P2-M1` | 不同执行器能完成同一任务契约，执行结果可比较、可评估 |
+| 阶段三 | 持续运行和自演进 | `MS-P3-M1` | 连续运行多个演进周期，不依赖人工反复输入任务 |
+| 阶段四 | 研发控制平面 | `MS-P4-M1` | 可长期管理多个软件项目的自主研发基础设施 |
+
+阶段一内部三道门：
+
+| 门 | 名称 | 通过条件 |
+| --- | --- | --- |
+| `MS-P1-M0` | 骨架可运行 | `docker compose up` 起全栈；迁移可跑；健康检查通过 |
+| `MS-P1-M1` | 单轮闭环 | 手工注入一个 Candidate，系统能走完 决策→任务→执行→独立验证→记录 全链 |
+| `MS-P1-M2` | 自主闭环 | 只给目标不给任务，系统自己发现并完成一轮；产出可验证的改善证据 |
+
+### 1.2 九个工作流
+
+| 前缀 | 工作流 | 对应 design.md | 阶段一任务数 |
+| --- | --- | --- | --- |
+| `INF` | 基础设施与工程骨架 | §8 技术栈与目录结构 | 7 |
+| `CP` | Project Control Plane | §3.1 | 5 |
+| `KS` | Project Knowledge & State | §3.6 | 6 |
+| `EP` | Agent Execution Plane | §3.4 | 6 |
+| `HN` | Engineering Harness | §3.5 | 9 |
+| `DR` | Autonomous Director / Evolution Engine | §3.2 + §3.3 | 8 |
+| `OR` | 编排与演进闭环 | §4 + §6 | 6 |
+| `EV` | 观测与评估 | §10 | 4 |
+| `MS` | 里程碑与验收 | §9 | 4 |
+| | | **合计** | **55** |
+
+### 1.3 依赖关系主干
+
+```text
+INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
+             ├─> KS (实体/状态机/事件) ─┼─> DR (Director 五阶段) ─> OR (循环 B)
+             └─> EP (执行器/沙箱) ──────┼─> HN (验收/安全/审批) ─> OR (循环 A)
+                                       └─> EV (观测/指标)
+```
+
+三条不可绕过的顺序约束：
+
+1. **`KS` 的三表分离约束必须先于 `DR` 的任务生成** —— 否则 Director 会把 Candidate 直接变成 Task，整个设计失效（`TASK-P1-022`）。
+2. **`HN` 的验收契约必须先于 `OR` 的执行启动** —— Acceptance Contract 是 READY→RUNNING 的准入 gate，不是事后报告（`TASK-P1-040` → `TASK-P1-062`）。
+3. **`EP` 的沙箱隔离必须先于 `EP` 的真实执行器接入** —— 不能让 Coding Agent 先在宿主机跑起来再补隔离（`TASK-P1-032` → `TASK-P1-031`）。
+
+---
+
+## 2. 阶段一任务清单：最小自主演进闭环
+
+> **阶段一目标**：只给项目目标（不给具体开发任务），系统能自主发现问题 → 生成任务 → 开发 → 独立验证 → 产出下一轮计划。
+>
+> **工期校正**：design.md §9 给阶段一的估算是"1~2 周，单人快速开发"。按本文拆解，全量阶段一 **31.75 人日**。二者不矛盾 —— design.md 的估算对应的是约 **13~16 人日的 Thin Slice** 子集（见附录 B）；从 Thin Slice 到 `MS-P1-M2`（自主闭环验收）另需约 **16~18 人日**。建议把阶段一排期按 5~6 周单人计，或把 Thin Slice 作为阶段一的实际交付边界。
+
+### 2.1 基础设施与工程骨架（INF）
+
+### [ ] TASK-P1-001 仓库骨架与工具链
+
+- **工作流**：INF
+- **设计要求**：R-105, R-107（§8 目录结构）
+- **依赖**：无
+- **交付物**：`pyproject.toml`（Python 3.12）、`ruff`/`mypy --strict`/`pytest` 配置、`Makefile`（`make test` `make lint` `make typecheck` `make migrate`）、`pre-commit` 钩子、`tests/{unit,integration,agent,system}/` 目录骨架、CI workflow（推 PR 跑 lint+typecheck+unit）
+- **验证（T1）**：`make lint && make typecheck && make test` 全绿；断言 `mypy` 以 `--strict` 运行且 `core/` 下无 `Any` 逃逸（`disallow_any_explicit = true`）
+- **验证（T2）**：CI 在 PR 上从推送到结果 < 5 分钟
+- **自主权**：L2（自动执行）
+- **预估**：0.5d
+
+### [x] TASK-P1-002 配置与密钥管理
+
+- **工作流**：INF
+- **设计要求**：R-060（§3.5D 短期令牌）、I-08
+- **依赖**：TASK-P1-001
+- **交付物**：`infrastructure/config/settings.py` —— Pydantic Settings；配置项分三类：**外部配置**（policy、验收规则、预算 —— 必须可外部修改，见 `TASK-P1-011`）、**运行时配置**（模型名、超时）、**密钥**（仅从环境/secret 注入，禁止进代码库）；`.env.example` 不含任何真实值
+- **验证（T1）**：pytest 断言 —— ① 缺少必需密钥时进程启动即失败并给出明确报错；② 扫描代码库无硬编码 `api_key`/`token`/`password` 字面量（用 `detect-secrets` 或正则 + CI 门禁）；③ 所有密钥字段在 `Settings` 中标记为 `SecretStr`，`repr()` 不泄露
+- **验证（T4）**：`docs/adr/0001-config-and-secret-handling.md` 记录三类配置的边界
+- **自主权**：L2
+- **预估**：0.25d
+- **验证结果**：T1 ① `tests/unit/infrastructure/test_settings.py::TestMissingSecretFailsFast` —— production 缺 `ASES_S3_SECRET_KEY` / Langfuse 密钥时构造 `Settings` 即抛 `ValidationError`，错误信息点名具体环境变量；T1 ② `tests/unit/infrastructure/test_no_hardcoded_secrets.py` —— 门禁本体：形状规则（`sk-`/`AKIA`/`ghp_`/PEM/JWT 等已知格式，扫全部文件含文档与 `.env.example`）+ 命名规则（字面量赋给 `*_api_key`/`*_token`/`*_password` 等名字，扫生产代码）。该扫描器**自身被测试**（`TestScannerItselfWorks` 喂入确实含密钥的片段，必须报出来），并经变异验证：往 `core/policy/budget.py` 插入 `API_KEY = "sk-live-..."` 后门禁转红。T1 ③ `::TestSecretFieldsAreSecretStr` —— 六个密钥字段逐个断言类型为 `SecretStr` 且 `repr()`/`str()` 不含明文。连接串按同一标准处理（`database_url` 亦为 `SecretStr`，明文走 `Settings.database_dsn`）。T4 —— `docs/adr/0001-config-and-secret-handling.md`。
+
+### [x] TASK-P1-003 PostgreSQL 接入与迁移工具链
+
+- **工作流**：INF
+- **设计要求**：R-065, R-068（§3.6 PostgreSQL 为项目状态库）
+- **依赖**：TASK-P1-001, TASK-P1-002
+- **交付物**：`infrastructure/database/` —— async SQLAlchemy 2.x engine/session、Alembic 配置、`alembic upgrade head` 可重复执行、`make migrate` 封装
+- **验证（T1）**：pytest —— ① `alembic upgrade head` 后 `downgrade base` 再 `upgrade head` 成功（迁移可逆）；② 空库从零迁移耗时 < 30s
+- **自主权**：L2
+- **预估**：0.5d
+- **验证结果**：T1 ① `tests/integration/test_migrations.py::test_upgrade_downgrade_upgrade_succeeds`、`::test_downgrade_leaves_no_business_tables`、`::test_upgrade_is_idempotent`；T1 ② `::test_empty_database_migration_is_under_30_seconds`。另附 `::connection_string_is_not_hardcoded`（断言 `alembic.ini` 的 `sqlalchemy.url` 为空，连接串只从 `ASES_DATABASE_URL` 注入）。
+
+### [ ] TASK-P1-004 对象存储与产物哈希校验
+
+- **工作流**：INF
+- **设计要求**：R-065, R-071（§3.6 产物库 S3/MinIO；Artifact 带 hash）
+- **依赖**：TASK-P1-001, TASK-P1-002
+- **交付物**：`infrastructure/storage/object_store.py` —— S3/MinIO 客户端封装、`put`/`get`/`exists`、内容寻址写入（key = `sha256:<hex>`）；`hashlib` 流式计算，不整文件读入内存
+- **验证（T1）**：pytest —— ① 上传后下载字节完全一致；② 篡改存储中的对象后 `get` 返回 hash 不匹配并抛错；③ 同一内容重复上传不产生第二个对象（幂等）
+- **自主权**：L2
+- **预估**：0.25d
+
+### [x] TASK-P1-005 结构化日志与追踪骨架
+
+- **工作流**：INF
+- **设计要求**：R-004, R-106（§8 OTel + Langfuse 必选）
+- **依赖**：TASK-P1-001, TASK-P1-002
+- **交付物**：`infrastructure/observability/` —— JSON 结构化日志（每条带 `task_id`/`cycle_id`/`project_id`）、OTel tracer/exporter 配置、Langfuse 客户端封装（失败时降级为 no-op，不阻塞主流程）
+- **验证（T1）**：pytest —— ① 任意一条日志都能按 `task_id` 检索；② Langfuse 不可达时主流程不中断且日志降级标记可见
+- **验证（T4）**：日志字段字典文档化（`docs/observability/log-schema.md`）
+- **自主权**：L2
+- **预估**：0.25d
+- **验证结果**：T1 ① `tests/unit/infrastructure/test_logging.py::TestTaskIdRetrieval` —— 绑定上下文后连续两条日志都能按 `task_id` 检索；保留键固定为 `task_id`/`cycle_id`/`project_id`（`logging.RESERVED_CONTEXT_KEYS`），未设的键不绑定（避免 `"task_id": null` 与"没写"混淆）。T1 ② `tests/unit/infrastructure/test_langfuse.py::TestUnreachableLangfuseDoesNotBreakTheCaller` —— 传输层失败时 `record_trace` 不抛异常、客户端转入 `DEGRADED`、日志里留下 `degraded=true` / `langfuse_state=degraded` 标记；持续故障只告警一次（不刷屏），一次成功即恢复并记 `langfuse_recovered`。OTel 侧同构：`tests/unit/infrastructure/test_tracing.py` 断言 exporter 构造失败时降级并留标记。T4 —— `docs/observability/log-schema.md`，由 `tests/unit/infrastructure/test_log_schema.py` 钉在实现上（保留键、脱敏键名单、标准字段、降级标记、检索示例所用字段全部双向比对）。
+
+### [ ] TASK-P1-006 沙箱镜像
+
+- **工作流**：INF
+- **设计要求**：R-046, R-047（§3.5A Docker 为 POC 首选）
+- **依赖**：TASK-P1-001
+- **交付物**：`docker/sandbox/Dockerfile` —— 通用 Linux 沙箱基础镜像：非 root 用户、无 SSH 密钥挂载、出站网络默认关闭（`--network none` 可用）、预装 `git`/`python3`/`node`；以及目标项目测试镜像模板 `docker/target/Dockerfile.tmpl`
+- **验证（T1）**：pytest 启动容器断言 —— ① 容器内 `id -u != 0`；② 容器内不存在 `~/.ssh`、`~/.aws`、`.docker/config.json`；③ 默认网络下容器无法访问外网
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-007 本地一键启动
+
+- **工作流**：INF
+- **设计要求**：R-007, R-065
+- **依赖**：TASK-P1-003, TASK-P1-004, TASK-P1-005, TASK-P1-006
+- **交付物**：`docker-compose.yml` —— PG + MinIO + Langfuse + ASES API + worker；`make up` / `make down` / `make logs`；健康检查端点
+- **验证（T1）**：`make up` 后 `/healthz` 返回 200 且 DB/MinIO 均连通；`make down && make up` 后数据仍在（卷持久化）
+- **验证（T2）**：从零到全栈就绪 < 90s
+- **自主权**：L2
+- **预估**：0.25d
+
+---
+
+### 2.2 Project Control Plane（CP）
+
+### [x] TASK-P1-010 项目目标结构化六要素模型
+
+- **工作流**：CP
+- **设计要求**：R-008, R-009, R-010, R-011, R-014（§3.1 目标不能只是自然语言；实际须支持不同指标类型/单位/评测方法/币种）
+- **依赖**：TASK-P1-003
+- **交付物**：`core/project/models.py` —— `Objective` / `KeyResult(id, metric, target, unit, eval_method)` / `Constraint`（带 `machine_checkable` 谓词表达式） / `NonGoal` / `AutonomyPolicy`（按操作维度） / `StopCondition`（带机器可判定谓词）；YAML 载入 + Pydantic 校验
+- **验证（T1）**：pytest —— ① 非法目标（KR 缺 metric / target 非可比较表达式 / 缺任一六要素）载入报错并指出缺哪一项；② 同一 metric 可配置不同 `unit` 与 `eval_method` 且都被接受（不硬编码 `e2e_success_rate`）
+- **验证（T4）**：`docs/examples/project.yaml` 给出完整示例
+- **自主权**：L2
+- **预估**：0.5d
+- **验证结果**：T1 ① `tests/unit/project/test_models.py::test_missing_element_is_reported`（参数化六要素，断言报错点名缺哪一项）、`::test_missing_metric_is_rejected`、`::test_non_comparable_target_is_rejected`、`::test_metric_type_must_match_target_type`；T1 ② `::test_same_metric_different_unit_and_eval_method`、`::test_arbitrary_metric_names_are_accepted`。T4 —— `docs/examples/project.yaml`，由 `::test_example_project_file_is_valid` 断言示例文件真能被模型载入（示例不是装饰）。
+
+### [ ] TASK-P1-011 Policy Manager 与四级自主权判定器
+
+- **工作流**：CP
+- **设计要求**：R-012, R-015, R-019, R-100, R-101, R-102, R-104（§3.1 Autonomy Policy；§7 四级自主权与初始基线；防自改验收标准）
+- **依赖**：TASK-P1-010, TASK-P1-002
+- **交付物**：`core/policy/` —— `AutonomyLevel` 枚举（L1 分析 / L2 开发 / L3 集成 / L4 运营）、`Operation` 枚举（code_changes / test_execution / branch_creation / merge_to_main / production_deployment / modify_governance）、`PolicyManager.check(operation, task_ctx) -> Decision(allow/deny/require_approval)`；**policy 从外部配置读取，不硬编码在代码中**
+- **验证（T1）**：pytest 参数化 —— 初始基线断言：`code_changes`/`test_execution`/`branch_creation`/项目分析/计划生成 → allow；`merge_to_main` → require_approval；`production_deployment` → deny（仅建议，L1）；`modify_governance` → deny（仅提案，L1）
+- **验证（T1）**：修改外部 policy 文件为更高权限后，判定器读到的等级随之改变（断言非硬编码）
+- **验证（T3）**：架构评审确认"policy 修改需走审批"路径存在且不可由 Director 绕过
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-012 Budget Manager
+
+- **工作流**：CP
+- **设计要求**：R-013, R-018（§3.1 Budget；管 Token/模型调用/计算资源/时间预算；币种可配置）
+- **依赖**：TASK-P1-010, TASK-P1-035
+- **交付物**：`core/policy/budget.py` —— `Budget`（`max_daily_cost` + `currency` 可配置、`max_parallel_agents`、`max_model_calls`、`max_wall_clock_minutes`）；`BudgetManager.consume()` 原子扣减；返回 `BudgetExhausted` 而非静默截断
+- **验证（T1）**：pytest —— ① 扣减超过 `max_daily_cost` 时抛 `BudgetExhausted`；② 并发 10 次扣减总和不超限（无竞态，用真实并发写库验证）；③ 不同 `currency` 配置都能工作（不硬编码 USD）
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-013 Project Registry
+
+- **工作流**：CP
+- **设计要求**：R-008, R-016（§3.1 管理多项目及其仓库、环境和技术栈）
+- **依赖**：TASK-P1-003, TASK-P1-010
+- **交付物**：`core/project/registry.py` —— `Project`（id / 目标 / policy / 仓库地址 / 技术栈 / 环境配置）；注册、查询、列举接口；阶段一只注册 1 个项目，但接口按多项目设计
+- **验证（T1）**：pytest —— 注册 2 个项目后按 id 查询各自返回独立的目标与 policy，互不污染
+- **自主权**：L2
+- **预估**：0.25d
+
+### [ ] TASK-P1-014 Stop Conditions 求值与目标达成度计算
+
+- **工作流**：CP
+- **设计要求**：R-009, R-011, R-128（§3.1 Stop Conditions；§12 可验证的改善）
+- **依赖**：TASK-P1-010, TASK-P1-071
+- **交付物**：`core/project/stop_conditions.py` —— 谓词求值器（`metric >= 0.95`、`no_new_critical_defects`、`cost_per_kr <= X`）；`GoalAttainmentCalculator` 按 KR 逐项计算达成度
+- **验证（T1）**：pytest —— ① KR 达成度计算正确（构造已知指标值，断言达成/未达成）；② 不可判定的 Stop Condition 在启动时报错而非恒为 false（防止条件永不生效）
+- **验证（T2）**：目标达成度 ∈ [0, 1]，且随指标单调变化
+- **自主权**：L2
+- **预估**：0.5d
+
+---
+
+### 2.3 Project Knowledge & State（KS）
+
+### [x] TASK-P1-020 十二个核心实体的 schema 与迁移
+
+- **工作流**：KS
+- **设计要求**：R-065, R-066, R-068, R-069（§3.6 核心数据模型；四类存储职责分离）
+- **依赖**：TASK-P1-003
+- **交付物**：`core/` 下各模型 + Alembic 迁移 —— `Project` / `ProjectSnapshot` / `EvolutionCandidate` / `EvolutionDecision` / `Task` / `TaskDependency` / `AgentSession` / `ExecutionEvent` / `VerificationRun` / `Artifact` / `ArchitectureDecision` / `EvolutionCycle`，字段与 design.md 表一致
+- **验证（T1）**：pytest —— 对每个实体做一轮 CRUD 往返；断言关键字段存在（`Candidate.evidence`/`value`/`risk`、`Decision.decision`/`rationale`、`Artifact.uri`/`hash`/`type`、`Snapshot.version`/`commit`/`metrics`、`TaskDependency.predecessor`/`successor`）
+- **验证（T4）**：ER 关系图写入 `docs/architecture/data-model.md`
+- **自主权**：L2
+- **预估**：1d
+- **验证结果**：T1 —— `tests/integration/test_entity_crud.py` 覆盖十二个实体各一轮 CRUD 往返与全部点名关键字段；`tests/unit/database/test_schema.py` 在元数据层断言表集合、关键列、外键指向与约束具名。T4 —— `docs/architecture/data-model.md`（含 ER 图），并由 `tests/unit/database/test_data_model_doc.py` 把文档钉在 ORM 元数据上：十二张表、24 条外键、design.md 点名字段逐条比对，正向与反向都断言（文档多出的"幽灵表"同样会失败）。该测试经变异验证（删外键行 / 插幽灵表 / 删字段明细行，各自对应断言转红）。
+
+### [x] TASK-P1-021 Task 状态机（14 态）
+
+- **工作流**：KS
+- **设计要求**：R-092, R-093, R-094（§6 状态机；同一任务重复提交必须幂等）
+- **依赖**：TASK-P1-020
+- **交付物**：`core/task/state_machine.py` —— 14 个状态（DISCOVERED / EVALUATING / DEFERRED / APPROVED / PLANNED / READY / RUNNING / VERIFYING / PASSED / REPAIRING / BLOCKED / INTEGRATING / MERGED / COMPLETED）+ 合法迁移表 + `Re-plan`（→PLANNED）/ `Re-evaluate`（→EVALUATING）动作；非法迁移抛错
+- **验证（T1）**：pytest —— ① 遍历所有状态对，非法迁移全部抛错；② 合法路径 `DISCOVERED→…→COMPLETED` 可走通；③ 重复执行同一迁移**幂等**（第二次调用不报错、不重复执行副作用）
+- **自主权**：L2
+- **预估**：0.75d
+- **验证结果**：T1 ① `tests/unit/task/test_state_machine.py::test_every_illegal_state_pair_raises`（穷举 14×14 状态对）、`::test_every_illegal_state_action_pair_raises`；T1 ② `::test_full_path_is_walkable`、`::test_every_state_is_reachable_from_discovered`；T1 ③ `::test_repeated_action_is_a_noop`、`::test_repeated_action_keeps_previous_state`、`::test_running_task_receiving_duplicate_start_stays_running`。另含 `::test_cannot_start_without_acceptance_contract`（R-051 准入在状态机层同样成立）与 `::test_state_names_match_design_doc`（状态名与 design.md 逐字比对）。
+
+### [x] TASK-P1-022 Candidate / Decision / Task 三表分离的强制约束
+
+- **工作流**：KS
+- **设计要求**：R-029, R-030, R-070（§3.3 §3.6 —— 区分"发现问题""作出决策""执行任务"，避免 Agent 把发现的问题直接转化成代码修改）
+- **依赖**：TASK-P1-020, TASK-P1-021
+- **交付物**：DB 层约束 —— `Task.decision_id NOT NULL` + 外键指向 `EvolutionDecision`；`EvolutionDecision.candidate_id NOT NULL` + 外键；**Task 无旁路写入路径**（仓储层不提供不经 Decision 直接插入 Task 的方法）
+- **验证（T1）**：pytest —— ① 直接 `INSERT INTO task` 省略 `decision_id` 被数据库拒绝（不是被应用层校验拦下 —— 用原生 SQL 绕过应用层验证）；② 插入 Decision 时引用不存在的 candidate_id 被拒绝；③ 静态检查：代码库中不存在不经 `EvolutionDecision` 构造 Task 的调用点
+- **验证（T3）**：代码评审确认"新增 Task 的唯一入口是 Decision 落地路径"
+- **自主权**：L2
+- **预估**：0.5d
+- **验证结果**：T1 ① `tests/integration/test_three_table_separation.py::test_raw_insert_without_decision_id_is_rejected`（原生 SQL，错误来自 DB 而非应用层）、`::test_raw_insert_with_unknown_decision_id_is_rejected`；T1 ② `::test_decision_with_unknown_candidate_is_rejected`、`::test_decision_without_candidate_id_is_rejected`；T1 ③ `tests/unit/database/test_bypass_paths.py` —— AST 静态扫描全库，断言 `Task(...)` 只在 `infrastructure/database/repositories.py` 出现、`TaskRepository` 不暴露通用 insert 方法、仓储层之外无 `session.add(task)`。另覆盖 defer/reject 语义：`::test_defer_decision_cannot_produce_a_task`、`::test_reject_decision_cannot_produce_a_task`、`::test_task_table_is_empty_when_only_defer_happened`。T3 —— 实现期代码评审（自审，尚未经第二人复核）确认唯一入口为 `TaskRepository.create_from_decision()`。
+
+### [ ] TASK-P1-023 ProjectSnapshot 可复现性
+
+- **工作流**：KS
+- **设计要求**：R-068, R-069, I-20（§3.6 Snapshot = version + commit + metrics）
+- **依赖**：TASK-P1-020, TASK-P1-072
+- **交付物**：`core/project/snapshot.py` —— 快照构建器：采集时点的 commit SHA、代码统计、测试结果、覆盖率；**指标采集结果落盘**（不实时查），使"当时的快照"可被事后重建
+- **验证（T1）**：pytest —— ① 对同一 commit 连续构建两次快照，元数据一致；② 快照记录可重现：仅凭快照记录 + 产物 URI 即可取回当时的指标数值
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-024 验收证据的 append-only 与不可丢失
+
+- **工作流**：KS
+- **设计要求**：R-071, R-099, I-05, I-21（§6 已完成任务的验收证据不能因下一轮执行而丢失；Artifact 带 hash）
+- **依赖**：TASK-P1-004, TASK-P1-020
+- **交付物**：`core/evidence/` —— `VerificationRun` 与 `Artifact` 只允许 INSERT；DB 层禁 UPDATE/DELETE（触发器或权限分离）；带 `sha256` 校验与保留期字段；产物存对象存储并以 hash 寻址
+- **验证（T1）**：pytest —— ① 对已写入的 VerificationRun 执行 UPDATE / DELETE 被数据库拒绝；② 下一轮演进周期执行后，历史的 VerificationRun 与 Artifact 仍完整可读（跨周期不丢失）；③ 产物被篡改时 hash 校验失败并报错
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-025 PostgreSQL Outbox 事件表与 relay
+
+- **工作流**：KS
+- **设计要求**：R-079, I-06（§8 PostgreSQL Outbox；§4 事件驱动）
+- **依赖**：TASK-P1-020
+- **交付物**：`infrastructure/database/outbox.py` —— 事件表（`id`/`aggregate_type`/`aggregate_id`/`event_type`/`payload`/`created_at`/`published_at`）；**状态写入与事件发布同事务**；relay 轮询发布、失败重试、已发布标记
+- **验证（T1）**：pytest —— ① 状态变更与事件行在同一事务：事务回滚后两者都不存在；② 事务提交后事件必被 relay 取出（不丢）；③ relay 重复发布时消费者侧按 `event_id` 去重（至少一次语义 + 幂等消费）
+- **自主权**：L2
+- **预估**：0.75d
+
+---
+
+### 2.4 Agent Execution Plane（EP）
+
+### [ ] TASK-P1-030 Adapter 抽象基类与统一执行结果契约
+
+- **工作流**：EP
+- **设计要求**：R-002, R-003, R-005, R-036, R-037, R-038, R-039, R-040, R-044（§3.4 七方法签名；统一结果 schema；self_assessment 只是自我报告；执行器解耦与 ACP/MCP 边界）
+- **依赖**：TASK-P1-001
+- **交付物**：`executors/base.py` —— `CodingAgentAdapter` 抽象基类，七个方法：`create_session(config)` / `execute(task)` / `get_status(session_id)` / `stream_events(session_id)` / `interrupt(session_id)` / `collect_result(session_id)` / `terminate(session_id)`；补充**能力声明**（`capabilities`）、**超时**、**取消确认**、**幂等键**、**错误分类**（可重试 / 不可重试 / 需人工）
+- **验证（T1）**：pytest —— ① 抽象基类无法直接实例化；② 两个不同实现的 Adapter 通过同一套契约测试（conftest 参数化）全部通过 —— **契约测试是执行器可替换性的唯一客观证据**；③ 统一结果 schema 校验：`task_id`/`executor`/`status`/`artifacts{branch,commit,changed_files}`/`execution{duration,tool_calls,cost}`/`self_assessment{completed,limitations}` 字段齐全且类型正确
+- **验证（T1）**：`self_assessment.completed = true` 但验证引擎判定失败时，**任务整体状态仍为失败** —— 断言 self_assessment 不参与验收判定
+- **自主权**：L2
+- **预估**：0.75d
+
+### [ ] TASK-P1-031 CLI Adapter（Claude Code 优先）
+
+- **工作流**：EP
+- **设计要求**：R-041, R-042, R-043, R-122, R-123（§3.4 CLI 接入通用性最高；§11 优先研究 OpenHands Automation/SDK）
+- **依赖**：TASK-P1-030, TASK-P1-032
+- **交付物**：`executors/claude_code/` —— 通过 CLI 实现的 Adapter：进程管理、NDJSON 事件流解析、会话 ID 映射、退出码 → 统一状态映射；另留 `executors/codex/` 同契约的骨架
+- **验证（T1）**：pytest（打桩 CLI，不调用真实 Agent）—— ① 合法 NDJSON 事件流被解析为统一事件序列；② 非零退出码映射为正确状态；③ 畸形输出归类为"不可重试"错误；④ 打桩 CLI 跑通 `TASK-P1-030` 的全套契约测试
+- **验证（T3）**：在真实 CLI 上跑一次冒烟：给一个改一行 README 的任务，确认返回 `artifacts.commit` 非空
+- **自主权**：L2
+- **预估**：1d
+
+### [ ] TASK-P1-032 沙箱执行器与 Git Worktree 生命周期
+
+- **工作流**：EP
+- **设计要求**：R-045, R-046, R-047, R-048, I-14, I-15（§3.5A 每任务独立工作空间；禁访问宿主 SSH/云密钥/生产库）
+- **依赖**：TASK-P1-006
+- **交付物**：`harness/workspace/` —— Worktree 创建（分支 `agent/<task_id>`）+ 沙箱容器启动 + 挂载策略 + **租约与回收**（`WorkspaceLease`，带 TTL 与 GC）；只读挂载凭据目录（无长期密钥）
+- **验证（T1）**：pytest —— ① 两个任务并行创建 worktree，目录互不干扰；② 沙箱内不存在宿主 `~/.ssh`、云 CLI 凭据、生产库连接串；③ 租约过期后 workspace 被 GC 回收；④ 崩溃遗留的 workspace 可被 GC 识别并清理
+- **验证（T1）**：重试同一任务时产生独立分支或复用分支的行为符合约定（不产生分支冲突）
+- **自主权**：L2
+- **预估**：1d
+
+### [ ] TASK-P1-033 取消传播链
+
+- **工作流**：EP
+- **设计要求**：R-096, I-02（§6 任务取消必须能传递到执行器和 Sandbox）
+- **依赖**：TASK-P1-030, TASK-P1-032
+- **交付物**：`harness/sandbox/cancellation.py` —— 四层链式传播：任务层 → Adapter（`interrupt`）→ 执行器进程 → 沙箱容器；每层确认收到后才向下一层推进
+- **验证（T1）**：pytest —— ① 取消一个正在执行的沙箱任务，30s 内进程退出且容器停止；② 传播途中某层失败时，链路仍在有限时间内收敛（不挂死）；③ 取消后 `collect_result` 返回明确的 `cancelled` 状态而非 `completed`
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-034 超时语义：超时 ≠ 失败
+
+- **工作流**：EP
+- **设计要求**：R-095, R-097, I-03（§6 Agent 超时不等于任务失败，需要判断是否可以恢复；中断后可恢复或重新执行）
+- **依赖**：TASK-P1-030, TASK-P1-033
+- **交付物**：`executors/recovery.py` —— 超时处理流程：先 `interrupt` → 等待确认 → 再探测会话是否可恢复 → 决定 `retry` / `resume` / `fail`；禁止直接置为失败
+- **验证（T1）**：pytest —— ① 超时且会话可恢复 → 状态为 `interrupted_resumable`，可续跑；② 超时且会话已损坏 → 状态为 `failed`，且未留下僵尸会话（断言容器与进程均已回收）；③ 重试产生新的幂等键，不复用旧键
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-035 成本上报的统一口径
+
+- **工作流**：EP
+- **设计要求**：R-039, R-118, I-13（§3.4 cost 字段；§10 单位成本收益；三处成本需同源同币种）
+- **依赖**：TASK-P1-005
+- **交付物**：`core/metrics/cost.py` —— 统一成本换算器：Adapter 上报 → 内部记账 → Langfuse 观测，三处走同一个换算函数；币种与单价表外部可配
+- **验证（T1）**：pytest —— ① 同一次执行在 Adapter 报告、预算账本、OTel span 属性三处的成本数值相等（同一函数产出）；② 换算单价变更后，三处同步变化
+- **验证（T2）**：成本记账与实际调用量偏差 < 2%
+- **自主权**：L2
+- **预估**：0.25d
+
+---
+
+### 2.5 Engineering Harness（HN）
+
+### [ ] TASK-P1-040 Acceptance Contract 模型与校验器
+
+- **工作流**：HN
+- **设计要求**：R-051, R-052, R-053, R-054（§3.5B 每个任务执行前必须先定义怎样才算完成）
+- **依赖**：TASK-P1-020
+- **交付物**：`harness/verification/contract.py` —— `AcceptanceContract`：`required[]`（unit_tests_pass / integration_tests_pass / lint_pass / architecture_rules_pass）/ `thresholds{}`（operator + value）/ `forbidden[]`（secrets_in_diff / unauthorized_dependency_change / public_api_breaking_change）/ `artifacts[]`（git_diff / test_report / execution_trace）；每任务生成一份并绑定 `task_id`
+- **验证（T1）**：pytest —— ① 缺 `required` 中任一项的契约被拒绝；② 缺 `task_id` 绑定被拒绝；③ 阈值运算符与值类型校验（如 `>=` 配字符串值报错）；④ `forbidden` 命中任一条即整体判定失败（不因其他项通过而放行）
+- **自主权**：L2
+- **预估**：0.75d
+
+### [ ] TASK-P1-041 最小独立验证引擎
+
+- **工作流**：HN
+- **设计要求**：R-049, R-051, I-22（§3.5B 不要让 Coding Agent 自己决定是否验收通过；验证引擎独立于执行器）
+- **依赖**：TASK-P1-040, TASK-P1-032
+- **交付物**：`harness/verification/engine.py` —— 独立进程/容器执行目标项目测试套件 + 契约检查；产出 `VerificationRun`（checks + result）；**验证进程不接触 Agent 会话、不读取 `self_assessment`**；校验器与被测代码模型可分别配置
+- **验证（T1）**：pytest —— ① 验证进程以独立容器/进程启动，断言其环境中不存在 Agent 会话句柄；② 故意让 Agent 报告 `self_assessment.completed = true` 而实际测试失败 → 验证结果为 **failed**，任务状态为 failed；③ 验证进程挂掉时结果为 `error` 而非 `passed`（fail-closed）
+- **验证（T2）**：验证结论与 `self_assessment` 的一致率为 0（阶段一用构造样本验证二者完全解耦）
+- **自主权**：L2
+- **预估**：1d
+
+### [ ] TASK-P1-042 覆盖率模块基线机制
+
+- **工作流**：HN
+- **设计要求**：R-055, I-09（§3.5B 脚注：阈值应根据模块基线确定，不能通过降低测试质量来达成指标）
+- **依赖**：TASK-P1-020, TASK-P1-023
+- **交付物**：`core/task/coverage_baseline.py` —— 每模块基线存储（落 `ProjectSnapshot.metrics` 或独立基线表）、阈值计算 `threshold = max(模块基线, 全局地板)`、基线更新流程（随代码演进）、**基线下调需审批**
+- **验证（T1）**：pytest —— ① 修改某模块基线后，该模块的覆盖率阈值同步变化，其他模块不受影响；② 尝试下调基线被拒绝并留下审计记录；③ 阈值为 `max(模块基线, 全局地板)`，不小于全局地板
+- **验证（T2）**：阶段一周期结束时，基线下调次数 = 0
+- **自主权**：L2
+- **预估**：0.75d
+
+### [ ] TASK-P1-043 安全门（forbidden 检查）
+
+- **工作流**：HN
+- **设计要求**：R-048, R-054, R-060（§3.5B forbidden；§3.5D 默认禁止访问生产环境、网络白名单）
+- **依赖**：TASK-P1-040, TASK-P1-032
+- **交付物**：`harness/security/gate.py` —— 三项 forbidden 检查器：① `secrets_in_diff`（diff 内密钥扫描）；② `unauthorized_dependency_change`（依赖清单变更需在授权范围）；③ `public_api_breaking_change`（公共接口签名 diff）；网络出站白名单配置
+- **验证（T1）**：pytest —— ① diff 中注入测试密钥 → 检查命中；② 新增未授权依赖 → 检查命中；③ 删除/改签名公共接口 → 检查命中；④ 干净 diff → 三项均不命中
+- **验证（T1）**：网络白名单外的域名不可达（真实请求断言）
+- **自主权**：L2
+- **预估**：0.75d
+
+### [ ] TASK-P1-044 任务级授权上下文（Agent 身份 ≠ 任务身份）
+
+- **工作流**：HN
+- **设计要求**：R-059, R-061, R-062, R-063, I-24（§3.5D Agent 权限绑定到任务、项目、工作空间和有效期；Agent 身份不能替代任务身份）
+- **依赖**：TASK-P1-011, TASK-P1-020
+- **交付物**：`harness/security/authorization.py` —— `TaskAuthorization`（agent_id / task_id / project_id / workspace_id / expiry / allowed_operations / granted_scopes）；授权判定 key 为上述五元组；高风险操作（删除/发布/合并/部署）需独立授权记录
+- **验证（T1）**：pytest —— ① **同一 Agent 在 task A 中持有仓库读权限，无法在 task B 中执行合并操作**（断言拒绝且审计留痕）；② 授权过期后操作被拒；③ 授权 workspace 外的路径访问被拒；④ 高风险操作缺少独立授权记录时被拒
+- **自主权**：L2
+- **预估**：0.75d
+
+### [ ] TASK-P1-045 工具调用审计日志
+
+- **工作流**：HN
+- **设计要求**：R-062（§3.5D 每一次工具调用均记录主体、任务、资源和执行结果）
+- **依赖**：TASK-P1-005, TASK-P1-044
+- **交付物**：`harness/security/audit.py` —— `AuditEvent`（subject/agent_id、task_id、resource、operation、result、timestamp、decision）；审计写入路径不可被业务代码绕过；提供查询接口
+- **验证（T1）**：pytest —— ① 一次任务执行后，审计表中存在该任务全部工具调用的记录，且每条含主体/任务/资源/结果四要素；② 审计写失败时**阻断操作**（fail-closed，不允许"审计失败就放行"）
+- **验证（T4）**：审计字段字典写入 `docs/observability/audit-schema.md`
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-046 人工审批门
+
+- **工作流**：HN
+- **设计要求**：R-012, R-101, R-111, I-12（§7 merge_to_main = L2 需人工审批；§1 人工审批等待）
+- **依赖**：TASK-P1-011, TASK-P1-020
+- **交付物**：`harness/approval/` —— DB-backed 审批门：`ApprovalRequest`（task_id / operation / diff摘要 / 验证证据引用 / 状态 / 请求人 / 审批人 / 时间戳）；支持 `pending/approved/rejected/expired`；**阶段三将升级为 Temporal Signal，本任务不绑定 Temporal**
+- **验证（T1）**：pytest —— ① `merge_to_main` 在无审批记录时被 `PolicyManager` 拒绝；② 审批通过后允许合并；③ 审批被拒后任务进入 `BLOCKED` 状态；④ 审批请求超时过期后不可再用于放行
+- **验证（T3）**：demo —— 走一次"任务验证通过 → 停在审批门 → 人工批准 → 合并到 main"
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-047 最小集成路径
+
+- **工作流**：HN
+- **设计要求**：R-056, R-057（§3.5C Task Branch → Local Validation → Integration Branch → … → Main；单任务通过 ≠ 集成后通过）
+- **依赖**：TASK-P1-041, TASK-P1-046
+- **交付物**：`harness/integration/pipeline.py` —— 单任务路径：Task Branch → 本地验证 → 审批门 → Main；**阶段一只做单任务集成路径**，跨任务集成与 Integration Branch 留阶段二（见 `TASK-P2-030`）
+- **验证（T1）**：pytest —— ① 任务分支验证通过后可经审批合并进 main；② 未经验证或验证失败的分支无法进入合并流程；③ 合并后 main 的测试仍通过（合并动作本身不破坏基线）
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-048 验收证据归档
+
+- **工作流**：HN
+- **设计要求**：R-065, R-071, R-099（§3.6 执行产物库保存不可丢失的证据）
+- **依赖**：TASK-P1-004, TASK-P1-041
+- **交付物**：`knowledge/artifacts/archiver.py` —— 验证结束后把 git diff / test report / execution trace 上传对象存储并登记 `Artifact`（uri + hash + type）；`Artifact` 与 `VerificationRun` 绑定
+- **验证（T1）**：pytest —— ① 验证完成后三类产物均可按 URI 取回且 hash 与登记值一致；② 归档失败的验证**不计为通过**（fail-closed）
+- **自主权**：L2
+- **预估**：0.25d
+
+---
+
+### 2.6 Autonomous Director 与 Evolution Engine（DR）
+
+### [ ] TASK-P1-050 Director 五阶段决策图（LangGraph）
+
+- **工作流**：DR
+- **设计要求**：R-001, R-005, R-020, R-021, R-081, R-082, R-124, R-126, R-127（§2 四要素闭环禁止超级 Agent；§3.2 四个逻辑角色；§5 五阶段：认知→诊断→探索→决策→规划）
+- **依赖**：TASK-P1-051, TASK-P1-052, TASK-P1-054, TASK-P1-055, TASK-P1-056
+- **交付物**：`orchestration/langgraph/decision_graph.py` —— 五节点有向图：认知 → 诊断 → 探索 → 决策 → 规划；每节点输入输出为 Pydantic 模型（结构化，不返回自由文本）；图状态可持久化（checkpoint）
+- **验证（T1）**：pytest —— ① 五个节点各产出符合 schema 的结构化对象；② 用打桩节点跑通整图，端到端产出 `EvolutionRoadmap`；③ 中途异常后从 checkpoint 恢复不重复执行已完成的节点
+- **验证（T4）**：节点输入输出契约表写入 `docs/architecture/decision-stages.md`
+- **自主权**：L2
+- **预估**：1d
+
+### [ ] TASK-P1-051 Project Understanding 与 Gap Analysis 的结构化模型
+
+- **工作流**：DR
+- **设计要求**：R-022, R-082, R-083（§5 project_assessment 结构化输出）
+- **依赖**：TASK-P1-010, TASK-P1-020
+- **交付物**：`core/evolution/assessment.py` —— `ProjectAssessment`（project_id / snapshot / overall_status / goal_gap[]（id、description、evidence[]、severity）/ opportunities[] / recommendations[] / deferred[]（reason、candidate））
+- **验证（T1）**：pytest —— ① schema 校验拒绝缺 `evidence` 的 gap；② `evidence` 至少一条且指向可解析的引用（`artifact://` 或 `issue:` 或文件路径）；③ `deferred` 条目必须带 `reason`
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-052 Evolution Candidate 生成与五类机会分类法
+
+- **工作流**：DR
+- **设计要求**：R-024, R-029, R-030（§3.2 五类演进机会；§3.3 Candidate 结构）
+- **依赖**：TASK-P1-051
+- **交付物**：`core/evolution/candidate.py` —— `EvolutionCandidate`（id / category / title / evidence[] / hypothesis / expected_outcome[] / risk / confidence / estimated_effort）；`category ∈ {product, architecture, engineering, quality, technology}`；发现器接口（技术趋势发现器必须先证明对本项目有实际收益才产出候选，R-025）
+- **验证（T1）**：pytest —— ① 缺 `evidence` 或 `hypothesis` 的候选被拒绝；② `confidence ∈ [0,1]`、`risk ∈ {low,medium,high}` 校验生效；③ 技术趋势类候选若无"对本项目的实际收益"论证则被丢弃（构造样本断言）
+- **自主权**：L2
+- **预估**：0.75d
+
+### [ ] TASK-P1-053 Priority 评分模型
+
+- **工作流**：DR
+- **设计要求**：R-031, R-032, R-033, R-084（§3.3 Priority = V×I×C×U / (E×(1+R))；归一化 0~1；成本需合理下限）
+- **依赖**：TASK-P1-052
+- **交付物**：`core/evolution/priority.py` —— 六因子（V 价值 / I 影响范围 / C 证据置信度 / U 紧迫度 / E 实施成本 / R 风险系数）；归一化函数；成本下限常量；预留用实际收益校准的接口（阶段四）
+- **验证（T1）**：pytest —— ① 各因子输入 ∈ [0,1]，越界报错；② `E` 取 0 时不除零（走下限）；③ 因子全相等时排序稳定（不因并列而随机重排）；④ 已知输入的评分与手算值一致
+- **验证（T1）**：提高 `C`（置信度）使该候选排名上升；提高 `E`（成本）使排名下降（方向性断言）
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-054 Decision 三态与"不行动"的强制落地
+
+- **工作流**：DR
+- **设计要求**：R-034, R-035（§3.3 不行动也是合法决策：Record / Defer / Reject；§4 循环 B）
+- **依赖**：TASK-P1-022, TASK-P1-053
+- **交付物**：`core/evolution/decision.py` —— `EvolutionDecision`（decision ∈ {record, defer, reject} / rationale / candidate_id / 触发的补充分析项）；**defer 必须产出补充分析项且该轮不创建 Task**
+- **验证（T1）**：pytest —— ① 构造 `confidence = 0.1` 的候选 → 系统产出 defer 决策、写入 rationale、**且任务表中无对应 Task**；② defer 决策包含至少一条具体的补充分析项；③ reject 必须带 rationale
+- **验证（T2）**：阶段一周期中 defer/reject 占决策总数的比例被记录（≥ 1 条不行动决策是闭环健康信号，若恒为 0 则说明"不行动"能力未真正实现）
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-055 独立 Critic
+
+- **工作流**：DR
+- **设计要求**：R-085, R-086, R-087, I-18（§5 Critic 七问；必须调用代码仓库、Git 历史、测试报告和项目状态进行事实核验）
+- **依赖**：TASK-P1-051, TASK-P1-052
+- **交付物**：`agents/critic/` —— 九项检查（原设计七问 + **本清单补入的第八问"是否触碰项目 Non-goals"** + **第九问"是否触发 Stop Conditions"**）；每项检查可调事实核验工具（仓库搜索、Git 历史查询、测试报告读取、项目状态查询）；产出结构化 `CriticReport`（逐项结论 + 证据引用 + 是否否决）
+- **验证（T1）**：pytest —— ① 九项检查全部被执行（断言调用记录，**不检查判定质量**）；② 构造"违反 Non-goals"的候选 → Critic 给出否决且引用具体 Non-goal 条目；③ 构造"该问题已有其他任务在解决"的候选 → Critic 检出（通过查询 Task 表实现事实核验）；④ Critic 否决后，该候选不得进入 `APPROVED`
+- **验证（T3）**：评审 —— 抽 5 个历史候选，检查 Critic 的否决理由是否站得住
+- **自主权**：L2
+- **预估**：1d
+
+### [ ] TASK-P1-056 Roadmap 生成与任务拆解
+
+- **工作流**：DR
+- **设计要求**：R-022, R-023, R-076, R-081（§3.2 应生成哪些具体任务、七种任务类型；§5 规划阶段）
+- **依赖**：TASK-P1-054, TASK-P1-055
+- **交付物**：`core/planning/roadmap.py` —— `EvolutionRoadmap`（cycle_id / 计划任务列表 / 依赖关系 / 排期建议）；任务拆解器：把已批准的 Decision 转为 `Task`（**必须经 Decision 落地路径**，受 `TASK-P1-022` 约束）+ `TaskDependency`；任务类型 ∈ 七类（feature / bugfix / refactoring / test / performance / dependency / docs）
+- **验证（T1）**：pytest —— ① 拆解产生的每个 Task 都能追溯到一个 `EvolutionDecision`（断言外键）；② 依赖图无环；③ 任务类型七类均可构造；④ 未被 Critic 放行的 Decision 不产生 Task
+- **自主权**：L2
+- **预估**：0.75d
+
+### [ ] TASK-P1-057 角色化 Prompt 集
+
+- **工作流**：DR
+- **设计要求**：R-020, R-021, R-026, I-11（§3.2 四个逻辑角色作为独立决策任务；§6 Critic 不能只给 LLM 评分）
+- **依赖**：TASK-P1-051
+- **交付物**：`agents/prompts/` —— 六套 Prompt（analyst / strategist / architect / quality / director / critic），每套输出绑定对应 Pydantic schema；每套含**证据引用要求**（结论必须附证据，无证据的结论被下游丢弃）；模型与温度可外部配置
+- **验证（T1）**：pytest —— ① 每套 Prompt 的模型输出能被对应 schema 解析；② 输出中缺证据引用的结论在解析后被标记为 `unsupported` 并在下游流程中被排除
+- **验证（T4）**：每套 Prompt 的职责边界与输入输出写入 `docs/agents/prompt-contracts.md`
+- **自主权**：L2
+- **预估**：0.5d
+
+---
+
+### 2.7 编排与演进闭环（OR）
+
+### [ ] TASK-P1-060 循环 A：工程执行循环编排
+
+- **工作流**：OR
+- **设计要求**：R-006, R-073, R-075, R-078（§4 循环 A 节点链；两循环不能合并成一个无限执行 Prompt；POC 不引入 Temporal）
+- **依赖**：TASK-P1-030, TASK-P1-041, TASK-P1-046, TASK-P1-056
+- **交付物**：`orchestration/loop_a.py` —— 节点链：Task Ready → Task Planner → Select Coding Agent → Create Isolated Workspace → Agent Executes → Collect Diff & Artifacts → Independent Verification → Acceptance Passed? → Integration & Merge Gate → Failure Diagnosis → Can Auto Repair? → Create Repair Task → Escalate/Block → Update Project State → Execution Complete；**由 LangGraph 驱动**（Temporal 留阶段三）
+- **验证（T1）**：pytest（打桩 Agent + 打桩验证引擎）—— ① 全链路状态迁移序列符合设计文档节点顺序；② 验证失败 → 进入 Failure Diagnosis → 产生修复任务；③ 修复次数超上限 → 进入 `BLOCKED`，不再自动重试；④ 每步都写入 `AgentSession` 与 `ExecutionEvent`
+- **自主权**：L2
+- **预估**：1d
+
+### [ ] TASK-P1-061 循环 B：项目自主演进循环编排
+
+- **工作流**：OR
+- **设计要求**：R-006, R-027, R-074, R-075, R-078（§4 循环 B 节点链；两循环独立但可相互触发；POC 不引入 Temporal）
+- **依赖**：TASK-P1-050, TASK-P1-060, TASK-P1-061
+- **交付物**：`orchestration/loop_b.py` —— 节点链：Observe Project → Build Project Snapshot → Analyze Goal Gap → Discover Candidates → Gather Evidence → Evaluate Value/Risk/Cost → Worth Doing? → Record/Defer/Reject → Generate Plan → Decompose into Tasks → Dependency & Resource Scheduling → Execute Engineering Cycle → Evaluate Actual Outcome → Update Project Knowledge → Update Goal Gap；触发方式为**事件驱动**（阶段一的最小实现：手动/定时触发 + Outbox 事件）
+- **验证（T1）**：pytest —— ① 全链路可跑通并产出 `EvolutionRoadmap`；② 循环 B **不直接执行代码**（断言其不调用 Adapter）；③ 循环 B 的执行由循环 A 承接（断言调用的是循环 A 入口）；④ 循环 B 结束后项目知识被更新（`EvolutionCycle` + `ProjectSnapshot` 落库）
+- **自主权**：L2
+- **预估**：1d
+
+### [ ] TASK-P1-062 验收契约准入 gate
+
+- **工作流**：OR
+- **设计要求**：R-051, I-05（§3.5B 每个任务在开始执行前必须先定义怎样才算完成 —— 时序约束）
+- **依赖**：TASK-P1-040, TASK-P1-021
+- **交付物**：`orchestration/gates.py` —— READY→RUNNING 迁移的准入检查：目标任务的 Acceptance Contract 必须**已存在且已绑定 task_id**，否则拒绝迁移并报错
+- **验证（T1）**：pytest —— ① 无契约的任务无法从 READY 迁移到 RUNNING（断言迁移被拒且状态仍为 READY）；② 补上契约后迁移成功；③ 契约在任务开始后被修改 → 下一次迁移用新版本，且修改留审计
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-063 失败诊断与有界自动修复
+
+- **工作流**：OR
+- **设计要求**：R-098, I-04（§6 修复失败必须有次数、成本和时间上限）
+- **依赖**：TASK-P1-060, TASK-P1-012
+- **交付物**：`orchestration/repair.py` —— 失败归类（可自动修复 / 需人工 / 不可修复）+ 修复任务生成；**三重上限为全局共享**（次数 + 成本 + 时间），不是每任务独立
+- **验证（T1）**：pytest —— ① 修复次数达上限后停止并置 `BLOCKED`；② 修复成本超预算后停止；③ 修复总时长超限后停止；④ **并行两个任务时，全局上限不会被各自突破**（两个任务各修 3 次但全局上限为 5 → 总次数不超过 5）
+- **自主权**：L2
+- **预估**：0.75d
+
+### [ ] TASK-P1-064 事件去重、因果链与回环熔断
+
+- **工作流**：OR
+- **设计要求**：R-072, I-11（§4 两个循环相互触发；防止"执行结果回写→再次触发演进循环"的无限回环）
+- **依赖**：TASK-P1-025, TASK-P1-061
+- **交付物**：`orchestration/dedup.py` —— 事件去重窗口（按 `event_type` + `aggregate_id` + 时间窗）、**因果链 ID**（`causation_id` 贯穿演进→执行→回写）、熔断规则（同一 gap 连续 N 轮未改善则停止重规划并标记 `stalled`）
+- **验证（T1）**：pytest —— ① 同一事件重复投递只被消费一次；② 演进循环触发的执行，其结果回写**不再触发新一轮演进循环**（因果链 ID 匹配，断言未产生新的 cycle）；③ 同一 gap 连续 2 轮未改善 → 熔断，产生 `stalled` 标记而非继续规划
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-065 确定性演练 runner（无 LLM 回放）
+
+- **工作流**：OR
+- **设计要求**：R-108, R-109（§9 阶段一验收）；本文新增 —— 闭环编排需要可重复的回归测试手段
+- **依赖**：TASK-P1-060, TASK-P1-061
+- **交付物**：`tests/system/replay_runner.py` —— 打桩 Agent Adapter（按脚本返回预置 diff 与状态）+ 打桩验证引擎 + 打桩 LLM 节点；能从 YAML 脚本回放完整演进周期，用于回归与 CI
+- **验证（T1）**：pytest —— ① 同一脚本回放两次，产生**完全相同**的状态迁移序列与 DB 记录（可重复）；② 打桩 Agent 报告成功但打桩验证判失败 → 系统进入修复路径（演练失败语义）；③ 打桩 Critic 否决 → 候选不进入 APPROVED
+- **自主权**：L2
+- **预估**：0.5d
+
+---
+
+### 2.8 观测与评估（EV）
+
+### [ ] TASK-P1-070 EvolutionCycle 记录
+
+- **工作流**：EV
+- **设计要求**：R-068, R-069, R-129（§3.6 EvolutionCycle；§12 每一轮演进应产生可验证的改善）
+- **依赖**：TASK-P1-020
+- **交付物**：`core/metrics/cycle.py` —— `EvolutionCycle`（cycle_id / 起止时间 / 触发原因 / 候选数 / 决策数 / 任务数 / 完成数 / outcome / 目标达成度变化 / 成本 / 证据引用）
+- **验证（T1）**：pytest —— ① 一轮周期结束后 cycle 记录完整且各计数字段与实际 DB 计数一致；② `outcome` 取值 ∈ {improved, no_change, regressed, stalled}，能表达"无改善"；③ 周期记录包含前后两次达成度，可算出差值
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-071 Phase 1 指标三层子集
+
+- **工作流**：EV
+- **设计要求**：R-117, R-118（§10 四级指标；不得以任务数/Token 数/提交量为核心指标）
+- **依赖**：TASK-P1-070
+- **交付物**：`evaluation/` —— 阶段一实现"自主发现 / 决策质量 / 工程交付"三层的可算子集：有效问题发现率、重复发现率、决策采纳率、误报率（**需人工标注基线，见 TASK-P1-083**）、任务成功率、返工率、回归缺陷率；"项目演进"层只做达成度差值，不做单位成本收益（阶段四）
+- **验证（T1）**：pytest —— ① 每个指标的计算函数有已知输入的期望值断言；② 任务数 / Token 数 / 提交量**不在**核心指标集合中（断言指标注册表中不含这三项）
+- **自主权**：L2
+- **预估**：0.75d
+
+### [ ] TASK-P1-072 成本、时延与覆盖率基线采集
+
+- **工作流**：EV
+- **设计要求**：R-018, R-039, I-06, I-13, 盲区 F/G（§10 单位成本收益需要基线）
+- **依赖**：TASK-P1-035, TASK-P1-041
+- **交付物**：`evaluation/baselines.py` —— 在试点仓库上跑 10 个代表性任务，记录单任务 Token 消耗、成本、时长、工具调用数、覆盖率分布，产出基线表 `docs/evaluation/baselines.md`
+- **验证（T1）**：pytest —— ① 基线表可被程序读取并用于阈值比较；② 基线缺失时相关 T2 指标明确报"基线未建立"而非返回 0
+- **验证（T2）**：基线表中位数为后续成本预算提供依据（阶段一用于 `max_daily_cost` 校准）
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-073 执行轨迹与 task_id 关联
+
+- **工作流**：EV
+- **设计要求**：R-004, R-062（§8 Langfuse；轨迹与审计对齐）
+- **依赖**：TASK-P1-005, TASK-P1-030
+- **交付物**：`infrastructure/observability/tracing.py` —— 每个 Agent 会话、验证运行、决策节点都带 `task_id`/`cycle_id`/`agent_session_id` 写入 OTel/Langfuse
+- **验证（T1）**：pytest —— ① 一次任务执行后可按 `task_id` 检索到完整轨迹；② 轨迹中的工具调用数与 `ExecutionEvent` 记录数一致
+- **自主权**：L2
+- **预估**：0.25d
+
+---
+
+### 2.9 里程碑与验收（MS）
+
+### [ ] TASK-P1-080 M0：骨架可运行
+
+- **工作流**：MS
+- **设计要求**：R-007, R-106（§8 技术栈落地）
+- **依赖**：TASK-P1-001 ~ TASK-P1-007
+- **交付物**：`make up` 一键起全栈；迁移可跑；`/healthz` 通过；CI 绿
+- **验证（T1）**：`make up && make test` 全新环境一次通过；`alembic upgrade head` 幂等
+- **验证（T2）**：从零到全栈就绪 < 90s
+- **自主权**：L2
+- **预估**：0.25d
+
+### [ ] TASK-P1-081 M1：单轮闭环
+
+- **工作流**：MS
+- **设计要求**：R-108（§9 阶段一交付物）
+- **依赖**：TASK-P1-001 ~ TASK-P1-073（除 P1-082/083 外全部）
+- **交付物**：手工注入一个 Candidate，走完 决策 → 任务 → 执行 → 独立验证 → 记录 全链；`docs/demo/m1-walkthrough.md` 记录逐步过程与截图
+- **验证（T1）**：回放 runner（`TASK-P1-065`）跑通该链；每一步的 DB 记录可查
+- **验证（T2）**：单轮闭环端到端耗时与成本落在 `TASK-P1-072` 基线的 2 倍以内
+- **验证（T3）**：demo —— 演示"从候选到验证通过"的完整链路
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-082 M2：自主闭环验收
+
+- **工作流**：MS
+- **设计要求**：R-109, R-128（§9 阶段一验收：不给具体开发任务，只给项目目标）
+- **依赖**：TASK-P1-081
+- **交付物**：在试点仓库上只提供项目目标 YAML，系统自主完成一轮；产出 `docs/demo/m2-autonomous-cycle.md`，含候选、决策、任务、验证证据、达成度差值
+- **验证（T2）**：① 系统自主产出的候选数 ≥ 1 且全部有证据引用；② 至少 1 个候选走了 defer/reject 路径（证明"不行动"能力真实生效）；③ 完成的变更通过了独立验证（VerificationRun 存在且 result = passed）；④ 目标达成度差值可计算（> 0 或明确记录"无改善"）
+- **验证（T3）**：评审 —— 人工确认候选是**真实问题**而非编造；这一步的结论记为标注样本，供 `TASK-P1-071` 的误报率使用
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P1-083 试点仓库选取与误报率标注基线
+
+- **工作流**：MS
+- **设计要求**：R-109, R-118, 盲区 B（§10 误报率需 ground truth）
+- **依赖**：无（应最先启动）
+- **交付物**：`docs/evaluation/pilot-repo.md` —— 选定 1 个真实仓库作为试点（要求：有可运行的自动化测试、有明确目标可量化、规模适中、依赖已安装）；附初始质量基线（覆盖率、测试数量、已知缺陷清单）；并对 20 个历史问题/缺陷做"是否为有效发现"的人工标注，作为误报率的分母，存为 `evaluation/labels/pilot_labels.jsonl`
+- **验证（T1）**：pytest —— ① 标注集可被程序读取，每条含 `issue_ref` / `is_valid_finding` / `category` / `annotated_by` / `annotated_at`；② 条数恰为 20 且 `is_valid_finding` 为布尔；③ 误报率指标的分母取自该标注集，且标注集缺失时指标报"基线未建立"而非返回 0
+- **验证（T4）**：试点仓库文档含目标 YAML、基线指标、标注样本集
+- **验证（T3）**：人工评审确认试点仓库的测试套件能在沙箱内稳定运行（无外网依赖或依赖已镜像）
+- **自主权**：L2
+- **预估**：0.25d
+
+---
+
+## 3. 阶段二~四骨架
+
+阶段二~四保持**里程碑粒度**而非任务粒度。原因是这三阶段依赖的设计决策尚未确定（多执行器契约的最终形态、Temporal 迁移路径、模型路由策略），过早拆到任务级会产生大量返工。
+
+### 3.1 阶段二：自主研发能力增强
+
+**阶段目标**：从"一个执行器跑通闭环"扩展到"多个执行器、多任务并行、独立验证、失败自愈"，并让项目认知沉淀下来。
+
+| ID | 里程碑 | 交付物 | 验收条件 | 验证 | 追溯 |
+| --- | --- | --- | --- | --- | --- |
+| `TASK-P2-010` | 多执行器接入 | Codex / OpenCode / Gemini CLI / OpenHands Adapter | 每个新 Adapter 通过 `TASK-P1-030` 的**同一套契约测试**，无需修改契约 | T1 | R-041, R-043 |
+| `TASK-P2-011` | 动态执行器选择 | 按任务类型 / 成本 / 能力声明的选择器 | 同一任务类型在多次运行中可能选中不同执行器，选择依据可解释并落库 | T1 + T3 | R-038, R-111 |
+| `TASK-P2-012` | 多任务依赖管理 | 依赖图调度、DAG 执行、依赖失败的传播 | 依赖未满足的任务不启动；上游失败时下游进入正确状态而非误跑 | T1 | R-056 |
+| `TASK-P2-013` | 多 Agent 并行执行 | 并发调度、并发上限、资源隔离、事件采集器 | 并行任务的工作空间互不干扰；并发数不超过 `max_parallel_agents` | T1 + T2 | R-013, R-017, R-045 |
+| `TASK-P2-014` | 独立验证引擎完整化 | 六层验证：功能 / 代码 / 架构 / 安全 / 性能 / 产品 | 每层验证有独立执行器与独立判定；六层结果独立记录而非合并为一个布尔值 | T1 + T2 | R-050, R-077 |
+| `TASK-P2-015` | 自动失败诊断与修复 | 失败归类器 + 修复任务生成 | 阶段一已有的有界修复扩展到多失败类型；修复上限仍全局生效 | T1 | R-098, I-04 |
+| `TASK-P2-016` | 项目知识库与架构认知 | 架构知识图谱、ADR 存储、模块依赖索引 | 系统能回答"某模块被哪些模块依赖"且答案来自已构建的索引而非每次重读仓库 | T1 + T2 | R-064, R-067, R-068 |
+| `TASK-P2-017` | 跨任务集成引擎 | Integration Branch、冲突解决、跨任务回归测试 | 构造两个各自通过单任务测试但集成后失败的任务 → 集成阶段能检出 | T1 | R-056, R-057, R-058 |
+| `TASK-P2-018` | 执行器能力评测 | 同一任务的跨执行器结果对比与打分 | 同一任务在不同执行器上跑 ≥3 次，结果可按统一口径比较（成功率 / 成本 / 耗时 / 质量） | T2 | R-110, R-111, I-17 |
+
+**出口门 `MS-P2-M1`**：不同执行器能完成同一种任务契约，执行结果可以比较和评估（R-111）。
+**关键判据**：`TASK-P2-018` 的评测数据显示不同执行器在至少一项指标上存在**统计上可辨的差异**——否则"可替换执行器"只是名义上的。
+
+---
+
+### 3.2 阶段三：持续运行和自演进
+
+**阶段目标**：把闭环从"一次跑完"变成"长期自己转起来"——事件驱动、定时扫描、跨天恢复、资源可控。
+
+| ID | 里程碑 | 交付物 | 验收条件 | 验证 | 追溯 |
+| --- | --- | --- | --- | --- | --- |
+| `TASK-P3-010` | Temporal 长期工作流 | `ProjectEvolutionWorkflow` + 子工作流；循环 A/B 的 Temporal 化 | 迁移后行为等价：回放 runner（`TASK-P1-065`）在 LangGraph 与 Temporal 两种编排下产出相同状态序列 | T1 | R-088, R-089, R-090, R-125 |
+| `TASK-P3-011` | 事件驱动六触发源 | 定时 / 代码 / 质量 / 运行 / 外部 / 知识 六类触发器 | 六类事件各能触发一轮演进；同一事件去重后只触发一次 | T1 + T2 | R-079, R-080, I-11 |
+| `TASK-P3-012` | 定时项目扫描 | 跨模块、长期积累问题的定期扫描 | 定期扫描能发现事件触发发现不了的问题（跨模块耦合类） | T1 + T2 | R-080 |
+| `TASK-P3-013` | 演进机会发现流水线 | Observe 层六类数据源接入 + Discover 层 | 六类数据源各接入 ≥1 个真实来源；候选的 evidence 指向真实可解析的证据 | T1 | R-028, R-024 |
+| `TASK-P3-014` | 自动优先级决策 | 价值模型 + 用实际收益校准 | 校准后模型的排序与"事后实际收益"有正相关（Spearman ρ > 0.3），否则退回启发式模型并记录 | T2 | R-031, R-033 |
+| `TASK-P3-015` | 预算与资源控制 | 跨周期预算、成本归集、并发限流 | 连续运行期间每日成本不超过 `max_daily_cost`；超限时优雅停止而非崩溃 | T1 + T2 | R-013, R-018 |
+| `TASK-P3-016` | 断点恢复 | 进程重启 / 机器重启后从检查点恢复 | 在执行中强杀进程，重启后任务状态可恢复且不重复执行已完成的副作用 | T1 | R-091, R-095, R-099 |
+| `TASK-P3-017` | 长期执行观测 | 跨周期趋势看板（达成度、质量、成本） | 能导出 ≥7 天连续运行的四层指标趋势 | T2 | R-117, R-118 |
+| `TASK-P3-018` | 连续 10 周期长跑 | 10 个有效演进周期的运行记录 | 连续 10 轮无人工派发任务；每轮产出可验证证据；达成度呈非负趋势 | T2 + T3 | **R-130**（首个里程碑）、R-112, R-113 |
+
+**出口门 `MS-P3-M1`**：系统能够连续运行多个演进周期，不依赖人工反复输入任务（R-113）。
+**关键判据**：`TASK-P3-018` 的长跑记录 —— 注意"有效演进周期"的判定标准需在开工前固定，否则会出现"跑了 10 轮但全是无效修改"的凑数情况。判定标准建议：每轮至少产生 ①一个有证据的候选 ②一个决策 ③一条可验证的改善记录。
+
+---
+
+### 3.3 阶段四：研发控制平面
+
+**阶段目标**：从"管理一个项目"扩展为"管理多个项目的研发基础设施"，并让系统能安全地改进自己。
+
+| ID | 里程碑 | 交付物 | 验收条件 | 验证 | 追溯 |
+| --- | --- | --- | --- | --- | --- |
+| `TASK-P4-010` | 多项目管理 | Project Registry 完整化、项目隔离 | 两个项目并行演进，任务 / 候选 / 决策互不串扰；预算分别核算 | T1 + T2 | R-016 |
+| `TASK-P4-020` | 多模型路由 | 按任务 / 成本 / 能力路由模型 | 不同模型处理不同决策角色（如 Critic 用更强模型）；成本归集到项目维度 | T1 + T2 | R-018, I-13 |
+| `TASK-P4-030` | Agent 能力评测 | 执行器 × 模型的二维能力矩阵 | 能力矩阵由实测数据得出，且能指导自动选型 | T2 | R-111, I-17 |
+| `TASK-P4-040` | 执行器动态调度 | 基于历史表现的自适应调度 | 调度器在实测中优于静态分配的对照组 | T2 | R-038 |
+| `TASK-P4-050` | 自主演进策略优化 | 决策策略的自学习与参数调优 | 调优后达成度或单位成本收益相对基线有统计显著改善 | T2 | R-033, R-121 |
+| `TASK-P4-060` | 高风险变更治理 | 架构级变更的独立评审与放行流程 | 标记为高风险的变更 100% 经过独立评审后才可执行 | T1 + T2 | R-061, R-102 |
+| `TASK-P4-070` | 系统自身改进提案机制 | `SystemEvolutionProposal` 实体 + 独立测试 + 审批后发布 | 系统提出的自我修改全部走独立测试与审批；**不存在绕过审批的发布路径** | T1 | R-103, R-104 |
+| `TASK-P4-080` | A/B 对照实验 | 同仓库同目标的 A 组（人工指定任务）vs B 组（自主发现） | 六项对比指标（达成度 / 缺陷减少 / 工程质量 / 单位成本价值 / 人工干预次数 / 新引入问题）完成统计 | T2 + T3 | R-114, R-115, R-119, R-120, R-121 |
+
+**出口门 `MS-P4-M1`**：成为可以长期管理多个软件项目的自主研发基础设施（R-115）。
+**关键判据**：`TASK-P4-080` —— B 组需在六项指标上**持续**更优，而非某一项偶然领先。这是整个系统的证伪标准：若 B 组不优于 A 组，前面三阶段投入的只是"更贵的任务自动化"，不是"自主研发"。
+
+---
+
+### 3.4 阶段间追溯关系
+
+| 阶段 | 依赖的关键阶段一成果 | 若阶段一缺失会怎样 |
+| --- | --- | --- |
+| 阶段二 | 契约测试基类（`TASK-P1-030`）、三表分离（`TASK-P1-022`）、可复现快照（`TASK-P1-023`） | 多执行器接入无法验证"同一契约"；结果不可比 |
+| 阶段三 | 事件去重与因果链（`TASK-P1-064`）、有界修复（`TASK-P1-063`）、审批门（`TASK-P1-046`） | 长期运行会陷入事件回环与无限修复 |
+| 阶段四 | policy 外置（`TASK-P1-011`）、append-only 证据（`TASK-P1-024`）、自主权判定器（`TASK-P1-011`） | 系统自我修改无审批基线可挂靠，治理机制无处落地 |
+
+---
+
+## 4. 验证矩阵
+
+对 design.md 逐节穷举出的 **130 条可交付要求**，逐条给出落地任务与验证形态。
+覆盖规则：**每条 R-0xx 至少映射到一个任务；每个任务至少声明一个 T1 或 T2**。
+
+**形态分布**（要求侧，一个要求可同时落多个形态）：T1 77 条 · T2 16 条 · T3 16 条 · T4 21 条。
+其中 **93/130 条要求有至少一条 T1 或 T2 的验证路径**；其余 37 条只能弱验证（多为设计哲学、职责边界、治理约束），已在 [第 5 节](#5-验证盲区当前阶段无法客观验证的要求) 逐条说明降级方式。
+**未覆盖项：0**（自检口径见 §4.9）。
+
+### 4.1 全局架构与技术选型（§1–§2、§8、§11）
+
+| R | 要求 | 任务 | 形态 | 阶段 |
+| --- | --- | --- | --- | --- |
+| R-001 | 四要素闭环，禁止"超级 Agent" | P1-050, P1-030 | T3 | 1 |
+| R-002 | 执行器解耦，不绑定特定 Agent 会话模型 | P1-030, P1-031 | T1 | 1 |
+| R-003 | Director 与 Executor 分离 | P1-030, P1-061 | T1 | 1 |
+| R-004 | 技术选型组合落地 | P1-003, P1-004, P1-005 | T4 | 1 |
+| R-005 | 各技术职责边界不被越界使用 | P1-050, P1-030 | T3 | 1 |
+| R-006 | POC 阶段不引入 Temporal | P1-060, P1-061 | T4 | 1 |
+| R-007 | 六个子系统的边界 | P1-001, P1-007 | T4 | 1 |
+| R-105 | Python 为主语言 | P1-001 | T4 | 1 |
+| R-106 | 技术栈清单与优先级 | P1-001 ~ P1-007 | T4 | 1 |
+| R-107 | 目录结构骨架 | P1-001 | T4 | 1 |
+| R-122 | 优先研究 OpenHands / LangGraph / Temporal | P1-031, P1-050, P3-010 | T4 | 1,3 |
+| R-123 | OpenHands 借鉴点（执行基础设施而非 Director） | P1-031, P2-010 | T4 | 1,2 |
+| R-124 | LangGraph 借鉴点（决策图 / 状态持久化） | P1-050 | T4 | 1 |
+| R-125 | Temporal 借鉴点（长期运行 / 恢复） | P3-010 | T4 | 3 |
+
+### 4.2 Project Control Plane（§3.1）
+
+| R | 要求 | 任务 | 形态 | 阶段 |
+| --- | --- | --- | --- | --- |
+| R-008 | 六个控制面模块 | P1-010 ~ P1-014 | T1 | 1 |
+| R-009 | 目标结构化为六要素 | P1-010 | T1 | 1 |
+| R-010 | Key Result 含 id / metric / target | P1-010 | T1 | 1 |
+| R-011 | Constraints 须机器可判定 | P1-010, P1-043 | T1 | 1 |
+| R-012 | Autonomy 按操作维度设定 | P1-011 | T1 | 1 |
+| R-013 | Budget 含日成本与并发上限，可配 | P1-012 | T1 | 1 |
+| R-014 | 指标类型 / 单位 / 评测方法 / 币种可配 | P1-010, P1-012 | T1 | 1 |
+| R-015 | 目标由人定、差距由 Agent 识、边界由系统强制 | P1-011 | T3 | 1 |
+| R-016 | Project Registry 管多项目 | P1-013 | T1 | 1,4 |
+| R-017 | Event Collector 采五类事件 | P2-013, P3-013 | T1 | 2,3 |
+| R-018 | Budget 管 Token / 调用 / 资源 / 时间 | P1-012, P3-015 | T2 | 1,3 |
+| R-019 | Autonomy Manager 管自主程度与审批级别 | P1-011 | T1 | 1 |
+
+### 4.3 Autonomous Director 与 Evolution Engine（§3.2、§3.3、§5）
+
+| R | 要求 | 任务 | 形态 | 阶段 |
+| --- | --- | --- | --- | --- |
+| R-020 | 多个逻辑角色，而非单一 Director Prompt | P1-057 | T1 | 1 |
+| R-021 | 角色作为独立决策任务 | P1-050, P1-057 | T3 | 1 |
+| R-022 | Director 每轮回答五问 | P1-051 | T4 + 盲区 A | 1 |
+| R-023 | 能识别 TODO 之外的真实下一步 | P1-052 | T3 + 盲区 A | 1 |
+| R-024 | 五类演进机会分类法 | P1-052 | T1 | 1 |
+| R-025 | 技术趋势须先证明对本项目有收益 | P1-052 | T3 | 1 |
+| R-026 | 综合目标 / 风险 / 成本 / 收益决策 | P1-053, P1-054 | T3 + 盲区 A | 1 |
+| R-027 | Observe / Discover / Prioritize 三层 | P1-061, P1-052, P1-053 | T1 | 1 |
+| R-028 | Observe 覆盖六类数据源 | P3-013 | T1 | 3 |
+| R-029 | Candidate 统一结构 | P1-052 | T1 | 1 |
+| R-030 | Candidate ≠ Task | P1-022, P1-054 | T1 | 1 |
+| R-031 | 六因子优先级公式 | P1-053 | T1 | 1 |
+| R-032 | 归一化 0~1，成本设下限 | P1-053 | T1 | 1 |
+| R-033 | 价值模型须用实际收益校准 | P3-014, P4-050 | T2 | 3,4 |
+| R-034 | "不行动"是合法决策 | P1-054 | T1 | 1 |
+| R-035 | Record / Defer / Reject 三态 | P1-054 | T1 | 1 |
+| R-081 | 五阶段决策链 | P1-050 | T1 | 1 |
+| R-082 | 每阶段结构化输出且下游可独立验证 | P1-050, P1-051 | T1 | 1 |
+| R-083 | project_assessment 结构 | P1-051 | T1 | 1 |
+| R-084 | 跨方案优先级判断能力 | P1-053, P1-082 | T3 + 盲区 A | 1 |
+| R-085 | 独立 Critic | P1-055 | T1 | 1 |
+| R-086 | Critic 七项检查 | P1-055 | T1 | 1 |
+| R-087 | Critic 须做事实核验 | P1-055 | T1 | 1 |
+
+### 4.4 Agent Execution Plane（§3.4）
+
+| R | 要求 | 任务 | 形态 | 阶段 |
+| --- | --- | --- | --- | --- |
+| R-036 | 统一执行器协议，不内嵌进 Director | P1-030 | T1 | 1 |
+| R-037 | Adapter 七方法签名 | P1-030 | T1 | 1 |
+| R-038 | 补齐认证 / 超时 / 能力 / 取消 / 幂等 / 错误分类 | P1-030 | T1 | 1 |
+| R-039 | 统一执行结果 schema | P1-030, P1-035 | T1 | 1 |
+| R-040 | self_assessment 不是验收结果 | P1-030, P1-041 | T1 | 1 |
+| R-041 | 候选执行器清单与接入方式 | P1-031, P2-010 | T4 | 1,2 |
+| R-042 | 优先评估 OpenHands Automation / SDK | P1-031 | T4 | 1 |
+| R-043 | Adapter 分层，不强制统一底层协议 | P1-030, P1-031 | T1 | 1 |
+| R-044 | ACP / MCP 边界澄清 | P1-030 | T4 | 1 |
+
+### 4.5 Engineering Harness（§3.5）
+
+| R | 要求 | 任务 | 形态 | 阶段 |
+| --- | --- | --- | --- | --- |
+| R-045 | 每任务独立工作空间 | P1-032 | T1 | 1 |
+| R-046 | Worktree 必选、Docker 首选、Daytona/K8s 后续 | P1-006, P1-032 | T4 | 1,4 |
+| R-047 | 单机 POC 与多机生产方案分层 | P1-006 | T4 | 1,4 |
+| R-048 | 禁访问宿主 SSH / 云密钥 / 生产库 | P1-006, P1-032, P1-043 | T1 | 1 |
+| R-049 | 验证引擎独立于执行器 | P1-041 | T1 | 1 |
+| R-050 | 六层验证能力 | P2-014 | T1 | 2 |
+| R-051 | Acceptance Contract 执行前定义 | P1-040, P1-062 | T1 | 1 |
+| R-052 | 契约结构（required/thresholds/forbidden/artifacts） | P1-040 | T1 | 1 |
+| R-053 | required 至少含四项检查 | P1-040 | T1 | 1 |
+| R-054 | forbidden 至少含三项检查 | P1-040, P1-043 | T1 | 1 |
+| R-055 | 覆盖率阈值按模块基线，不得靠降质量达成 | P1-042 | T2 + 盲区 C | 1 |
+| R-056 | 集成流水线顺序 | P1-047, P2-017 | T1 | 1,2 |
+| R-057 | 必须做跨任务集成测试 | P2-017 | T1 | 2 |
+| R-058 | 独立 Integrator 解决冲突并回归 | P2-017 | T1 | 2 |
+| R-059 | 独立执行身份与任务授权范围 | P1-044 | T1 | 1 |
+| R-060 | 禁生产 / 网络白名单 / 短期令牌 | P1-002, P1-043 | T1 | 1 |
+| R-061 | 高风险操作独立授权 | P1-044, P4-060 | T1 | 1,4 |
+| R-062 | 每次工具调用记录主体 / 任务 / 资源 / 结果 | P1-045, P1-073 | T1 | 1 |
+| R-063 | Agent 身份不能替代任务身份 | P1-044 | T1 | 1 |
+
+### 4.6 Project Knowledge & State（§3.6）
+
+| R | 要求 | 任务 | 形态 | 阶段 |
+| --- | --- | --- | --- | --- |
+| R-064 | 不每轮重读仓库重建认知 | P2-016 | T3 | 2 |
+| R-065 | 四类存储 | P1-003, P1-004, P1-020 | T1 | 1 |
+| R-066 | 四类存储职责分离 | P1-020, P1-024 | T3 | 1 |
+| R-067 | 不全塞向量库，不用对话历史当事实 | P2-016 | T1 | 2 |
+| R-068 | 十二个核心实体 | P1-020 | T1 | 1 |
+| R-069 | 各实体关键属性 | P1-020 | T1 | 1 |
+| R-070 | 三个关键实体分离 | P1-022 | T1 | 1 |
+| R-071 | Artifact 带 hash | P1-004, P1-024 | T1 | 1 |
+
+### 4.7 两个演进循环与编排（§4、§6）
+
+| R | 要求 | 任务 | 形态 | 阶段 |
+| --- | --- | --- | --- | --- |
+| R-072 | 两个相互独立但可相互触发的循环 | P1-060, P1-061, P1-064 | T1 | 1 |
+| R-073 | 循环 A 节点链 | P1-060 | T1 | 1 |
+| R-074 | 循环 B 节点链 | P1-061 | T1 | 1 |
+| R-075 | 两循环不得合并为一个无限 Prompt | P1-060, P1-061 | T3 | 1 |
+| R-076 | 七种任务类型 | P1-056 | T1 | 1 |
+| R-077 | 不同任务类型走不同验收流程 | P2-014 | T2 | 2 |
+| R-078 | 两循环六维差异 | P1-060, P1-061 | T4 | 1 |
+| R-079 | 六种事件触发源 | P3-011 | T1 | 3 |
+| R-080 | 定期扫描与事件触发结合 | P3-011, P3-012 | T4 | 3 |
+| R-088 | Temporal + LangGraph 双层编排 | P3-010 | T4 | 3 |
+| R-089 | Workflow 骨架 | P3-010 | T1 | 3 |
+| R-090 | Workflow 确定性、副作用入 Activity | P3-010 | T1 | 3 |
+| R-091 | 重试 / 超时 / 恢复机制 | P3-010, P3-016 | T2 | 3 |
+| R-092 | 任务状态机 14 态 | P1-021 | T1 | 1 |
+| R-093 | Re-plan / Re-evaluate 迁移动作 | P1-021 | T1 | 1 |
+| R-094 | 同一任务重复提交幂等 | P1-021, P1-025 | T1 | 1 |
+| R-095 | 中断后可恢复或重新执行 | P1-034, P3-016 | T1 | 1,3 |
+| R-096 | 取消传播到执行器与 Sandbox | P1-033 | T1 | 1 |
+| R-097 | 超时不等于失败 | P1-034 | T1 | 1 |
+| R-098 | 修复有次数 / 成本 / 时间上限 | P1-063 | T2 | 1 |
+| R-099 | 验收证据不因下一轮丢失 | P1-024, P1-048 | T1 | 1 |
+
+### 4.8 自主权限、指标与实施（§7、§9、§10、§12）
+
+| R | 要求 | 任务 | 形态 | 阶段 |
+| --- | --- | --- | --- | --- |
+| R-100 | 四级自主权定义 | P1-011 | T1 | 1 |
+| R-101 | 初始权限基线 | P1-011 | T1 | 1 |
+| R-102 | 不得自主修改控制自身的系统 | P1-011, P4-070 | T3 | 1,4 |
+| R-103 | System Evolution Proposal 机制 | P4-070 | T1 | 4 |
+| R-104 | 防止系统自改验收标准 | P1-011, P4-070 | T3 | 1,4 |
+| R-108 | 阶段一交付物 | P1-080 ~ P1-083 | T1 | 1 |
+| R-109 | 阶段一验收（只给目标不给任务） | P1-082 | T2 | 1 |
+| R-110 | 阶段二交付物 | P2-010 ~ P2-018 | T1 | 2 |
+| R-111 | 阶段二验收（结果可比较可评估） | P2-011, P2-018 | T2 | 2 |
+| R-112 | 阶段三交付物 | P3-010 ~ P3-018 | T1 | 3 |
+| R-113 | 阶段三验收（连续多周期） | P3-018 | T2 | 3 |
+| R-114 | 阶段四交付物 | P4-010 ~ P4-080 | T1 | 4 |
+| R-115 | 阶段四验收 | P4-080 | T3 | 4 |
+| R-116 | 工期估算性质说明 | §2 工期校正 | T4 | 1 |
+| R-117 | 不得用任务数 / Token 数 / 提交量作核心指标 | P1-071 | T2 | 1 |
+| R-118 | 四级指标体系 | P1-071, P2-018, P3-017, P4-080 | T2 | 1–4 |
+| R-119 | A/B 对照实验 | P4-080 | T2 | 4 |
+| R-120 | 六项对比指标 | P4-080 | T2 | 4 |
+| R-121 | B 组持续更优（证伪标准） | P4-080 | T2 | 4 |
+| R-126 | 三项核心壁垒 | 贯穿 P1-050 / P1-060 / P1-061 | T3 | 1–4 |
+| R-127 | Understand → Decide → Verify 闭环 | P1-050, P1-060, P1-061 | T3 | 1 |
+| R-128 | 每轮产生可验证的改善 | P1-070, P1-082 | T2 | 1 |
+| R-129 | 五层 Harness 视角 | §3.4 映射说明 | T4 | 2–4 |
+| R-130 | 首个里程碑：连续 10 个有效演进周期 | P3-018 | T2 | 3 |
+
+### 4.9 覆盖自检口径
+
+| 检查项 | 期望 | 实测 |
+| --- | --- | --- |
+| R-0xx 总数 | 130 | 130 ✓ |
+| 至少映射一个任务的 R-0xx | 130（缺口 0） | 130 ✓ |
+| 至少一个 T1/T2 验证的任务（阶段一） | 55/55（缺口 0） | 55 ✓ |
+| 至少一个 T1/T2 验证的阶段二~四里程碑 | 26/26（缺口 0） | 26 ✓ |
+| 至少一个 T1/T2 验证路径的要求 | — （其余走弱验证，见第 5 节） | 93/130 |
+| 依赖中引用了不存在的任务 ID | 0 | 0 ✓ |
+| 重复的任务 ID | 0 | 0 ✓ |
+| 同一 R-0xx 映射到 >1 个任务 | 逐条复核（允许，需理由） | 已复核 |
+
+---
+
+## 5. 验证盲区：当前阶段无法客观验证的要求
+
+design.md 的核心主张是"每一轮演进都应产生**可验证的改善**"。但其中一部分要求**在给定阶段无法被客观验证**。把它们伪装成可测试需求，会让验收用弱证据冒充强证据 —— 这恰恰违背系统自身的主张。
+
+以下每条给出：真实要求 → 可做到的验证 → 做不到的验证 → 降级处理。
+
+### A. 决策质量（最大盲区）
+
+**涉及**：R-022（五问）、R-023（不只是遍历 TODO）、R-026（综合成本收益决策）、R-031/R-032（价值模型）、R-084（跨方案优先级判断）、R-086/R-087（Critic 七问）
+
+- **能做到**：断言五阶段结构存在且各阶段产出可解析；断言 Critic 的九项检查**被执行**（调用记录）。
+- **做不到**：断言 Critic **有效拦截了坏决策**、断言 Director 选的是"最值得做"的问题。这是 LLM 判断质量，没有 ground truth。
+- **降级**：阶段一标注为 `T1（结构与流程）+ T3（评审有效性）+ 盲区 A`；效果验证推迟到阶段四 A/B 对照（`TASK-P4-080`）。**阶段一验收结论中必须显式写明"本阶段不验证决策质量"**。
+
+### B. 发现的问题是否真实
+
+**涉及**：R-030、R-070、R-087
+
+- **能做到**：断言 candidate / decision / task 是三张独立的表，且 Task 必须由 Decision 产生（DB 层强制）。
+- **做不到**：断言"这个 candidate 真的对应一个真实问题"。结构的分离不等于内容的真实。
+- **降级**：唯一代理是"误报率"，其 ground truth 需人工标注 —— `TASK-P1-083` 建立 20 个标注样本，`TASK-P1-082` 的 T3 评审同时产出新标注。**在标注基线建立前，误报率指标不可用。**
+
+### C. 覆盖率不得靠降低测试质量达成
+
+**涉及**：R-055
+
+- **能做到**：断言阈值按模块基线计算（`TASK-P1-042`）；断言基线不可被下调。
+- **做不到**：自动判定"覆盖率上升的同时测试断言被削弱"（删断言、测试文件行数下降、变异存活率上升）。**design.md 没有指定任何检测手段。**
+- **降级**：默认走 T3 代码评审；变异测试（mutation testing）作为可选加码项，标注为 design.md 范围外的自选增强。
+
+### D. "不行动"与自我治理的正确性
+
+**涉及**：R-034、R-035、R-104
+
+- **能做到**：断言 `confidence = 0.1` 时系统产出 defer 记录、写入 rationale、**且不创建 Task**（`TASK-P1-054`）。
+- **做不到**：断言"这次 defer 是对的"—— 只有事后才知道。同样，无法自动判定"系统自改的验收标准是否真的更宽松"。
+- **降级**：结构断言 + 人工评审；R-104 的防护依赖 `TASK-P1-011` 的"治理外置 + 变更需审批"这一**前置机制**（阶段一即生效），而非依赖事后检测。
+
+### E. 长期行为
+
+**涉及**：R-099、R-113、R-130
+
+- **能做到**：断言跨周期后证据未被删除（`TASK-P1-024`）；断言断点恢复（`TASK-P3-016`）。
+- **做不到**：断言"连续 10 轮都有效" —— 这需要实际长跑。
+- **降级**：写成**可执行的 harness 脚本 + 一次实际长跑记录**（`TASK-P3-018`），而不是 CI 断言。长跑记录需人工确认"有效"的判定标准。
+
+### F. 成本基线缺失
+
+**涉及**：R-018、R-039、R-091、R-120
+
+- design.md 给的 `max_daily_cost: 50` 是示意值，**没有"一个典型任务消耗多少"的基线**。
+- **降级**：`TASK-P1-072` 采集基线；在基线建立前，所有成本类 T2 指标报"基线未建立"而非返回 0。
+
+### G. 性能退化判定缺基线
+
+**涉及**：R-050、R-077
+
+- 性能验证与性能优化任务都隐含"不退化"的阈值，但 design.md 未给回归判定规则，也未保证基准环境稳定。
+- **降级**：阶段一不做性能层（已在阶段二 `TASK-P2-014`）；进入阶段二前需先补基准环境与判定规则。
+
+### H. 安全隔离的负向证明
+
+**涉及**：R-048、R-060、R-062
+
+- **能做到**：断言容器内无 `~/.ssh` / 云凭据；断言审计记录完整；断言网络白名单外的域名不可达。
+- **做不到**：断言"Agent 实际上没有拿到生产凭据" —— 本质是负向证明，只能靠配置断言 + 白盒审计。
+- **降级**：标注为**半客观**。审计记录的**覆盖率**（是否漏掉了某些调用路径）需白盒审计确认。
+
+### I. 越权检测
+
+**涉及**：R-101
+
+- **能做到**：断言权限为 L1 时 merge 调用被拒（`TASK-P1-011`）。
+- **做不到**：断言"系统没有在 L4 任务中悄悄做了需要 L2 的事" —— 需要运行时拦截审计。
+- **降级**：`TASK-P1-044` 的授权判定落到了工具调用拦截点，使越权在**发生时**即被阻断，而非事后审计发现。
+
+### J. A/B 实验的统计显著性
+
+**涉及**：R-119 ~ R-121
+
+- design.md 要求"B 组持续更优"，但未给样本量、周期数、显著性要求。属研究级要求。
+- **降级**：阶段一~三只交付"实验框架就绪"（可配置、可复现、可导出六项指标）；统计显著性判定在阶段四补齐。
+
+### K. 目录结构与角色命名的内部矛盾
+
+见 [第 6 节](#6-设计文档待裁决项) 待裁决项 1。
+
+---
+
+## 6. 设计文档待裁决项
+
+design.md 存在 6 处**内部不一致**。本文每处给出推荐默认，可直接采用或推翻。
+
+### 待裁决 1 — Director 角色数量与目录命名不一致
+
+- **矛盾**：§3.2 写"构建**四个**逻辑角色"，随后列出**五个**名字（Project Director / Project Analyst / Product Strategist / Chief Architect / Quality Strategist）；§8 目录 `agents/` 只有五个子目录（analyst / strategist / architect / critic / evaluator），缺 `director/`，且 `architect/` 与 Quality Strategist 语义不符。
+- **推荐默认**：**以 §8 目录为准**，补 `agents/director/` 与 `agents/quality/`；阶段一只实现 `analyst` + `director` + `critic` 三个角色（对应 §9 阶段一交付物的 "1 个 Project Director + 1 个 Project Analyzer + 1 个 Critic"），其余三个角色在阶段二补齐。**理由**：§9 阶段一交付物清单是最具体的约束，且三角色已足够跑通"发现→决策→复核"链路；过早实现五角色会引入无验证收益的 Prompt 调优工作。
+- **影响任务**：TASK-P1-057, TASK-P1-050
+
+### 待裁决 2 — Harness 分层两套说法不一致
+
+- **矛盾**：§12 末段讲"**五层** Harness 思路"（领域工程 / 能力工程 / 执行工程 / 可靠性工程 / 进化工程），§3.5 讲的是"**四个**子系统"（Workspace / Verification / Integration / Security & Governance），两套分层无映射关系。
+- **推荐默认**：**§3.5 四子系统作为实现依据**（它有明确的模块与职责边界），§12 五层作为**目标分类视图**并列映射：领域工程→Knowledge、可靠性工程→Verification、进化工程→Evaluation。**理由**：五层是设计哲学的表述，没有可执行的模块边界；用它做实现依据会导致职责重复。
+- **影响任务**：TASK-P1-001（目录结构）
+
+### 待裁决 3 — Critic 七问未覆盖目标六要素中的两项
+
+- **矛盾**：§3.1 定义目标含 `Non-goals` 与 `Stop Conditions`，但 §5 Critic 的七项检查中没有任何一项直接对应它们 —— **字段定义了但检查项没接上**。
+- **推荐默认**：**补为第九、十问**（本文已按"九问"实现，见 `TASK-P1-055`）：⑧ 该候选是否触碰项目 Non-goals？⑨ 该候选是否触发 Stop Conditions（应当停止而非继续）？**理由**：这是设计文档的实质漏洞，不是表述差异；且这两项恰好是"人类定义边界、Agent 不越界"的技术保障。
+- **影响任务**：TASK-P1-055, TASK-P1-057
+
+### 待裁决 4 — 人工审批机制在编排骨架中缺失
+
+- **矛盾**：§1 表格称 Temporal 负责"人工审批等待"，§7 初始权限把 `merge_to_main` 设为 L2（需人工审批），但 §6 的 Workflow 骨架中**没有任何审批节点**，且阶段一~二无此机制。
+- **推荐默认**：**阶段一用 DB-backed 审批门**（`TASK-P1-046`），阶段三升级为 Temporal Signal。**理由**：审批是"合并到 main"的准入条件，不实现则阶段一无法端到端完成闭环；用 Temporal 会把阶段一强绑定到 Temporal，与 §1 "POC 不必引入 Temporal" 的取舍冲突。
+- **影响任务**：TASK-P1-046, TASK-P3-010
+
+### 待裁决 5 — 阶段一是否包含独立验证引擎
+
+- **矛盾**：§9 阶段一交付物列"自动化测试"，把"独立验证引擎"列在阶段二；但 §3.5B 明确要求"不要让 Coding Agent 自己决定是否验收通过"。
+- **推荐默认**：**阶段一纳入最小独立验证引擎**（`TASK-P1-041`：独立进程运行目标项目测试套件 + 契约检查），完整六层验证留阶段二。**理由**：系统的核心主张是"可验证的改善"，若阶段一由 Coding Agent 自评，闭环验证的是一个未经证伪的主张 —— 这正是本系统声称要避免的问题。
+- **影响任务**：TASK-P1-041, TASK-P2-014
+
+### 待裁决 6 — 首个里程碑与阶段划分不对齐
+
+- **矛盾**：§12 最终建议的首个里程碑是"自主管理一个真实代码仓库并**连续完成 10 个有效演进周期**"，但 §9 阶段一只要求"产生下一轮计划"（单轮）。10 周期需要事件驱动与长跑能力，属阶段三特征。
+- **推荐默认**：**引入 M0/M1/M2 三级门**（见 §1.1）：M1（单轮闭环）作为阶段一的实际交付边界；**10 周期归入阶段三出口门** `TASK-P3-018`。**理由**：把 10 周期塞进阶段一会诱导为凑数而重复执行低价值改动 —— 这恰好是设计文档警告的"Coding Agent 不断创造新的开发任务，让项目陷入无意义的自我修改"。
+- **影响任务**：TASK-P1-081, TASK-P1-082, TASK-P3-018
+
+### 待裁决 7 — §6 状态机的迁移边在文档导出时全部丢失
+
+- **矛盾**：§6「建议的核心状态机」以 mermaid 状态图给出 14 个状态与 `Re-plan` / `Re-evaluate` 两个动作，但**图中的边（迁移）在导出为 Markdown 时全部丢失**（同 §1 架构图、§5 Critic 图一样，只剩下 mermaid 的 CSS 转义残留与散落的文字）。当前 design.md 中实际只剩状态名列表，**没有任何一条可读的迁移定义**。
+- **推荐默认**：以 `core/task/state_machine.py` 的 `_TRANSITION_TABLE` 为准，并**把该表回写进 design.md §6**（用文字表格而非 mermaid，避免再次丢失）。回写时的迁移表为：
+
+  | 源状态 | 允许动作 → 目标状态 |
+  | --- | --- |
+  | DISCOVERED | evaluate → EVALUATING |
+  | EVALUATING | defer → DEFERRED；approve → APPROVED |
+  | DEFERRED | re_evaluate → EVALUATING |
+  | APPROVED | plan → PLANNED；re_evaluate → EVALUATING |
+  | PLANNED | ready → READY |
+  | READY | start → RUNNING；re_plan → PLANNED；block → BLOCKED |
+  | RUNNING | verify → VERIFYING；block → BLOCKED |
+  | VERIFYING | pass → PASSED；repair → REPAIRING；block → BLOCKED；re_plan → PLANNED |
+  | PASSED | integrate → INTEGRATING；block → BLOCKED；re_plan → PLANNED |
+  | REPAIRING | verify → VERIFYING；block → BLOCKED |
+  | BLOCKED | re_evaluate → EVALUATING；re_plan → PLANNED |
+  | INTEGRATING | merge → MERGED；repair → REPAIRING；block → BLOCKED |
+  | MERGED | complete → COMPLETED |
+  | COMPLETED | （终态，无出边） |
+
+- **重建依据**：状态名本身的语义；§6 的四条实现细节（幂等、恢复、取消传播、修复三重上限）；R-051（验收契约必须在 READY→RUNNING 之前）；R-034/R-035（defer 后必须能重新评估）；阶段三的重规划需求。**两条实现约定**：① 目标态等于当前态时是幂等空操作（`changed=False`），且该判定**先于**允许集合判定 —— 否则消息重投会直接抛错；② 进入 RUNNING 前必须已有绑定 `task_id` 的验收契约，这是引擎级闸门，不依赖调用方自觉。
+- **影响任务**：TASK-P1-021, TASK-P1-054, TASK-P1-058
+
+---
+
+## 7. 隐含工程约束清单
+
+以下 24 条约束在 design.md 正文中**未明说**，但拆解时若不覆盖，实现阶段必然返工。
+
+| # | 约束 | 为什么容易漏 | 覆盖任务 | 验证方式 |
+| --- | --- | --- | --- | --- |
+| I-01 | 幂等键的构造规则（task_id + attempt）与语义（重放返回原结果） | 分处 §3.4 与 §6 两节，容易只做一处 | P1-021, P1-030 | T1：同一幂等键提交两次返回同一结果 |
+| I-02 | 取消传播是**四层链**（任务→Adapter→进程→容器），不是两层 | 原文只写"传递到执行器和 Sandbox" | P1-033 | T1：逐层确认收到才推进下一层 |
+| I-03 | 超时≠失败：须先 interrupt 再探测可恢复性，避免僵尸会话 | 原文一句话，语义关键 | P1-034 | T1：超时后无僵尸容器残留 |
+| I-04 | 修复三重上限是**全局共享**，非每任务独立 | 原文未说明作用域 | P1-063 | T1：并行任务不各自突破全局上限 |
+| I-05 | VerificationRun / Artifact **append-only**（禁 UPDATE/DELETE） | 只写"保存证据"，未写不可变 | P1-024 | T1：DB 层拒绝 UPDATE/DELETE |
+| I-06 | 状态写入与事件发布**同事务**（Outbox） | 只写"PostgreSQL Outbox"，未强调同事务 | P1-025 | T1：事务回滚后两者都不存在 |
+| I-07 | pgvector **不得**在阶段一成为主知识路径 | 三处提到"按需"，易被当成必选 | P2-016 | T1：阶段一知识检索不依赖向量库 |
+| I-08 | 预算币种与指标类型必须**可配置**，不可硬编码 USD / 示例 metric | 原文是脚注，常被忽略 | P1-010, P1-012 | T1：换币种 / 换 metric 均正常工作 |
+| I-09 | 覆盖率基线**存哪、谁更新、如何防下调** | 原文一句"根据模块基线确定"，机制未定义 | P1-042 | T1：基线变化→阈值同步；下调被拒 |
+| I-10 | 被撤回的 Decision 需有**终态**（superseded），否则重规划后旧决策仍"生效" | 状态机图只画了 Re-plan 指向 PLANNED | P1-021, P1-054 | T1：重规划后旧 Decision 标记为 superseded |
+| I-11 | 两个循环"可相互触发"会带来**事件回环** | 原文只警告了"合并成一个 Prompt"的坑 | P1-064 | T1：回写不触发新一轮；同 gap 未改善则熔断 |
+| I-12 | 人工审批应是**信号 / 事件**而非轮询，且有超时与撤回语义 | §1 提到审批等待，§6 无审批节点 | P1-046, P3-010 | T1：审批过期后不可放行 |
+| I-13 | 成本核算三处（Adapter / 记账 / 观测）必须**同源同币种** | 分散在 §3.4、§8 | P1-035 | T1：三处数值相等 |
+| I-14 | 工作空间需要**租约与 GC**，否则并发耗尽磁盘 / 容器 | 原文只讲创建不讲回收 | P1-032 | T1：租约过期后回收；崩溃遗留可清理 |
+| I-15 | 分支命名与重试的**冲突约定**（每任务一分支 vs 每次尝试一分支） | 隐含在 `artifacts.branch` 字段里 | P1-032 | T1：重试不产生分支冲突 |
+| I-16 | Integration Branch 需要**生命周期**（合并后回收） | 流程图只给顺序 | P2-017 | T1：全部合并后分支被回收 |
+| I-17 | 多执行器结果**可比性口径**需前置设计，否则阶段二验收无法判定 | 阶段二验收依赖阶段一未做的设计 | P2-018 | T2：统一口径下的成功率 / 成本 / 耗时对比 |
+| I-18 | Critic 未检查 **Non-goals**（目标六要素定义了但没接上） | 字段与检查项分离 | P1-055 | T1：触碰 Non-goals 的候选被否决 |
+| I-19 | **Stop Conditions 须机器可判定**，否则永不生效 | 只列了字段，没列执行位置 | P1-014 | T1：不可判定条件启动时报错而非恒 false |
+| I-20 | 快照指标必须**落盘**，使"当时的快照"可重建 | 只写了 version+commit+metrics 三元组 | P1-023 | T1：仅凭快照记录即可取回当时指标 |
+| I-21 | 产物需**保留期**与不可变策略，第三方可复现 | 原文未定义保留期 | P1-024, P1-048 | T1：按 URI 取回且 hash 一致 |
+| I-22 | 验证所用的模型须与**被测代码生成模型解耦** | 只写了 self_assessment 不算验收，没写验收用什么 | P1-041 | T1：验证端与执行端模型可分别配置 |
+| I-23 | **测试环境本身**也需在沙箱内，不可跑在 Agent 的宿主 shell | 出现在结构图里，正文未强调 | P1-032, P1-041 | T1：验证进程在独立容器内运行 |
+| I-24 | 四级权限必须落到**工具调用拦截点**，不只是文档标签 | §7 只定义等级，未定义执行点 | P1-011, P1-044 | T1：越权操作在发生时即被阻断 |
+
+---
+
+## 附录 A：一页速查
+
+```text
+阶段一 55 条任务 · 9 个工作流 · 约 32 人日（单人）
+├── INF  基础设施     001-007   7 条   2.50d
+├── CP   控制面       010-014   5 条   2.25d
+├── KS   状态与知识   020-025   6 条   4.00d
+├── EP   执行器       030-035   6 条   4.00d
+├── HN   工程护栏     040-048   9 条   5.75d
+├── DR   决策引擎     050-057   8 条   5.50d
+├── OR   编排闭环     060-065   6 条   4.25d
+├── EV   观测评估     070-073   4 条   2.00d
+└── MS   里程碑       080-083   4 条   1.50d
+                              合计  55 条  31.75d
+
+验收门   M0 骨架可运行 → M1 单轮闭环 → M2 自主闭环
+核心壁垒 ① 项目认知 ② 演进决策 ③ 工程验证
+首个真里程碑  TASK-P3-018 —— 连续 10 个有效演进周期
+```
+
+## 附录 B：开始动手前先确认的三件事
+
+1. **试点仓库**（`TASK-P1-083`）—— 有可运行测试套件、目标可量化、依赖可离线安装。没有它，M2 无法验收。
+2. **第一批"人类标注"** —— 20 个历史问题用于建立误报率分母。这是自主发现能力唯一可量化的验证依据。
+3. **Thin Slice 的取舍** —— 若要按 design.md 的"1~2 周"推进，需明确砍掉哪些任务（推荐先砍 `TASK-P1-048`、`TASK-P1-072`、`TASK-P1-073`，保留全部安全与验收类任务）。**安全与验收类任务不建议为了赶工期而砍** —— 它们的缺失会让后续所有"验证通过"失去意义。

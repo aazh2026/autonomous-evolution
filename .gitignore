@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# 测试与覆盖率
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# 类型检查
+.mypy_cache/
+.ruff_cache/
+
+# 环境与密钥 —— 绝不入库
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# 运行时产物
+.artifacts/
+.workspaces/
+var/
+*.log
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store

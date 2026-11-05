@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+
+jobs:
+  quality:
+    name: 静态检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: 安装依赖
+        run: uv sync --extra dev --all-extras
+      - name: Ruff
+        run: uv run ruff check .
+      - name: Ruff format 检查
+        run: uv run ruff format --check .
+      - name: mypy
+        run: uv run mypy .
+
+  unit:
+    name: 单元测试
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: 安装依赖
+        run: uv sync --extra dev --all-extras
+      - name: pytest（不含 integration）
+        run: uv run pytest -m "not integration" --cov --cov-report=xml
+      - name: 上传覆盖率
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+
+  integration:
+    name: 集成测试
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ases
+          POSTGRES_PASSWORD: ases
+          POSTGRES_DB: ases_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ases"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "mc ready local"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ASES_DATABASE_URL: postgresql+asyncpg://ases:ases@localhost:5432/ases_test
+      ASES_S3_ENDPOINT_URL: http://localhost:9000
+      ASES_S3_ACCESS_KEY: minioadmin
+      ASES_S3_SECRET_KEY: minioadmin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: 安装依赖
+        run: uv sync --extra dev --all-extras
+      - name: 数据库迁移
+        run: uv run alembic upgrade head
+      - name: pytest（含 integration）
+        run: uv run pytest -m integration

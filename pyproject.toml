@@ -1,0 +1,122 @@
+[project]
+name = "ases"
+version = "0.1.0"
+description = "Autonomous Software Evolution System (ASES) — 持续自演进型 AI 自主研发系统"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+
+dependencies = [
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "sqlalchemy[asyncio]>=2.0.30",
+    "asyncpg>=0.29",
+    "alembic>=1.13",
+    "structlog>=24.1",
+    "opentelemetry-api>=1.24",
+    "opentelemetry-sdk>=1.24",
+    "opentelemetry-exporter-otlp-proto-http>=1.24",
+    "httpx>=0.27",
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+s3 = ["aioboto3>=13.0"]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "types-pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["apps", "core", "agents", "orchestration", "executors", "harness", "knowledge", "evaluation", "infrastructure"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ANN", "PTH", "TID", "ARG", "PL"]
+ignore = [
+    "ANN401",  # 允许 Any（与 design.md R-014 的"指标类型可配"冲突，需显式收窄时再收紧）
+    # 本项目文档与注释为中文，全角括号/引号是正常书写而非"易混淆字符"。
+    "RUF001", "RUF002", "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN", "S101", "PLR2004"]
+"**/__init__.py" = ["F401"]
+# 仓储层的写方法把实体的字段一一对应成关键字参数 —— 参数多是有意的，
+# 参数名本身就是文档。刻意逐列列出，比收成一个 dict 更难写错。
+"infrastructure/database/repositories.py" = ["PLR0913"]
+# 同理：`record_trace` 的参数就是 Langfuse 一条 trace 的字段
+# （name/traceId/sessionId/input/output/metadata）。收成一个 payload dict
+# 只会把这份契约藏进调用点的字典字面量里。
+"infrastructure/observability/langfuse.py" = ["PLR0913"]
+# Alembic 迁移是机器生成的：手写折行会与 `alembic revision` 的输出不一致，
+# 下次 autogenerate 又会打回原形。迁移文件按生成物对待。
+"migrations/versions/*.py" = ["E501"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.format]
+# 与上面的 E501 豁免同源：迁移文件按 Alembic 的生成形态保存，不做手工折行。
+exclude = ["migrations/versions/*.py"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["apps", "core", "agents", "orchestration", "executors", "harness", "knowledge", "evaluation", "infrastructure"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_unused_ignores = true
+disallow_any_generics = true
+plugins = []
+exclude = ["^\\.venv/", "^build/"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+# asyncpg 没有随包发布类型标记。它是运行时硬依赖（异步引擎的驱动），
+# 但类型信息缺失不该阻塞其余代码的类型检查。
+module = ["asyncpg.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# aioboto3 / botocore 同样不发布类型标记（S3 后端的运行时依赖）。
+# 对象存储后端本身有完整注解，缺的是 AWS SDK 的那层。
+module = ["aioboto3.*", "botocore.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "integration: 需要外部服务（PostgreSQL / MinIO / Docker）的集成测试",
+    "slow: 执行耗时较长的测试",
+]
+filterwarnings = ["error", "ignore::DeprecationWarning:httpx.*"]
+
+[tool.coverage.run]
+source = ["apps", "core", "agents", "orchestration", "executors", "harness", "knowledge", "evaluation", "infrastructure"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]
