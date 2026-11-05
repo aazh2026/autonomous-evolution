@@ -13,6 +13,7 @@ TASK-P1-003 / TASK-P1-020 / TASK-P1-022。
 
 from __future__ import annotations
 
+from infrastructure.database.budget import CurrencyConflictError, PostgresBudgetLedger
 from infrastructure.database.engine import (
     build_engine,
     build_session_factory,
@@ -47,10 +48,12 @@ __all__ = [
     "AcceptanceContractError",
     "AgentSessionRepository",
     "CandidateRepository",
+    "CurrencyConflictError",
     "DecisionRepository",
     "InvalidDecisionError",
     "NonExecutableDecisionError",
     "NotFoundError",
+    "PostgresBudgetLedger",
     "RepositoryError",
     "TaskDependencyRepository",
     "TaskRepository",

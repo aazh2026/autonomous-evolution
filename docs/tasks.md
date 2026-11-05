@@ -260,7 +260,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **预估**：0.5d
 - **验证结果**：T1 ① —— `tests/unit/policy/test_autonomy.py::TestInitialBaseline`：`test_autonomous_operations_are_allowed`（参数化 5 个操作，断言 ALLOW 且授予 L4）、`test_merge_to_main_requires_approval`（REQUIRE_APPROVAL + 授予 L2）、`test_dangerous_operations_are_denied`（参数化 `production_deployment` / `modify_governance`，断言 DENY + 授予 L1）、`test_modify_governance_is_advisory_only`（理由含"建议"）；T1 ② —— `::TestPolicyIsExternal`：`test_changing_external_file_changes_decision`（改外部 YAML 后 `merge_to_main` 由 REQUIRE_APPROVAL 变 ALLOW）、`test_baseline_and_external_policy_differ`（内置基线与外部配置对同一操作给出不同结论）、`test_missing_file_falls_back_to_conservative_baseline`（文件缺失回退基线且回退结果仍保守）、`test_incomplete_policy_is_rejected`（缺一条操作规则即拒绝加载 —— 缺规则等于把决定权交给隐式默认值）。T3 —— 实现期代码评审（自审，尚未经第二人复核）：审查结论是本任务原先的 T3 表述"policy 修改需走审批路径存在"**在实现前是假的** —— `AutonomyPolicy.rules` 声明为 `Mapping` 但运行时仍是可写的 `dict`，进程内改一条规则就能放宽权限且不留痕迹。已补上不可改写机制（`core/immutable.py::FrozenDict`，覆盖 `__setitem__` / `__delitem__` / `clear` / `pop` / `popitem` / `setdefault` / `update` 全部 mutator —— `dict.update` 是 C 实现的，不会走 `__setitem__`，只堵一个是不够的），并由 `::TestPolicyCannotBeMutatedInProcess` 断言：`test_rules_mapping_rejects_item_assignment`、参数化 `test_rules_mapping_rejects_every_mutator`（5 个 mutator）、`test_mutating_a_policy_does_not_affect_a_manager`（改写被拒后判定结果原封不动）、`test_policy_manager_exposes_no_mutating_api`（判定器上没有 `set_`/`update`/`grant`/`revoke`/`override`/`patch`/`mutate`/`relax` 开头的公开方法）、`test_policy_still_serializes`（只读化不破坏持久化）。另按 R-063 补 `TaskContext`（`agent_id`/`task_id`/`project_id`/`workspace_id`/`expiry`/`allowed_operations`）与 `check(operation, task_ctx)`：判定顺序为 过期 → 任务范围收窄 → 策略，任务上下文**只能收紧不能放宽**（`test_task_scope_cannot_widen_a_stricter_policy`），同一 Agent 在不同 task 下各有范围（`test_same_agent_in_another_task_has_its_own_scope`）。
 
-### [ ] TASK-P1-012 Budget Manager
+### [x] TASK-P1-012 Budget Manager
 
 - **工作流**：CP
 - **设计要求**：R-013, R-018（§3.1 Budget；管 Token/模型调用/计算资源/时间预算；币种可配置）
@@ -269,6 +269,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证（T1）**：pytest —— ① 扣减超过 `max_daily_cost` 时抛 `BudgetExhausted`；② 并发 10 次扣减总和不超限（无竞态，用真实并发写库验证）；③ 不同 `currency` 配置都能工作（不硬编码 USD）
 - **自主权**：L2
 - **预估**：0.5d
+- **验证结果**：T1 ① —— `tests/unit/policy/test_budget.py::TestConsume`：`test_exceeding_daily_cost_raises`（抛 `BudgetExhausted` 且带上 metric/limit/requested）、`test_rejected_consume_is_not_recorded`（被拒的调用不计入累计额）、`test_rejected_attempt_is_still_auditable`（被拒尝试留痕，`status = blocked`）、`test_exact_limit_is_allowed`（刚好用满上限合法）、`test_negative_amount_is_rejected`；T1 ② —— **真实并发写库**：`tests/integration/test_budget_concurrency.py::TestConcurrentConsume::test_ten_concurrent_consumes_never_exceed_the_limit`，10 个协程经 `asyncio.gather` 同时发起、各自持有独立数据库连接，断言两条不变量："总额 ≤ 上限"与"总额 = 成功次数 × 单次金额"，且成功次数恰为 6（100 / 15 向下取整）。并发正确性靠 PostgreSQL 行级锁（`SELECT … FOR UPDATE`，见 `infrastructure/database/budget.py`）—— 已做反向验证：临时去掉 `.with_for_update()` 后该用例与另外两个并发用例**立即失败**（出现丢失更新，50 记成 20），证明断言有牙而非恒真。数据库层另有两道独立拒绝：累计额只增不减（`ases_budget_account_guard` 触发器，UPDATE 把 `spent` 改小与 DELETE 均被拒）与流水 append-only（UPDATE / DELETE / TRUNCATE 被拒），由 `::TestDatabaseGuards` 五个用例覆盖；T1 ③ —— `::TestCurrencyIsNotHardcoded`：单元层 `test_consume_uses_the_configured_currency` + `Budget(currency="CNY")` 归一化；集成层 `test_non_usd_currency_works` / `test_currency_is_stored_on_the_entry`（CNY / JPY 落库为对应币种）、`test_mixed_currency_on_one_account_is_rejected`（同一账户混算两种币种直接报错 —— 那个数字不再代表任何东西）。另：`InMemoryBudgetLedger`（同进程 `asyncio.Lock`）与 `PostgresBudgetLedger`（跨进程行级锁）共用 `BudgetLedger` 端口，领域逻辑（上限/币种/周期）留在 `core/`；**移除了 `reset_daily()`** —— 日切靠周期键（`day:YYYY-MM-DD`）自动生效，不需要删除任何记录，账本因此保持 append-only（`test_daily_rolls_over_without_deletion` 断言日切后前一天的流水一条不少）。依赖项 TASK-P1-035（成本换算器）负责"Adapter / 账本 / OTel 三处同源"的换算统一，本任务交付它将要接入的账本端口与持久化实现。
 
 ### [x] TASK-P1-013 Project Registry
 
@@ -280,6 +281,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **自主权**：L2
 - **预估**：0.25d
 - **验证结果**：T1 —— `tests/unit/project/test_registry.py`：`::TestRegistration`（注册 / 按 id 查询 / 列举按 id 排序 / `__contains__` / `__len__` / 按仓库查）、`::TestIsolation`（两个项目的目标、policy、预算、**环境配置**互不污染 —— `test_each_project_keeps_its_own_environment` 断言 alpha 的环境是 `{"target": "staging"}` 而 beta 是 `{"target": "prod", "region": "cn-north-1"}`；`test_registered_project_is_immutable` 断言领域模型深度不可变；`test_environment_mapping_is_immutable` 断言环境映射在进程内不可改写）、`::TestPolicyChangeNeedsApproval`（`replace` 无 `approval_ref` 抛 `MissingApprovalError`；有审批则记录 `RegistryChange` 且保留**替换前**的定义；改一个项目不影响另一个；对未注册项目替换抛 `ProjectNotFoundError`）。补上环境配置的原因：design.md §3.1 说 Project Registry 管"仓库、环境和技术栈"，而 `core/project/models.py::Project.environment` 此前在落库时被静默丢弃 —— 已补 ORM 列与迁移 `0002_project_environment`，并在 `tests/integration/test_entity_crud.py` 的往返断言中覆盖；**领域模型 ↔ 持久化实体的转换层此前完全没有测试覆盖**（`grep -rn "from_domain\|to_domain" tests/` 无命中），而转换层正是"字段搬运"这类静默丢数据发生的地方 —— 已补 `tests/unit/entities/test_project_conversion.py::TestEnvironmentSurvivesTheConversion`（`from_domain` 搬、`to_domain` 搬、往返不丢、未配置环境时是空字典而非 `None`），并做反向验证：临时从 `from_domain` 删掉 `environment=` 后三个用例转红，从 `to_domain` 删掉后同样三个用例转红。
+
 
 ### [ ] TASK-P1-014 Stop Conditions 求值与目标达成度计算
 
@@ -1140,7 +1142,7 @@ design.md 的核心主张是"每一轮演进都应产生**可验证的改善**"�
 
 ## 6. 设计文档待裁决项
 
-design.md 存在 6 处**内部不一致**。本文每处给出推荐默认，可直接采用或推翻。
+design.md 有 **8 处**需要裁决的问题：前 6 处是**内部不一致**（同一件事两处说法互相矛盾），后 2 处是**缺口**（该说的没说，导致实现期无处落笔）。本文每处给出推荐默认，可直接采用或推翻。
 
 ### 待裁决 1 — Director 角色数量与目录命名不一致
 
@@ -1202,6 +1204,12 @@ design.md 存在 6 处**内部不一致**。本文每处给出推荐默认，可
 
 - **重建依据**：状态名本身的语义；§6 的四条实现细节（幂等、恢复、取消传播、修复三重上限）；R-051（验收契约必须在 READY→RUNNING 之前）；R-034/R-035（defer 后必须能重新评估）；阶段三的重规划需求。**两条实现约定**：① 目标态等于当前态时是幂等空操作（`changed=False`），且该判定**先于**允许集合判定 —— 否则消息重投会直接抛错；② 进入 RUNNING 前必须已有绑定 `task_id` 的验收契约，这是引擎级闸门，不依赖调用方自觉。
 - **影响任务**：TASK-P1-021, TASK-P1-054, TASK-P1-058
+
+### 待裁决 8 — §3.6 的十二个实体里没有能承载预算累计额的表
+
+- **矛盾**：§3.6 列出十二个核心实体，覆盖项目、演进、执行、证据、知识五类，但**没有任何一张表能承载"已消耗多少预算"**。§3.1 要求 Budget Manager 管 Token / 模型调用 / 计算资源 / 时间预算，R-013 / R-018 要求币种与指标可配置，而 TASK-P1-012 的 T1 ② 明确要求"用**真实并发写库**验证" —— 这要求一张能承载累计额、且能对其加行级锁的表。
+- **推荐默认**：**新增两张表**，作为十二个实体之外的补充：`budget_account`（累计额，主键 `(scope, metric, period)`，靠行级锁串行化扣减）与 `budget_entry`（append-only 流水，每次扣减一条，含被拒绝的尝试）。`scope` 用自由文本列而非项目外键 —— TASK-P1-012 不依赖项目注册，预算口径不该被项目表的生命周期绑住；阶段四多项目时再取 project id。**理由**：把这张表硬塞进现有十二个实体里（例如让 `project.budget` 的 JSONB 兼任账本）会同时失去三样东西 —— 行级锁的粒度（`FOR UPDATE` 锁的是整行，JSONB 里的数字无法单独加锁）、append-only 的可执行性（JSONB 里的数字可以被原地改写，且没有"只增不减"这个概念）、以及账本与项目定义解耦的能力。周期（`day:YYYY-MM-DD` / `lifetime`）做进主键还有一个附带好处：日切不需要删除任何记录，新的一天自然是一行从零开始的累计额 —— 这与 append-only 账本天然相容。
+- **影响任务**：TASK-P1-012, TASK-P1-020（实体数由 12 变 14，`docs/architecture/data-model.md` 与 `tests/unit/database/test_schema.py` 已同步）
 
 ---
 

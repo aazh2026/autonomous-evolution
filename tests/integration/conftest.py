@@ -74,13 +74,23 @@ ALL_TABLES = (
     "project_snapshot",
     "architecture_decision",
     "project",
+    "budget_entry",
+    "budget_account",
 )
 
 #: append-only 表。清理时需要临时关掉 TRUNCATE 守卫 —— 守卫存在的目的
 #: 是挡住误删，不是挡住测试重建环境。
-APPEND_ONLY_TABLES = ("verification_run", "artifact")
+#:
+#: 表名与触发器名遵循 ``trg_{table}_append_only_truncate`` 约定，所以清理逻辑
+#: 不需要为每张表单独配置。
+APPEND_ONLY_TABLES = (
+    "verification_run",
+    "artifact",
+    "budget_entry",
+    "budget_account",
+)
 
-#: 十二个核心实体的表名。
+#: 十二个核心实体 + 两张预算账本表的表名。
 ENTITY_TABLES = ALL_TABLES
 
 

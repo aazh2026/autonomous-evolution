@@ -100,15 +100,52 @@ class TestMigratedDatabase:
             return [row[0] for row in result]
 
     async def test_alembic_version_tracks_head(self, engine: AsyncEngine) -> None:
-        assert await self._alembic_version(engine) == "0002"
+        assert await self._alembic_version(engine) == "0003"
 
-    async def test_twelve_entity_tables_exist(self, engine: AsyncEngine) -> None:
+    async def test_entity_tables_exist(self, engine: AsyncEngine) -> None:
+        """十二个核心表 + 两张预算账本表。
+
+        预算那两张不在 design.md §3.6 的清单里，是设计文档的一处缺口
+        （docs/tasks.md 第 6 节待裁决项 8）。TASK-P1-012 要求"用真实并发写库
+        验证"，而十二个实体里没有任何一张表能承载预算累计额。
+        """
         tables = await self._tables(engine)
-        assert len(tables) == 12, f"应有 12 张核心表，实际 {len(tables)}：{tables}"
+        assert len(tables) == 14, f"应有 14 张表，实际 {len(tables)}：{tables}"
+        assert "budget_account" in tables
+        assert "budget_entry" in tables
 
     async def test_append_only_triggers_exist(self, engine: AsyncEngine) -> None:
+        """append-only 守卫覆盖全部证据表与预算表。
+
+        断言**确切的触发器名集合**而不是个数 —— 个数对了但名字错了，
+        说明某张表没被守卫却恰好数量对上了，那才是真正危险的情况。
+        """
         triggers = await self._triggers(engine)
-        assert len(triggers) == 4, f"应有 4 个 append-only 触发器，实际 {triggers}"
+        assert set(triggers) == {
+            "trg_verification_run_append_only_update_delete",
+            "trg_verification_run_append_only_truncate",
+            "trg_artifact_append_only_update_delete",
+            "trg_artifact_append_only_truncate",
+            "trg_budget_account_append_only_delete",
+            "trg_budget_account_append_only_truncate",
+            "trg_budget_entry_append_only_update_delete",
+            "trg_budget_entry_append_only_truncate",
+        }, f"append-only 触发器集合不符：{triggers}"
+
+    async def test_budget_account_is_monotonic(self, engine: AsyncEngine) -> None:
+        """累计额的"只增不减"守卫在位。
+
+        这个触发器不叫 ``append_only`` —— 它拦的不是"改内容"，是"改小"。
+        允许把累计额改小就等于允许清零，"总额不超限"立刻失效。
+        """
+        async with engine.connect() as conn:
+            result = await conn.execute(
+                text(
+                    "SELECT tgname FROM pg_trigger "
+                    "WHERE NOT tgisinternal AND tgname = 'trg_budget_account_monotonic'"
+                )
+            )
+            assert result.scalar_one() == "trg_budget_account_monotonic"
 
 
 def test_connection_string_is_not_hardcoded() -> None:

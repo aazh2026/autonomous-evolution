@@ -527,10 +527,15 @@ class TestArchitectureDecision:
 
 
 class TestEntityCount:
-    """实体总数与 design.md §3.6 的表格一致。"""
+    """实体总数与 design.md §3.6 的表格一致。
 
-    def test_twelve_entities_are_mapped(self) -> None:
-        assert len(ALL_ENTITIES) == 12
+    十二个核心实体之外还有两张预算账本表（TASK-P1-012）—— 它们不在
+    design.md 的清单里，是设计文档的一处缺口，已在 docs/tasks.md 第 6 节
+    列为待裁决项 8。
+    """
+
+    def test_twelve_core_entities_plus_two_budget_tables_are_mapped(self) -> None:
+        assert len(ALL_ENTITIES) == 14
 
     async def test_every_entity_has_a_table(self, session: AsyncSession) -> None:
         tables = await session.execute(
@@ -553,6 +558,8 @@ class TestEntityCount:
             "artifact",
             "architecture_decision",
             "evolution_cycle",
+            "budget_account",
+            "budget_entry",
         }
 
 

@@ -1,10 +1,14 @@
-"""TASK-P1-020 —— 十二个核心实体的 schema 断言（不需要数据库）。
+"""TASK-P1-020 —— 核心实体的 schema 断言（不需要数据库）。
 
 这些断言在**元数据**层面检查结构：字段存在、约束存在、外键指向正确。
 它们不连库 —— 连库的版本在 ``tests/integration/test_entity_crud.py``。
 
 之所以两层都要：元数据断言跑得快、每次都跑，能第一时间发现"有人改了
 模型但忘了改迁移"；集成断言连真库，确认约束在 PostgreSQL 里真的生效。
+
+表的数量是**十四个**而不是十二个：十二个核心实体之外还有两张预算账本表
+（TASK-P1-012）。它们不在 design.md §3.6 的清单里，是设计文档的一处缺口，
+已在 docs/tasks.md 第 6 节列为待裁决项 8。
 """
 
 from __future__ import annotations
@@ -27,6 +31,8 @@ EXPECTED_TABLES = {
     "artifact",
     "architecture_decision",
     "evolution_cycle",
+    "budget_account",
+    "budget_entry",
 }
 
 
@@ -46,10 +52,10 @@ def _constraint_texts(table_name: str) -> list[str]:
 class TestEntitySet:
     """实体与表。"""
 
-    def test_twelve_entities_are_defined(self) -> None:
-        assert len(ALL_ENTITIES) == 12
+    def test_twelve_core_entities_plus_two_budget_tables_are_defined(self) -> None:
+        assert len(ALL_ENTITIES) == 14
 
-    def test_twelve_tables_are_mapped(self) -> None:
+    def test_all_tables_are_mapped(self) -> None:
         tables = set(Base.metadata.tables) - {"alembic_version"}
         assert tables == EXPECTED_TABLES
 
@@ -252,3 +258,50 @@ class TestConstraintNaming:
         for table in Base.metadata.tables.values():
             for index in table.indexes:
                 assert index.name
+
+
+class TestBudgetLedger:
+    """TASK-P1-012 —— 预算账本的结构。"""
+
+    def test_account_primary_key_is_scope_metric_period(self) -> None:
+        """周期是主键的一部分 —— 所以日切不需要删除任何行。"""
+        table = _table("budget_account")
+        assert {column.name for column in table.primary_key.columns} == {
+            "scope",
+            "metric",
+            "period",
+        }
+
+    def test_account_spent_is_not_nullable(self) -> None:
+        assert _table("budget_account").columns["spent"].nullable is False
+
+    def test_account_currency_is_not_nullable(self) -> None:
+        """累计额必须带单位 —— 没有币种的数字说明不了任何事。"""
+        assert _table("budget_account").columns["currency"].nullable is False
+
+    def test_entry_has_amount_currency_and_status(self) -> None:
+        columns = _table("budget_entry").columns
+        assert "amount" in columns
+        assert "currency" in columns
+        assert "status" in columns
+
+    def test_entry_references_account_on_all_three_columns(self) -> None:
+        """联合外键三列齐全 —— 少一列就会出现"流水挂在别的账户上"。"""
+        targets = {
+            (element.parent.name, element.column.name)
+            for constraint in _table("budget_entry").constraints
+            if isinstance(constraint, ForeignKeyConstraint)
+            for element in constraint.elements
+        }
+        assert targets == {
+            ("scope", "scope"),
+            ("metric", "metric"),
+            ("period", "period"),
+        }
+
+    def test_entry_cannot_be_deleted_with_its_account(self) -> None:
+        """删账户会连带删流水 —— 那是抹掉花费的证据，必须被挡住。"""
+        for constraint in _table("budget_entry").constraints:
+            if isinstance(constraint, ForeignKeyConstraint):
+                for element in constraint.elements:
+                    assert element.ondelete == "RESTRICT"

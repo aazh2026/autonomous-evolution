@@ -1,8 +1,8 @@
-# 数据模型 —— 十二个核心实体
+# 数据模型 —— 十二个核心实体 + 预算账本
 
 设计依据：`docs/design.md` §3.6（核心数据模型、四类存储职责分离）、
 `docs/tasks.md` TASK-P1-020（schema 与迁移）、TASK-P1-022（三表分离约束）、
-TASK-P1-024（证据 append-only）。
+TASK-P1-024（证据 append-only）、TASK-P1-012（预算账本）。
 
 这份文档是**从代码生成后手工整理**的，权威来源是 `core/entities/` 下的 ORM
 模型与 `migrations/versions/` 下的迁移脚本。`tests/unit/database/test_data_model_doc.py`
@@ -24,7 +24,7 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 
 ## 1. 实体总览
 
-十二个实体，四组归属：
+十二个核心实体，四组归属；外加两张**预算账本**表（第五组）：
 
 | 组 | 实体 | 表名 | 作用 |
 | --- | --- | --- | --- |
@@ -40,6 +40,12 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 | 证据 | `VerificationRun` | `verification_run` | 验收记录（检查项 / 结果） |
 | 证据 | `Artifact` | `artifact` | 交付证据（URI / hash / 类型） |
 | 知识 | `ArchitectureDecision` | `architecture_decision` | 架构决策（背景 / 决策 / 取舍） |
+| 预算 | `BudgetAccount` | `budget_account` | 预算累计额（归属 / 维度 / 周期 → 已花） |
+| 预算 | `BudgetEntry` | `budget_entry` | 预算流水（append-only，每次扣减一条） |
+
+> **预算那两张表不在 `docs/design.md` §3.6 的清单里** —— 那是设计文档的一处缺口，
+> 已在 `docs/tasks.md` 第 6 节列为待裁决项 8。补它们的理由很直接：TASK-P1-012
+> 要求"用真实并发写库验证"，而十二个实体里没有任何一张表能承载预算累计额。
 
 > `core.entities.Project`（ORM 实体）与 `core.project.models.Project`（纯领域模型）
 > 是两个同名但不同层的对象。前者负责落库，后者负责校验。两者之间用
@@ -75,10 +81,17 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 | `execution_event` | `project_id` | `project` | `id` | RESTRICT |
 | `execution_event` | `task_id` | `task` | `id` | RESTRICT |
 | `execution_event` | `session_id` | `agent_session` | `id` | CASCADE |
+| `budget_entry` | `scope` | `budget_account` | `scope` | RESTRICT |
+| `budget_entry` | `metric` | `budget_account` | `metric` | RESTRICT |
+| `budget_entry` | `period` | `budget_account` | `period` | RESTRICT |
 
 **唯一的 CASCADE** 是 `execution_event.session_id → agent_session.id`：
 会话是一次性的尝试，它的轨迹随会话一起消失是合理的。其余全部 RESTRICT ——
 删项目之前必须先想清楚，历史证据、决策链、任务链都不该被级联抹掉。
+
+`budget_entry → budget_account` 是**三列联合外键**（`scope` + `metric` + `period`）。
+拆成三行写是因为本表一列一行；实际在库里是一个 `ForeignKeyConstraint`，
+指向联合主键 `(scope, metric, period)`。
 
 ### 2.2 图版
 
@@ -113,6 +126,8 @@ erDiagram
     verification_run ||--o{ artifact : "产出"
     architecture_decision ||--o| architecture_decision : "取代"
 
+    budget_account ||--o{ budget_entry : "流水"
+
     project {
         string id PK
         string name
@@ -145,6 +160,22 @@ erDiagram
         numeric priority
         string status
         json acceptance_contract
+    }
+    budget_account {
+        string scope PK
+        string metric PK
+        string period PK
+        string currency
+        numeric spent
+    }
+    budget_entry {
+        uuid id PK
+        string scope FK
+        string metric FK
+        string period FK
+        numeric amount
+        string currency
+        string status
     }
 ```
 
@@ -221,6 +252,27 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 `artifact.hash` 存的是内容摘要，CHECK 约束 `char_length(hash) = 64`。
 校验在**读取时**做，不是写入时 —— 写入时校验只能证明"写进去的是对的"，
 读时校验才能证明"现在拿到的还是对的"。
+
+### 4.1 预算账本：累计额只增不减（TASK-P1-012）
+
+预算账本有两道**数据库层的拒绝**（`migrations/versions/0003_budget_ledger.py`）：
+
+| 触发器 | 表 | 拒绝什么 |
+| --- | --- | --- |
+| `trg_budget_account_monotonic` | `budget_account` | 把 `spent` 改小的 UPDATE |
+| `trg_budget_account_append_only_delete` | `budget_account` | DELETE |
+| `trg_budget_account_append_only_truncate` | `budget_account` | TRUNCATE |
+| `trg_budget_entry_append_only_update_delete` | `budget_entry` | UPDATE / DELETE |
+| `trg_budget_entry_append_only_truncate` | `budget_entry` | TRUNCATE |
+
+第一条与 append-only 不同：它拦的不是"改内容"，是"**改小**"。预算是防超支的
+闸门，而闸门最怕的就是有人能把计数器调回去 —— 允许改小就等于允许清零，
+"总额不超限"这条不变量立刻失效。
+
+并发正确性不靠这一层，靠的是应用层的行级锁（`SELECT … FOR UPDATE`，
+见 `infrastructure/database/budget.py`）：在 PostgreSQL 的 READ COMMITTED 下，
+拿到锁之后会重新读取该行的最新已提交版本，于是"查余额"与"扣减"之间没有缝隙。
+数据库触发器负责的是"绕过应用层也改不动"，两件事分开做。
 
 ## 5. 身份：Agent 身份 ≠ 任务身份（R-063）
 
@@ -437,6 +489,41 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 
 索引：`ix_architecture_decision_project_id_created_at`。
 
+### 6.13 `budget_account`
+
+| 列 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `scope` | VARCHAR(64) | PK 之一 | 预算归属。阶段一固定值，阶段四取 project id |
+| `metric` | VARCHAR(32) | PK 之一 | 计量维度：`daily_cost` / `token_usage` / … |
+| `period` | VARCHAR(32) | PK 之一 | 周期键。`day:2026-11-06` 或 `lifetime` |
+| `currency` | VARCHAR(16) | NOT NULL | 币种。累计额的单位，不能混算 |
+| `spent` | NUMERIC(20,6) | NOT NULL | 已消耗额。**只增不减**（触发器强制） |
+| `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+联合主键 `(scope, metric, period)`。周期是主键的一部分，所以**日切不需要删除
+任何行** —— 新的一天是一行新的累计额，累计额自然从零开始。这对 append-only
+的账本是硬要求：账本不允许删除，日切就不能靠删除实现。
+
+索引：`ix_budget_account_scope_metric`。
+
+### 6.14 `budget_entry`
+
+| 列 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `id` | UUID | PK | |
+| `scope` | VARCHAR(64) | FK → budget_account | 三列联合外键 |
+| `metric` | VARCHAR(32) | FK → budget_account | |
+| `period` | VARCHAR(32) | FK → budget_account | |
+| `amount` | NUMERIC(20,6) | NOT NULL | 本次扣减额 |
+| `currency` | VARCHAR(16) | NOT NULL | |
+| `status` | VARCHAR(16) | NOT NULL | `recorded`（真扣了）/ `blocked`（超限被拒） |
+| `recorded_at` | TIMESTAMPTZ | NOT NULL | |
+
+**append-only。** 索引：`ix_budget_entry_scope_metric_recorded_at`。
+
+被拒绝的扣减尝试也留痕（`status = 'blocked'`）—— "系统试图超预算但被拦住了"
+本身就是需要被看见的事实，尤其是当它反复发生时。
+
 ## 7. 命名的三条约定
 
 1. **表名复数、单数混乱** —— 一律单数下划线（`evolution_candidate`）。
@@ -455,6 +542,7 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 | --- | --- |
 | `0001` | 十二张表 + 三表分离约束 + 验收契约 CHECK + 决策三态 CHECK + append-only 触发器 |
 | `0002` | `project.environment` 列（JSONB）—— 领域模型有、库里缺 |
+| `0003` | 预算账本两表 + 累计额单调守卫 + 预算流水 append-only 触发器 |
 
 迁移工具链的验证见 `tests/integration/test_migrations.py`：
 `upgrade head` → `downgrade base` → `upgrade head` 可逆；空库从零迁移 < 30s；
@@ -467,7 +555,9 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 ## 9. 相关文档
 
 - `docs/design.md` —— 系统总设计
-- `docs/tasks.md` —— 任务清单（本模型的验收标准在 TASK-P1-020 / 022 / 024）
+- `docs/tasks.md` —— 任务清单（本模型的验收标准在 TASK-P1-020 / 022 / 024 / 012）
 - `core/entities/` —— ORM 模型（本文档的权威来源）
 - `migrations/versions/` —— 迁移脚本
 - `core/task/state_machine.py` —— 14 态状态机
+- `core/policy/budget.py` —— 预算领域逻辑与账本端口
+- `infrastructure/database/budget.py` —— 数据库预算账本（行级锁）
