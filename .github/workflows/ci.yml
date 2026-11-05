@@ -65,28 +65,14 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-      minio:
-        # 不是 `minio/minio` —— 上游已于 2026-09-11 从 Docker Hub 删除该仓库
-        # （2026-09-24 quay.io 匿名拉取也转为 401）。GitHub runner 上拉它会直接
-        # 报 "pull access denied" 并让整个集成测试 job 起不来。
-        # 改用 MinIO 社区分支 pgsty/silo：S3 协议、凭证环境变量、启动形态、
-        # on-disk 格式全部兼容，含健康检查所需的 `mc`。版本钉死以保证可复现。
-        image: pgsty/silo:RELEASE.2026-10-26T00-00-00Z
-        env:
-          MINIO_ROOT_USER: minioadmin
-          MINIO_ROOT_PASSWORD: minioadmin
-        ports:
-          - 9000:9000
-        options: >-
-          --health-cmd "mc ready local"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       ASES_DATABASE_URL: postgresql+asyncpg://ases:ases@localhost:5432/ases_test
-      ASES_S3_ENDPOINT_URL: http://localhost:9000
-      ASES_S3_ACCESS_KEY: minioadmin
-      ASES_S3_SECRET_KEY: minioadmin
+      # 集成测试读的是 ASES_TEST_S3_* 这一组，不是应用自己的 ASES_S3_*。
+      # 两个前缀混用的话，测试会拿着默认端口 9100 去连 9000 上的服务 ——
+      # 症状是"连接被拒"，看起来像服务没起来，实际是指错了地方。
+      ASES_TEST_S3_ENDPOINT_URL: http://localhost:9000
+      ASES_TEST_S3_ACCESS_KEY: minioadmin
+      ASES_TEST_S3_SECRET_KEY: minioadmin
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
@@ -94,7 +80,61 @@ jobs:
           enable-cache: true
       - name: 安装依赖
         run: uv sync --all-extras
+      # 对象存储用 docker run 启，不用 services:。
+      #
+      # services: 无法给容器指定启动命令，而这个镜像的默认 CMD 是 `silo`
+      # （只打印用法就退出）—— 必须显式给 `server /data`。
+      # 顺带说明：镜像不是 `minio/minio` —— 上游已于 2026-09-11 从 Docker Hub
+      # 删除该仓库（2026-09-24 quay.io 匿名拉取也转为 401）。改用 MinIO 社区
+      # 分支 pgsty/silo：S3 协议、凭证环境变量、启动形态全部兼容，
+      # 含健康检查所需的 `mc`。版本钉死以保证可复现。
+      - name: 启动对象存储
+        run: |
+          docker run -d --name minio \
+            -p 9000:9000 \
+            -e MINIO_ROOT_USER=minioadmin \
+            -e MINIO_ROOT_PASSWORD=minioadmin \
+            pgsty/silo:RELEASE.2026-10-26T00-00-00Z server /data
+          for i in $(seq 1 30); do
+            if docker exec minio mc ready local >/dev/null 2>&1; then
+              echo "对象存储已就绪（${i}s）"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::对象存储在 30s 内未就绪"
+          docker logs minio
+          exit 1
       - name: 数据库迁移
         run: uv run alembic upgrade head
+      # 本地全栈那一组单独跑一个 job（见下方 local-stack）。
+      # 在这里跑会有端口冲突：它的 compose 栈要占 5432，而本 job 的
+      # postgres service 容器已经占着这个端口 —— compose up 会失败，
+      # 那几个测试就会以"跳过"收场，等于什么都没验。
       - name: pytest（含 integration）
-        run: uv run pytest -m integration
+        run: uv run pytest -m integration --ignore=tests/integration/test_local_stack.py
+
+  # docker-compose.yml 本身是 TASK-P1-007 的交付物 —— 如果没有自动化检查，
+  # 一个改坏的 compose 文件能一路绿灯合入。所以单开一个 job 跑它。
+  #
+  # 单独一个 job 而不是塞进 integration job，有两个原因：
+  #
+  # 1. **端口**：它要起自己的 compose 栈（postgres 宿主机 5432），与
+  #    integration job 的 postgres service 容器冲突 —— 两个 job 各有各的
+  #    runner，就不冲突了。
+  # 2. **时间**：它要构建应用镜像、还要把栈完整地停掉再起两遍
+  #    （验证卷持久化与启动预算）。这些加起来好几分钟；单开 job 之后
+  #    它与 integration job **并行**，整个 workflow 的墙钟时间取两者较大值，
+  #    而不是相加 —— TASK-P1-001 的 T2 要求整条流水线 < 5 分钟。
+  local-stack:
+    name: 本地全栈
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: 安装依赖
+        run: uv sync --all-extras
+      - name: 全栈启动与验收
+        run: uv run pytest tests/integration/test_local_stack.py -v
