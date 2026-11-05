@@ -28,17 +28,20 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.entities import (
     AgentSession,
     EvolutionCandidate,
+    EvolutionCycle,
     EvolutionDecision,
     Task,
     TaskDependency,
 )
 from core.entities.base import utcnow
+from core.metrics import cycle as cycle_domain
+from core.metrics.cycle import CycleCounts, CycleStatus
 from core.task.state_machine import TaskAction, TaskState, TransitionContext, apply_action
 
 #: 决策三态（tasks.md TASK-P1-054）。
@@ -82,6 +85,18 @@ class NonExecutableDecisionError(RepositoryError):
 
 class AcceptanceContractError(RepositoryError):
     """验收契约缺失或与任务不匹配（R-051）。"""
+
+
+class DuplicateCycleError(RepositoryError):
+    """周期编号重复。
+
+    ``cycle_id`` 是全局唯一的人类可读编号。重复意味着两轮演进的记录会
+    混在一起 —— 计数对不上，证据串了，而表面上看不出来。
+    """
+
+    def __init__(self, cycle_id: str) -> None:
+        super().__init__(f"周期编号 {cycle_id!r} 已经存在")
+        self.cycle_id = cycle_id
 
 
 class CandidateRepository:
@@ -304,6 +319,146 @@ class TaskRepository:
         return task
 
 
+class CycleRepository:
+    """演进周期的仓储。
+
+    **计数由数据库数出来，不接受调用方声明。** 周期记录里写"这一轮发现了
+    5 个候选"而库里躺着 3 个，是最容易被忽略也最伤信任的一种偏差 —— 记录
+    看起来很完整，但它描述的不是实际发生的事。所以 :meth:`close_cycle`
+    自己数，自己写。
+
+    计数必须**按周期**数，不能按项目数。这两者的差别在多周期并行时才会显
+    出来，而那正是最需要这份记录准确的时刻：统计口径错了，"这一轮到底做
+    成了什么"就再也答不上来。
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def open_cycle(
+        self,
+        *,
+        project_id: str,
+        cycle_id: str,
+        trigger: str,
+        started_at: datetime | None = None,
+    ) -> EvolutionCycle:
+        """开一个周期。
+
+        周期在**开始时**就要落库 —— 候选与决策挂在它身上（``cycle_id``
+        外键）。事后补记的周期挂不住那一轮已经产生的东西，那一轮的产出就
+        永远算不进它的计数里。
+        """
+        existing = await self._session.scalar(
+            select(EvolutionCycle).where(EvolutionCycle.cycle_id == cycle_id)
+        )
+        if existing is not None:
+            raise DuplicateCycleError(cycle_id)
+
+        row = EvolutionCycle(
+            project_id=project_id,
+            cycle_id=cycle_id,
+            trigger=trigger,
+            status=None,
+            outcome=None,
+            metrics={},
+            started_at=started_at or utcnow(),
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return row
+
+    async def get(self, cycle_uuid: uuid.UUID) -> EvolutionCycle:
+        row = await self._session.get(EvolutionCycle, cycle_uuid)
+        if row is None:
+            raise NotFoundError("演进周期", cycle_uuid)
+        return row
+
+    async def counts(self, cycle_uuid: uuid.UUID) -> CycleCounts:
+        """数出这个周期里实际有多少候选 / 决策 / 任务 / 已完成任务。
+
+        任务没有 ``cycle_id`` 列 —— 它挂在决策下面，决策挂在周期下面。所以
+        任务要**穿过决策**才能归到周期上。这条链路断一处，计数就多算或
+        少算，而数字看上去仍然"像个整数"。
+        """
+        candidates = await self._session.scalar(
+            select(func.count())
+            .select_from(EvolutionCandidate)
+            .where(EvolutionCandidate.cycle_id == cycle_uuid)
+        )
+        decisions = await self._session.scalar(
+            select(func.count())
+            .select_from(EvolutionDecision)
+            .where(EvolutionDecision.cycle_id == cycle_uuid)
+        )
+        tasks = await self._session.scalar(
+            select(func.count())
+            .select_from(Task)
+            .join(EvolutionDecision, EvolutionDecision.id == Task.decision_id)
+            .where(EvolutionDecision.cycle_id == cycle_uuid)
+        )
+        completed = await self._session.scalar(
+            select(func.count())
+            .select_from(Task)
+            .join(EvolutionDecision, EvolutionDecision.id == Task.decision_id)
+            .where(
+                EvolutionDecision.cycle_id == cycle_uuid,
+                Task.status == TaskState.COMPLETED.value,
+            )
+        )
+        return CycleCounts(
+            candidates=candidates or 0,
+            decisions=decisions or 0,
+            tasks=tasks or 0,
+            completed_tasks=completed or 0,
+        )
+
+    async def close_cycle(
+        self,
+        cycle_uuid: uuid.UUID,
+        *,
+        status: CycleStatus,
+        attainment_before: Decimal | None = None,
+        attainment_after: Decimal | None = None,
+        cost: Decimal = Decimal(0),
+        currency: str = "",
+        evidence_refs: Sequence[str] = (),
+        ended_at: datetime | None = None,
+    ) -> EvolutionCycle:
+        """结束一个周期，写入完整记录。
+
+        结局（improved / no_change / regressed / stalled）由领域模型判定，
+        **不接受外部指定** —— 给了也能被改写，那这份记录就不再是判定结果，
+        而是"某个人声称的结果"。
+        """
+        row = await self.get(cycle_uuid)
+        if row.ended_at is not None:
+            raise InvalidDecisionError(f"周期 {row.cycle_id!r} 已经结束过了，不能重复结束")
+
+        record = cycle_domain.EvolutionCycle.build(
+            project_id=row.project_id,
+            cycle_id=row.cycle_id,
+            trigger=row.trigger,
+            started_at=row.started_at or utcnow(),
+            ended_at=ended_at or utcnow(),
+            status=status,
+            counts=await self.counts(cycle_uuid),
+            attainment_before=attainment_before,
+            attainment_after=attainment_after,
+            cost=cost,
+            currency=currency,
+            evidence_refs=tuple(evidence_refs),
+        )
+
+        stored = EvolutionCycle.from_domain(record)
+        row.status = stored.status
+        row.outcome = stored.outcome
+        row.metrics = stored.metrics
+        row.ended_at = stored.ended_at
+        await self._session.flush()
+        return row
+
+
 class TaskDependencyRepository:
     """任务依赖的仓储。"""
 
@@ -376,7 +531,9 @@ __all__ = [
     "AcceptanceContractError",
     "AgentSessionRepository",
     "CandidateRepository",
+    "CycleRepository",
     "DecisionRepository",
+    "DuplicateCycleError",
     "InvalidDecisionError",
     "NonExecutableDecisionError",
     "NotFoundError",

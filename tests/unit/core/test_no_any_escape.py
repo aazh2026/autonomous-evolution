@@ -39,9 +39,9 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 #:
 #: 每一项都必须能回答："这里为什么不得不动态？"答不上来的就该改代码。
 #:
-#: - ``core.policy.autonomy`` / ``core.policy.budget`` / ``core.project.models``：
-#:   定义 Pydantic 模型 —— mypy 把继承自 ``BaseModel.__init__`` 的
-#:   ``Any`` 记在子类定义行上。
+#: - ``core.policy.autonomy`` / ``core.policy.budget`` / ``core.project.models`` /
+#:   ``core.metrics.cycle``：定义 Pydantic 模型 —— mypy 把继承自
+#:   ``BaseModel.__init__`` 的 ``Any`` 记在子类定义行上。
 #: - ``infrastructure.config.settings``：``BaseSettings`` 同上。
 #: - ``infrastructure.storage.object_store``：aioboto3 / botocore 不发布
 #:   类型标记，S3 客户端的方法面由 botocore 在运行时按服务模型校验。
@@ -51,6 +51,7 @@ ALLOWED_ANY_MODULES: dict[str, str] = {
     "core.policy.autonomy": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.policy.budget": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.project.models": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "core.metrics.cycle": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "infrastructure.config.settings": "Pydantic BaseSettings —— 继承自 BaseModel.__init__ 的 Any",
     "infrastructure.storage.object_store": "aioboto3 / botocore 无类型标记，客户端方法面是动态的",
     "tests.*": "测试用 Any 造动态结构的假数据 —— 被断言的对象本身就是动态的",

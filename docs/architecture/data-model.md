@@ -328,11 +328,20 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 | `project_id` | VARCHAR(64) | FK → project, NOT NULL | |
 | `cycle_id` | VARCHAR(64) | NOT NULL, UNIQUE | 周期编号 |
 | `trigger` | VARCHAR(64) | NOT NULL | 六种触发源之一 |
-| `outcome` | VARCHAR(64) | | |
-| `metrics` | JSONB | NOT NULL | |
+| `status` | VARCHAR(32) | CHECK | 周期**怎么**结束：completed / aborted / budget_exhausted / blocked。空 = 还没结束 |
+| `outcome` | VARCHAR(64) | CHECK | 这一轮**有没有变好**：improved / no_change / regressed / stalled。空 = 还没结束 |
+| `metrics` | JSONB | NOT NULL | 计数 / 达成度快照 / 成本 / 证据引用 |
 | `started_at` / `ended_at` | TIMESTAMPTZ | | |
 
 索引：`ix_evolution_cycle_project_id_started_at`。
+
+约束：`ck_evolution_cycle_evolution_cycle_status_values`、
+`ck_evolution_cycle_evolution_cycle_outcome_values`。
+
+**为什么"怎么结束"和"有没有变好"是两个字段。** 两件事都叫"结局"，但它们是
+两个维度：一轮被预算掐断的周期，`status` 是 `budget_exhausted`，`outcome` 是
+`stalled` —— 跑完了（虽然是掐断的），但没变好。合成一个字段，就必然丢掉其中
+一个。详见 `core/metrics/cycle.py`。
 
 ### 6.4 `evolution_candidate`
 

@@ -72,6 +72,11 @@ ignore = [
 # 重写 Pydantic 的 `model_validate` 时把六个关键字参数逐字列出，是类型安全的
 # 做法 —— 用 `**kwargs` 会把参数类型整个吞掉。参数多是被迫的，不是疏忽。
 "core/project/models.py" = ["PLR0913"]
+# 同理：`EvolutionCycle.build` 是周期记录的**唯一**构造入口，它把"结局"从
+# 外部输入变成判定结果。所以字段必须逐个列全 —— 少传一个达成度快照，
+# 没人会注意到，可它恰好是"这轮到底变没变好"的唯一依据。全部关键字参数，
+# 参数名本身就是文档。
+"core/metrics/cycle.py" = ["PLR0913"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
@@ -112,6 +117,7 @@ module = [
     "core.policy.autonomy",
     "core.policy.budget",
     "core.project.models",
+    "core.metrics.cycle",
     "infrastructure.config.settings",
 ]
 disallow_any_explicit = false

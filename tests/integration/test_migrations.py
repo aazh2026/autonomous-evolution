@@ -100,7 +100,13 @@ class TestMigratedDatabase:
             return [row[0] for row in result]
 
     async def test_alembic_version_tracks_head(self, engine: AsyncEngine) -> None:
-        assert await self._alembic_version(engine) == "0003"
+        """数据库版本必须等于当前的 head。
+
+        这里刻意**写死**版本号而不是从 ``migrations/versions/`` 里读 —— 写死
+        的意思是：每加一个迁移，都要有人回来改这一行，因而不得不看一眼新
+        迁移到底做了什么。自动读出来的话，这行永远是对的，也就永远没人看。
+        """
+        assert await self._alembic_version(engine) == "0004"
 
     async def test_entity_tables_exist(self, engine: AsyncEngine) -> None:
         """十二个核心表 + 两张预算账本表。

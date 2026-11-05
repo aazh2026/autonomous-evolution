@@ -25,6 +25,8 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, St
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.entities.base import Base, JSONDocument, TimestampMixin, UUIDPrimaryKeyMixin
+from core.metrics import cycle
+from core.metrics.cycle import CycleNotClosedError, CycleRecordError
 
 if TYPE_CHECKING:
     from core.entities.task import Task
@@ -35,6 +37,18 @@ class EvolutionCycle(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     周期是"一次循环 B"的边界：一次观察 → 发现 → 决策 → 规划。跨周期的
     证据必须留存（R-099），因此周期只增不改、不做清理。
+
+    **同名不同层**：``core.metrics.cycle.EvolutionCycle`` 是**领域模型**（纯
+    Python，可独立校验与比较）；这里是**持久化实体**。
+
+    **两个结局字段不是一回事**：``status`` 说周期**怎么**结束的
+    （completed / aborted / budget_exhausted / blocked），``outcome`` 说这一轮
+    **有没有变好**（improved / no_change / regressed / stalled）。一轮被预算
+    掐断的周期，跑完了但没变好 —— status 是 ``budget_exhausted``，outcome
+    是 ``stalled``。两个词都叫"结局"，合成一个字段就会丢掉其中一个维度。
+
+    ``outcome`` 的取值由数据库 CHECK 约束把关：绕过应用层写进一个自造的
+    字符串，周期记录就失去了作为审计依据的意义。
     """
 
     __tablename__ = "evolution_cycle"
@@ -46,7 +60,10 @@ class EvolutionCycle(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     cycle_id: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
     #: 触发来源（commit / test_failure / defect / schedule / …）。阶段三补齐枚举。
     trigger: Mapped[str] = mapped_column(String(64), nullable=False, default="schedule")
-    #: 周期结局：completed / aborted / budget_exhausted / blocked / …
+    #: 周期**怎么**结束的。空表示周期还没结束。
+    status: Mapped[str | None] = mapped_column(String(32))
+    #: 这一轮**有没有变好**：improved / no_change / regressed / stalled。
+    #: 空表示周期还没结束（此时还不存在"这一轮怎么样"这个问题）。
     outcome: Mapped[str | None] = mapped_column(String(64))
     metrics: Mapped[dict[str, object]] = mapped_column(JSONDocument, nullable=False, default=dict)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -58,7 +75,105 @@ class EvolutionCycle(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     __table_args__ = (
         Index("ix_evolution_cycle_project_id_started_at", "project_id", "started_at"),
+        CheckConstraint(
+            "outcome IS NULL OR outcome IN ('improved', 'no_change', 'regressed', 'stalled')",
+            name="evolution_cycle_outcome_values",
+        ),
+        CheckConstraint(
+            "status IS NULL OR status IN ('completed', 'aborted', 'budget_exhausted', 'blocked')",
+            name="evolution_cycle_status_values",
+        ),
     )
+
+    def to_domain(self) -> cycle.EvolutionCycle:
+        """还原成领域模型。
+
+        周期还没结束时还原会失败 —— 一个"进行中"的周期没有 outcome，也没有
+        达成度差值，还原成完整记录等于凭空造出结论。
+
+        计数缺失时同样失败。计数是"这一轮实际做了什么"的**唯一**凭据；缺了
+        它却还原出一个全 0 的记录，等于凭空断言"这一轮什么都没做" ——
+        那是一种不会报错的谎。
+        """
+        if self.ended_at is None or self.outcome is None or self.status is None:
+            raise CycleNotClosedError(self.cycle_id)
+        raw_counts = self.metrics.get("counts")
+        if raw_counts is None:
+            raise CycleRecordError(f"周期 {self.cycle_id!r} 缺少计数，无法还原为完整记录")
+        return cycle.EvolutionCycle(
+            project_id=self.project_id,
+            cycle_id=self.cycle_id,
+            trigger=self.trigger,
+            started_at=self.started_at or self.ended_at,
+            ended_at=self.ended_at,
+            status=cycle.CycleStatus(self.status),
+            outcome=cycle.CycleOutcome(self.outcome),
+            outcome_reason=str(self.metrics.get("outcome_reason", "")),
+            counts=cycle.CycleCounts.model_validate(raw_counts),
+            attainment_before=_optional_decimal(self.metrics.get("attainment_before")),
+            attainment_after=_optional_decimal(self.metrics.get("attainment_after")),
+            cost=_optional_decimal(self.metrics.get("cost")) or Decimal(0),
+            currency=str(self.metrics.get("currency", "")),
+            evidence_refs=_evidence_refs(self.metrics.get("evidence_refs")),
+        )
+
+    @classmethod
+    def from_domain(cls, record: cycle.EvolutionCycle) -> EvolutionCycle:
+        """由领域模型构造持久化实体（尚未落库）。"""
+        return cls(
+            project_id=record.project_id,
+            cycle_id=record.cycle_id,
+            trigger=record.trigger,
+            status=record.status.value,
+            outcome=record.outcome.value,
+            metrics={
+                "outcome_reason": record.outcome_reason,
+                "counts": record.counts.model_dump(),
+                "attainment_before": _dump_decimal(record.attainment_before),
+                "attainment_after": _dump_decimal(record.attainment_after),
+                "cost": _dump_decimal(record.cost),
+                "currency": record.currency,
+                "evidence_refs": list(record.evidence_refs),
+            },
+            started_at=record.started_at,
+            ended_at=record.ended_at,
+        )
+
+
+def _optional_decimal(value: object) -> Decimal | None:
+    """从 JSON 里取一个可选的十进制数。
+
+    JSON 没有十进制类型，``Decimal`` 存进去会变成字符串或浮点数。浮点数会
+    丢精度（``0.1 + 0.2 != 0.3`` 这类），达成度差值算错一点点就可能把
+    "没变"判成"变好了"。所以这里显式转回 ``Decimal``。
+    """
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
+def _dump_decimal(value: Decimal | None) -> str | None:
+    """把十进制数存成字符串（JSON 里没有十进制类型）。"""
+    return None if value is None else str(value)
+
+
+def _evidence_refs(value: object) -> tuple[str, ...]:
+    """从 JSON 里取证据引用列表。
+
+    JSON 里的列表元素类型不固定。这里要求每一项都是字符串 —— 证据引用要么
+    指得到一个东西，要么什么都不指。把一个字符串当成序列拆成一个个字符当
+    引用，是最糟的一种错法：它不报错，只是让记录看起来"有证据"。
+    """
+    if value is None:
+        return ()
+    if not isinstance(value, (list, tuple)):
+        raise CycleRecordError(f"证据引用必须是列表，收到 {type(value).__name__}")
+    for item in value:
+        if not isinstance(item, str):
+            raise CycleRecordError(f"证据引用必须是字符串，收到 {type(item).__name__}")
+    return tuple(value)
 
 
 class EvolutionCandidate(UUIDPrimaryKeyMixin, TimestampMixin, Base):

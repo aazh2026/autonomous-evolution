@@ -187,7 +187,7 @@ class TestCrossCycleDurability:
         task = await _seed_task(session)
 
         cycle_one = EvolutionCycle(
-            project_id="p-evidence", cycle_id="cycle-0001", trigger="schedule", outcome="completed"
+            project_id="p-evidence", cycle_id="cycle-0001", trigger="schedule"
         )
         session.add(cycle_one)
         await session.flush()
@@ -211,9 +211,7 @@ class TestCrossCycleDurability:
         await session.commit()
 
         # --- 第二轮演进 ---
-        cycle_two = EvolutionCycle(
-            project_id="p-evidence", cycle_id="cycle-0002", trigger="commit", outcome="completed"
-        )
+        cycle_two = EvolutionCycle(project_id="p-evidence", cycle_id="cycle-0002", trigger="commit")
         session.add(cycle_two)
         await session.flush()
         run_two = VerificationRun(

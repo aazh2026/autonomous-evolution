@@ -32,6 +32,8 @@ from core.entities import (
     TaskDependency,
     VerificationRun,
 )
+from core.metrics.cycle import CycleCounts, CycleStatus
+from core.metrics.cycle import EvolutionCycle as CycleRecord
 from infrastructure.database.repositories import (
     DECISION_RECORD,
     CandidateRepository,
@@ -60,14 +62,16 @@ async def _seed_chain(session: AsyncSession) -> dict[str, object]:
     session.add(project)
     await session.flush()
 
-    cycle = EvolutionCycle(
-        project_id=project.id,
-        cycle_id="cycle-0001",
-        trigger="schedule",
-        outcome="completed",
-        metrics={"candidates": 1},
-        started_at=datetime.now(UTC),
-        ended_at=datetime.now(UTC),
+    cycle = EvolutionCycle.from_domain(
+        CycleRecord.build(
+            project_id=project.id,
+            cycle_id="cycle-0001",
+            trigger="schedule",
+            started_at=datetime.now(UTC),
+            ended_at=datetime.now(UTC),
+            status=CycleStatus.COMPLETED,
+            counts=CycleCounts(candidates=1, decisions=1, tasks=1, completed_tasks=1),
+        )
     )
     session.add(cycle)
     await session.flush()
@@ -243,7 +247,48 @@ class TestEvolutionEntities:
         loaded = await session.get(EvolutionCycle, cycle.id)
         assert loaded is not None
         assert loaded.cycle_id == "cycle-0001"
-        assert loaded.outcome == "completed"
+        # 结局分两个维度：周期**怎么**结束、这一轮**有没有变好**。
+        assert loaded.status == "completed"
+        assert loaded.outcome == "no_change"
+
+    async def test_cycle_outcome_values_are_enforced_by_the_database(
+        self, session: AsyncSession
+    ) -> None:
+        """取值由 CHECK 约束把关 —— 不是只有应用层在管。
+
+        有人直接写 SQL 把 ``outcome`` 改成自造的字符串时，周期记录就失去了
+        作为审计依据的意义。
+        """
+        chain = await _seed_chain(session)
+        cycle = chain["cycle"]
+        assert isinstance(cycle, EvolutionCycle)
+        cycle_id = cycle.id
+
+        with pytest.raises(IntegrityError) as exc_info:
+            await session.execute(
+                text("UPDATE evolution_cycle SET outcome = 'pretty_good' WHERE id = :id"),
+                {"id": cycle_id},
+            )
+        await session.rollback()
+
+        assert "evolution_cycle_outcome_values" in str(exc_info.value)
+
+    async def test_cycle_status_values_are_enforced_by_the_database(
+        self, session: AsyncSession
+    ) -> None:
+        chain = await _seed_chain(session)
+        cycle = chain["cycle"]
+        assert isinstance(cycle, EvolutionCycle)
+        cycle_id = cycle.id
+
+        with pytest.raises(IntegrityError) as exc_info:
+            await session.execute(
+                text("UPDATE evolution_cycle SET status = 'finished' WHERE id = :id"),
+                {"id": cycle_id},
+            )
+        await session.rollback()
+
+        assert "evolution_cycle_status_values" in str(exc_info.value)
 
 
 class TestTaskEntities:
