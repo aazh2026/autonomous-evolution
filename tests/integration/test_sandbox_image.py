@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from infrastructure.config.settings import Settings
+from tests.integration.docker_utils import is_registry_unreachable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -52,6 +53,11 @@ def _build(context: Path, tag: str, *args: str) -> None:
         check=False,
     )
     if result.returncode != 0:
+        combined = result.stdout + result.stderr
+        # 拉不到基础镜像是**环境限制**，不是代码缺陷 —— 断网的机器上
+        # 不该报一堆红。但 Dockerfile 写错了必须照常报错。
+        if is_registry_unreachable(combined):
+            pytest.skip(f"镜像仓库不可达，无法构建 {tag}；跳过沙箱镜像集成测试")
         raise RuntimeError(f"构建 {tag} 失败：\n{result.stdout}\n{result.stderr}")
 
 

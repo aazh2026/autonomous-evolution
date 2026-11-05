@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -46,7 +45,7 @@ class VerificationRun(UUIDPrimaryKeyMixin, Base):
         ForeignKey("evolution_cycle.id", ondelete="RESTRICT")
     )
     #: 逐项检查结果。空数组不允许 —— 没跑检查的验收不算验收。
-    checks: Mapped[list[dict[str, Any]]] = mapped_column(JSONDocument, nullable=False)
+    checks: Mapped[list[dict[str, object]]] = mapped_column(JSONDocument, nullable=False)
     #: passed / failed / error / skipped。
     result: Mapped[str] = mapped_column(String(32), nullable=False)
     #: 执行验证的人或进程。与执行器分离 —— 自评不算验收。

@@ -15,10 +15,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 
 class AutonomyLevel(StrEnum):
@@ -94,7 +93,7 @@ class OperationRule(BaseModel):
 
     @field_validator("permission")
     @classmethod
-    def _permission_matches_level(cls, value: Permission, info: Any) -> Permission:
+    def _permission_matches_level(cls, value: Permission, info: ValidationInfo) -> Permission:
         """校验权限与等级的组合是否自洽。
 
         组合语义：
@@ -215,7 +214,7 @@ class PolicyManager:
         return cls.from_mapping(raw)
 
     @classmethod
-    def from_mapping(cls, raw: Mapping[str, Any]) -> PolicyManager:
+    def from_mapping(cls, raw: Mapping[str, object]) -> PolicyManager:
         """从字典加载策略。用于测试与 API 传入。"""
         rules_raw = raw.get("rules", raw)
         if not isinstance(rules_raw, Mapping):

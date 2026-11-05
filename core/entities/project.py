@@ -11,8 +11,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from sqlalchemy import ForeignKey, Index, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -36,9 +34,9 @@ class Project(TimestampMixin, Base):
     #: 项目 slug。与领域模型 ``Project.id`` 同源（YAML 里的 ``id: my-product``）。
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    goal: Mapped[dict[str, Any]] = mapped_column(JSONDocument, nullable=False)
-    policy: Mapped[dict[str, Any]] = mapped_column(JSONDocument, nullable=False)
-    budget: Mapped[dict[str, Any]] = mapped_column(JSONDocument, nullable=False, default=dict)
+    goal: Mapped[dict[str, object]] = mapped_column(JSONDocument, nullable=False)
+    policy: Mapped[dict[str, object]] = mapped_column(JSONDocument, nullable=False)
+    budget: Mapped[dict[str, object]] = mapped_column(JSONDocument, nullable=False, default=dict)
     repository_url: Mapped[str] = mapped_column(String(1024), nullable=False)
     default_branch: Mapped[str] = mapped_column(String(255), nullable=False, default="main")
     tech_stack: Mapped[list[str]] = mapped_column(JSONDocument, nullable=False, default=list)
@@ -99,7 +97,7 @@ class ProjectSnapshot(UUIDPrimaryKeyMixin, Base):
     version: Mapped[int] = mapped_column(Integer, nullable=False)
     commit: Mapped[str] = mapped_column(String(64), nullable=False)
     branch: Mapped[str | None] = mapped_column(String(255))
-    metrics: Mapped[dict[str, Any]] = mapped_column(JSONDocument, nullable=False, default=dict)
+    metrics: Mapped[dict[str, object]] = mapped_column(JSONDocument, nullable=False, default=dict)
 
     project: Mapped[Project] = relationship(back_populates="snapshots", lazy="selectin")
 

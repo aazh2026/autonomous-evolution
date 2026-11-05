@@ -22,7 +22,7 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import UTC, datetime
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from sqlalchemy import JSON, DateTime, MetaData, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
@@ -67,8 +67,11 @@ class Base(DeclarativeBase):
 
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
-    type_annotation_map: ClassVar[dict[Any, Any]] = {
-        dict[str, Any]: JSONDocument,
+    # JSON 列用 ``object`` 而不是 ``Any``：``Any`` 是双向兼容的，任何类型检查
+    # 到这里都会静默通过 —— 那正是"类型逃逸"。``object`` 仍然允许任意 JSON 值，
+    # 但取值后必须先收窄类型才能用，读代码的人能看见边界在哪。
+    type_annotation_map: ClassVar[dict[object, object]] = {
+        dict[str, object]: JSONDocument,
         list[str]: JSONDocument,
     }
 

@@ -15,7 +15,6 @@ tradeoff）、docs/tasks.md TASK-P1-020。
 from __future__ import annotations
 
 import uuid
-from typing import Any
 
 from sqlalchemy import ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -43,7 +42,7 @@ class ArchitectureDecision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("architecture_decision.id", ondelete="RESTRICT")
     )
-    extra: Mapped[dict[str, Any]] = mapped_column(JSONDocument, nullable=False, default=dict)
+    extra: Mapped[dict[str, object]] = mapped_column(JSONDocument, nullable=False, default=dict)
 
     superseded_by: Mapped[list[ArchitectureDecision]] = relationship(
         "ArchitectureDecision", lazy="selectin"

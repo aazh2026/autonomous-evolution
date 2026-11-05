@@ -92,6 +92,14 @@ class Settings(BaseSettings):
     langfuse_public_key: SecretStr | None = None
     langfuse_secret_key: SecretStr | None = None
 
+    # ---------- Worker ----------
+    #: worker 心跳文件路径。
+    #:
+    #: 容器编排靠它判断 worker 是否**还在正常循环**。进程活着不等于还在干活
+    #: —— 一个死锁的 worker 同样是"运行中"。心跳文件每次循环刷新一次，
+    #: 健康检查看它的新鲜度。
+    worker_heartbeat_file: Path = Path("/tmp/ases-worker/heartbeat")
+
     # ---------- 执行器 ----------
 
     executor_default: str = "claude_code"

@@ -172,7 +172,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **预估**：0.5d
 - **验证结果**：T1 ① `tests/integration/test_migrations.py::test_upgrade_downgrade_upgrade_succeeds`、`::test_downgrade_leaves_no_business_tables`、`::test_upgrade_is_idempotent`；T1 ② `::test_empty_database_migration_is_under_30_seconds`。另附 `::connection_string_is_not_hardcoded`（断言 `alembic.ini` 的 `sqlalchemy.url` 为空，连接串只从 `ASES_DATABASE_URL` 注入）。
 
-### [ ] TASK-P1-004 对象存储与产物哈希校验
+### [x] TASK-P1-004 对象存储与产物哈希校验
 
 - **工作流**：INF
 - **设计要求**：R-065, R-071（§3.6 产物库 S3/MinIO；Artifact 带 hash）
@@ -181,6 +181,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证（T1）**：pytest —— ① 上传后下载字节完全一致；② 篡改存储中的对象后 `get` 返回 hash 不匹配并抛错；③ 同一内容重复上传不产生第二个对象（幂等）
 - **自主权**：L2
 - **预估**：0.25d
+- **验证结果**：T1 ① `tests/unit/storage/test_object_store.py::TestRoundTrip`（上传后下载字节完全一致，`LocalObjectStore` 与 `S3ObjectStore` 两个后端各来一遍）+ `tests/integration/test_object_store_s3.py::TestRoundTrip::test_bytes_round_trip` / `::test_file_round_trip` / `::test_download_to_file`（对真实 MinIO 走同样的往返）。T1 ② `tests/unit/storage/test_object_store.py::TestTamperDetection`（篡改后 `get` 抛 `ArtifactHashMismatchError`）+ `tests/integration/test_object_store_s3.py::TestTamperDetection::test_overwritten_object_is_rejected`（把 MinIO 里的对象覆写掉，读取必须报错）。T1 ③ `tests/unit/storage/test_object_store.py::TestUploadIdempotence` + `tests/integration/test_object_store_s3.py::TestIdempotence::test_only_one_object_is_created` / `::test_second_upload_is_reported_as_skipped`（同一内容重复上传只产生**一个**对象，第二次报"已存在"而不是再写一个 —— 幂等是内容寻址的**构造性**结果，不是额外加的检查）。内容寻址本身由 `tests/unit/storage/test_object_store.py::TestContentAddressing`（key = `sha256:<hex>`）与 `::TestKeyMapping`（`:` 转成目录层级、可逆、非法 key 拒绝）钉住。另有三条容易被忽略的语义单独钉住：`::TestTamperIsNotSilentlyRepaired` + `tests/integration/test_object_store_s3.py::TestTamperIsNotSilentlyRepaired::test_reupload_does_not_hide_the_tampering` —— **篡改必须保持可见**，`put` 发现已有同名对象时**不修复**它（否则一次重传就能把被篡改的证据"洗白"）；`::TestStoredObject::test_digest_from_key_round_trips` / `::test_digest_from_key_rejects_non_content_addressed_keys`（只能从合法的内容寻址 key 反解出摘要）。健康语义由 `tests/unit/storage/test_object_store_health.py`（9 条）补齐：`ping()` 只回答"后端可达吗"（`head_bucket` 返回 404 恰恰证明服务应答了 → 可达），`ensure_ready()` 才回答"能写了吗"（建桶，且幂等）—— 两个词混用会让"服务挂了就绪"或"服务活着但桶不存在"这两种故障被误判。合计单元 48 条 + 集成 9 条全绿。
 
 ### [x] TASK-P1-005 结构化日志与追踪骨架
 
@@ -194,7 +195,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **预估**：0.25d
 - **验证结果**：T1 ① `tests/unit/infrastructure/test_logging.py::TestTaskIdRetrieval` —— 绑定上下文后连续两条日志都能按 `task_id` 检索；保留键固定为 `task_id`/`cycle_id`/`project_id`（`logging.RESERVED_CONTEXT_KEYS`），未设的键不绑定（避免 `"task_id": null` 与"没写"混淆）。T1 ② `tests/unit/infrastructure/test_langfuse.py::TestUnreachableLangfuseDoesNotBreakTheCaller` —— 传输层失败时 `record_trace` 不抛异常、客户端转入 `DEGRADED`、日志里留下 `degraded=true` / `langfuse_state=degraded` 标记；持续故障只告警一次（不刷屏），一次成功即恢复并记 `langfuse_recovered`。OTel 侧同构：`tests/unit/infrastructure/test_tracing.py` 断言 exporter 构造失败时降级并留标记。T4 —— `docs/observability/log-schema.md`，由 `tests/unit/infrastructure/test_log_schema.py` 钉在实现上（保留键、脱敏键名单、标准字段、降级标记、检索示例所用字段全部双向比对）。
 
-### [ ] TASK-P1-006 沙箱镜像
+### [x] TASK-P1-006 沙箱镜像
 
 - **工作流**：INF
 - **设计要求**：R-046, R-047（§3.5A Docker 为 POC 首选）
@@ -203,8 +204,9 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证（T1）**：pytest 启动容器断言 —— ① 容器内 `id -u != 0`；② 容器内不存在 `~/.ssh`、`~/.aws`、`.docker/config.json`；③ 默认网络下容器无法访问外网
 - **自主权**：L2
 - **预估**：0.5d
+- **验证结果**：T1 ① `tests/integration/test_sandbox_image.py::TestSandboxImage::test_container_runs_as_non_root`（容器内 `id -u != 0`）。T1 ② `::test_no_ssh_directory` / `::test_no_aws_directory` / `::test_no_docker_config`（`~/.ssh`、`~/.aws`、`.docker/config.json` 三者均不存在 —— 沙箱拿不到宿主机的 SSH 凭据、云平台管理员密钥，这是 design.md §3.5A 的硬约束）。T1 ③ `::TestNetworkIsolation::test_configured_default_network_is_none`（默认值本身就是 `none`，断的是**配置与行为一致**，不是"我们记得加 `--network none`"）+ `::test_container_cannot_reach_the_internet`（`--network none` 下连 `1.1.1.1:443` 必须失败；探测目标用公共 DNS 而非内网地址 —— 换成内网地址的话，"连不上"可能只是地址不对，断言就失去意义了）。目标项目模板另有 `::TestTargetImageTemplate::test_template_builds_and_runs_as_non_root` / `::test_template_has_no_credentials` / `::test_template_runs_the_test_command`（模板能构建、同样非 root 且无凭据、能跑测试命令）。沙箱镜像另有 `::TestSandboxImage::test_toolchain_is_installed`（`git`/`python3`/`node` 齐备）。10 条全绿。附带说明：`docker/sandbox/Dockerfile` 的基础镜像做成了 `ARG BASE_IMAGE`（默认 `python:3.12-slim-bookworm`），公共仓库不可达时可指向内部镜像仓库。
 
-### [ ] TASK-P1-007 本地一键启动
+### [x] TASK-P1-007 本地一键启动
 
 - **工作流**：INF
 - **设计要求**：R-007, R-065
@@ -214,6 +216,19 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证（T2）**：从零到全栈就绪 < 90s
 - **自主权**：L2
 - **预估**：0.25d
+- **验证结果**：T1 ① `tests/integration/test_local_stack.py::test_healthz_reports_dependencies_connected` —— `/healthz` 返回 200，且 `checks.database.ok` 与 `checks.object_store.ok` **逐项**为真。只断言状态码是不够的：永远返回 200 的健康检查比没有健康检查更危险 —— 它会在依赖挂了的时候给出放行信号。另有 `::test_healthz_does_not_leak_credentials`（响应里不出现口令/连接串 —— 连接异常的消息里带着带口令的 DSN，健康端点对谁开放谁就能看到）与 `::test_readyz_is_also_available`（`/readyz` 探同一批依赖）。T1 ② `::test_data_survives_down_and_up` —— 插入一行带随机 id 的 project，`make down && make up` 之后**仍在**（卷持久化；用随机 id 是为了不靠上一轮遗留的数据假通过）。T2 `::test_stack_reaches_ready_within_budget` —— 断言从零到全栈就绪 < 90s，本机实测 **12.1s**（另一次冷启动 7.3s）。另有 `::test_worker_is_running`（worker 容器在跑；心跳的新鲜度由 compose 的 healthcheck 负责）。6 条全绿。
+
+  **与任务书字面表述的两处偏离（有意为之）**：
+  1. **Langfuse 放在 `observability` profile 里，不在 `make up` 的默认栈中。** 交付物字段写的是"PG + MinIO + Langfuse + ASES API + worker"，但 Langfuse v2 自带 ClickHouse + Redis，首次启动要初始化 ClickHouse 的数据卷，这一段本身就要几十秒 —— 把它算进 90s 预算，预算就变成了"ClickHouse 有多快"而不是"ASES 有多重"。而且 Langfuse 是**观测**设施不是运行依赖（它挂了主流程照跑，见 TASK-P1-005 的降级实现），让观测设施拖累主流程的启动预算是方向反了。因此拆成两个入口：`make up`（核心栈：PG + MinIO + API + worker）与 `make up-observability`（核心栈 + Langfuse）。langfuse-web / langfuse-worker / langfuse-clickhouse / langfuse-redis 四个服务**完整存在**于 compose 中，只是带 `profiles: ["observability"]` —— 不是删掉了，是不默认启动。
+  2. **T2 量的是"编排耗时"，不含镜像构建。** "从零"= 容器全停（数据卷保留）到所有服务 healthy；镜像构建单独做（夹具里先构建再计时）。理由同上：拉镜像是网络操作，测的是网络有多快而不是 ASES 有多重。这条口径同时写在 `docker-compose.yml` 头部注释、`tests/integration/test_local_stack.py` 模块文档与夹具里，三处一致。
+
+  **其他实现取舍**：
+  - `migrate` / `api` / `worker` **共用同一个镜像** `ases-app:latest`，`build:` 只挂在 `migrate` 上。三个服务都带 `build` 时 compose 会并行构建同一个 tag 互相踩（报 "image already exists"）；而三个镜像分叉时，"只重建了其中一个"的失败方式极难发现 —— worker 跑着旧代码崩溃重启，compose 还会报"已就绪"。api/worker 都 `depends_on migrate: service_completed_successfully`，所以镜像一定先于它们就位。
+  - `pull_policy: never` —— `ases-app` 是**本地**镜像，仓库里根本没有这个 tag，让 compose 去拉只会得到一句 "manifest unknown"。
+  - worker 的健康检查看**心跳文件的新鲜度**（`/tmp/ases-worker/heartbeat`，mtime < 90s），不看进程是否在跑 —— 进程活着不等于还在干活，卡死循环的 worker 也是 running。阈值与 `apps/worker/main.py` 的 `HEARTBEAT_STALE_SECONDS` 保持一致。
+  - MinIO 的**宿主机**端口用 9100/9101（容器内仍是 9000/9001）：9000/9001 在很多机器上已经被别的 S3 兼容服务占着。集成测试从同一个 `MINIO_PORT` 变量读，两边不会漂移。
+  - API 健康检查用 Python 自带的 `urllib` 而不是 `curl` —— slim 镜像里没有 curl，为一个健康检查装一个包不值得。
+  - 迁移是一次性任务，跑完就退出；api/worker 用 `service_completed_successfully` 等它 —— 不是等它"启动"，是等它"做完"，这样"表还没建好就接请求"在编排层面就不可能发生。
 
 ---
 
@@ -323,7 +338,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **自主权**：L2
 - **预估**：0.5d
 
-### [ ] TASK-P1-024 验收证据的 append-only 与不可丢失
+### [x] TASK-P1-024 验收证据的 append-only 与不可丢失
 
 - **工作流**：KS
 - **设计要求**：R-071, R-099, I-05, I-21（§6 已完成任务的验收证据不能因下一轮执行而丢失；Artifact 带 hash）
@@ -332,6 +347,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证（T1）**：pytest —— ① 对已写入的 VerificationRun 执行 UPDATE / DELETE 被数据库拒绝；② 下一轮演进周期执行后，历史的 VerificationRun 与 Artifact 仍完整可读（跨周期不丢失）；③ 产物被篡改时 hash 校验失败并报错
 - **自主权**：L2
 - **预估**：0.5d
+- **验证结果**：T1 ① `tests/integration/test_evidence_append_only.py::TestAppendOnly::test_update_verification_run_is_rejected` / `::test_delete_verification_run_is_rejected` / `::test_update_artifact_is_rejected` / `::test_delete_artifact_is_rejected` / `::test_truncate_verification_run_is_rejected` —— UPDATE / DELETE / TRUNCATE 在**数据库层**被触发器拒绝（`ases_append_only_guard()`，错误码 `restrict_violation`）。拦在 DB 层而不是应用层：应用层的自律可以被绕开，触发器不行。另有 `::test_verification_run_is_still_readable_after_rejected_update` —— 拒绝之后**原记录仍完整可读**，要证明的是"拒绝操作"没有顺带把行删掉。T1 ② `::TestCrossCycleDurability::test_history_survives_a_new_evolution_cycle` —— 下一轮演进周期执行后，历史的 VerificationRun 与 Artifact 仍完整可读（跨周期不丢失）。T1 ③ `::TestArtifactHashVerification::test_tampered_content_is_rejected`（内容被改 → hash 校验失败并抛 `ArtifactHashMismatchError`）+ `::test_hash_is_stable` + `::test_artifact_stored_hash_matches_content`（入库的 hash 与实际内容一致）。哈希寻址与**读时**校验由 TASK-P1-004 的交付物承担：`core/evidence/artifact_hash.py`（`compute_hash` / `compute_file_hash` / `verify_hash` / `is_valid_hash`）与 `infrastructure/storage/object_store.py` 的内容寻址 store；对象存储侧的篡改/幂等验证见 TASK-P1-004 的验证结果。保留期字段 `retention_until` 落在 `artifact` 表上（`core/entities/evidence.py`），语义是**到期不自动删除** —— append-only 与"保留期"不冲突的前提是保留期只影响"读不读"、不影响"删不删"；自动清理会毁掉"上一轮到底改了什么"的唯一凭据。10 条全绿。
 
 ### [ ] TASK-P1-025 PostgreSQL Outbox 事件表与 relay
 

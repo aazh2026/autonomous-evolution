@@ -1,0 +1,48 @@
+# 构建上下文排除清单
+#
+# 目的有二：
+#   1. 减小上下文 —— .venv / .git 常常几百 MB。
+#   2. **不要把密钥和本地状态带进镜像**。
+#
+# .env 在这里出现不是"顺便"的：它是凭证文件，且 Dockerfile 里没有 COPY .，
+# 但上下文里出现它就意味着它可能被 ADD/COPY 进去。显式排除比依赖
+# "我小心一点没写那行 COPY"可靠。
+
+# 密钥与本地配置
+.env
+.env.*
+!.env.example
+
+# 版本控制
+.git
+.gitignore
+.github
+
+# Python 缓存与虚拟环境
+.venv
+venv
+__pycache__
+**/__pycache__
+*.py[cod]
+*.egg-info
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# 工具链缓存
+.uv
+uv-cache
+
+# 本地运行产物
+*.log
+/tmp-artifacts
+data/
+logs/
+
+# 文档与开发工具（运行镜像不需要）
+docs
+.claude
+pre-commit-config.yaml
+Makefile

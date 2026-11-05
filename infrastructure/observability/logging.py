@@ -17,7 +17,7 @@ import logging
 import sys
 import threading
 from collections.abc import Iterator, Mapping, MutableMapping
-from typing import Any, cast
+from typing import cast
 
 import structlog
 from structlog.typing import Processor
@@ -66,8 +66,8 @@ def redact(value: object) -> str:
 
 
 def _redact_processor(
-    _logger: Any, _name: str, event_dict: MutableMapping[str, Any]
-) -> MutableMapping[str, Any]:
+    _logger: object, _name: str, event_dict: MutableMapping[str, object]
+) -> MutableMapping[str, object]:
     """脱敏处理器：按键名匹配敏感词。"""
     for key in list(event_dict):
         if key.lower() in SENSITIVE_KEYS:
@@ -76,8 +76,8 @@ def _redact_processor(
 
 
 def _add_service_context(
-    _logger: Any, _name: str, event_dict: MutableMapping[str, Any]
-) -> MutableMapping[str, Any]:
+    _logger: object, _name: str, event_dict: MutableMapping[str, object]
+) -> MutableMapping[str, object]:
     """附加服务名与时间戳。"""
     event_dict.setdefault("service", get_settings().service_name)
     return event_dict
@@ -176,7 +176,7 @@ def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     return cast(structlog.stdlib.BoundLogger, structlog.get_logger(name))
 
 
-def bind_context(**kwargs: Any) -> None:
+def bind_context(**kwargs: object) -> None:
     """绑定上下文变量（如 ``task_id``），后续日志自动带上。"""
     structlog.contextvars.bind_contextvars(**kwargs)
 
@@ -207,12 +207,12 @@ def clear_context() -> None:
     structlog.contextvars.clear_contextvars()
 
 
-def current_context() -> Mapping[str, Any]:
+def current_context() -> Mapping[str, object]:
     """当前绑定的上下文。"""
     return dict(structlog.contextvars.get_contextvars())
 
 
-def iter_log_contexts() -> Iterator[tuple[str, Any]]:
+def iter_log_contexts() -> Iterator[tuple[str, object]]:
     """遍历当前上下文的键值对。"""
     yield from structlog.contextvars.get_contextvars().items()
 

@@ -80,6 +80,9 @@ class _CountingStore(ObjectStore):
     async def ping(self) -> bool:
         return await self._inner.ping()
 
+    async def ensure_ready(self) -> bool:
+        return await self._inner.ensure_ready()
+
 
 class TestLocalObjectStore:
     """本地文件系统后端。"""

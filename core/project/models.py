@@ -24,10 +24,11 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, NoReturn, Self
+from typing import NoReturn, Self
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic.config import ExtraValues
 
 from core.policy.autonomy import AutonomyPolicy, default_policy
 from core.policy.budget import Budget
@@ -196,7 +197,7 @@ class TargetExpression(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _accept_plain_string(cls, data: Any) -> Any:
+    def _accept_plain_string(cls, data: object) -> object:
         """允许直接写 ``target: ">= 0.95"``。
 
         注意必须返回**字典**而不是模型实例 —— Pydantic 在 ``before`` 校验器
@@ -289,7 +290,7 @@ class Objective(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _accept_plain_string(cls, data: Any) -> Any:
+    def _accept_plain_string(cls, data: object) -> object:
         if isinstance(data, str):
             return {"id": f"OBJ-{abs(hash(data)) % 1000:03d}", "description": data}
         return data
@@ -305,7 +306,7 @@ class NonGoal(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _accept_plain_string(cls, data: Any) -> Any:
+    def _accept_plain_string(cls, data: object) -> object:
         if isinstance(data, str):
             return {"id": f"NG-{abs(hash(data)) % 1000:03d}", "description": data}
         return data
@@ -481,7 +482,7 @@ class ProjectGoal(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _require_six_elements(cls, data: Any) -> Any:
+    def _require_six_elements(cls, data: object) -> object:
         """载入时检查六要素是否齐全，指出缺哪一项。
 
         放在 ``before`` 阶段是因为只有这里能看到"用户到底传了什么"——
@@ -504,13 +505,37 @@ class ProjectGoal(BaseModel):
         return None
 
     @classmethod
-    def model_validate(cls, obj: Any, **kwargs: Any) -> Self:
+    def model_validate(
+        cls,
+        obj: object,
+        *,
+        strict: bool | None = None,
+        extra: ExtraValues | None = None,
+        from_attributes: bool | None = None,
+        context: object | None = None,
+        by_alias: bool | None = None,
+        by_name: bool | None = None,
+    ) -> Self:
         """校验目标，并把结构化的目标错误还原后抛出。
 
         见 :func:`_rethrow_structured`。
+
+        **为什么不用 ``**kwargs``**：Pydantic 的 ``model_validate`` 有六个
+        关键字参数，每个都有确定的类型。把它们显式列出来，本方法的签名
+        就是 Pydantic 签名的一个**具体化**版本 —— 类型检查器能验证两者
+        兼容，而不是靠 ``**kwargs: Any`` 把一切吞掉。用 ``Any`` 意味着
+        调用方传错参数类型也要等到运行时才发现。
         """
         try:
-            return super().model_validate(obj, **kwargs)
+            return super().model_validate(
+                obj,
+                strict=strict,
+                extra=extra,
+                from_attributes=from_attributes,
+                context=context,
+                by_alias=by_alias,
+                by_name=by_name,
+            )
         except ValidationError as exc:
             _rethrow_structured(exc)
 
@@ -538,18 +563,36 @@ class Project(BaseModel):
     tech_stack: tuple[str, ...] = ()
 
     @classmethod
-    def from_mapping(cls, raw: Mapping[str, Any]) -> Project:
+    def from_mapping(cls, raw: Mapping[str, object]) -> Project:
         """从字典构造。目标不合法时抛 :class:`GoalValidationError`。"""
         return cls.model_validate(raw)
 
     @classmethod
-    def model_validate(cls, obj: Any, **kwargs: Any) -> Self:
+    def model_validate(
+        cls,
+        obj: object,
+        *,
+        strict: bool | None = None,
+        extra: ExtraValues | None = None,
+        from_attributes: bool | None = None,
+        context: object | None = None,
+        by_alias: bool | None = None,
+        by_name: bool | None = None,
+    ) -> Self:
         """校验项目，并把结构化的目标错误还原后抛出。
 
         见 :func:`_rethrow_structured`。
         """
         try:
-            return super().model_validate(obj, **kwargs)
+            return super().model_validate(
+                obj,
+                strict=strict,
+                extra=extra,
+                from_attributes=from_attributes,
+                context=context,
+                by_alias=by_alias,
+                by_name=by_name,
+            )
         except ValidationError as exc:
             _rethrow_structured(exc)
 
@@ -573,7 +616,7 @@ class Project(BaseModel):
         return cls.from_mapping(_split_goal(inner))
 
 
-def _split_goal(raw: Mapping[str, Any]) -> dict[str, Any]:
+def _split_goal(raw: Mapping[str, object]) -> dict[str, object]:
     """把平铺的六要素归拢到 ``goal:`` 子键下。
 
     六要素平铺（design.md §3.1 的写法）与嵌套在 ``goal:`` 下是等价的 ——

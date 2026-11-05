@@ -18,7 +18,6 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import cache
-from typing import Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -43,15 +42,21 @@ def build_engine(settings: Settings | None = None, *, url: str | None = None) ->
         pool_size=cfg.database_pool_size,
         max_overflow=cfg.database_max_overflow,
         echo=cfg.database_echo,
-        # 应用层显式管理事务边界（见模块文档）。开了它，每次查询都自动提交 ——
-        # 那会让"回滚后状态与事件一起消失"这种断言永远无法成立。
-        expire_on_commit=False,
         future=True,
     )
 
 
 def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    """构造会话工厂。"""
+    """构造会话工厂。
+
+    ``expire_on_commit=False``：提交之后不把已加载的属性置为过期。
+    否则 ``session.commit()`` 之后读 ``obj.id`` 会触发一次额外的 SELECT ——
+    在异步引擎里那是一次真实的往返延迟，而调用方要的只是刚写进去的值。
+
+    ``autoflush=False``：不在查询前隐式把挂起的改动刷进数据库。
+    刷库时机由调用方决定（见 :func:`session_scope`）—— 隐式刷库会让
+    "这两步写进同一个事务"变得不可控。
+    """
     return async_sessionmaker(
         bind=engine,
         class_=AsyncSession,
@@ -104,7 +109,7 @@ async def dispose_engine(engine: AsyncEngine | None = None) -> None:
         get_engine.cache_clear()
 
 
-def describe(engine: AsyncEngine) -> dict[str, Any]:
+def describe(engine: AsyncEngine) -> dict[str, object]:
     """引擎的可读描述（脱敏）。用于启动日志与诊断。"""
     url = engine.url
     return {

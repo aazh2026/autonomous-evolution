@@ -16,7 +16,11 @@
 # 一个连 ``ssh`` 都没有的镜像，"没有 SSH 凭据"就不只是"没挂载"，
 # 而是"想用也没有"。
 
-FROM python:3.12-slim-bookworm
+# 基础镜像做成参数，是为了能指向内部镜像仓库（``docker build --build-arg
+# BASE_IMAGE=registry.internal/python:3.12-slim-bookworm``）。公共仓库不可达时，
+# 至少还有一条路。
+ARG BASE_IMAGE=python:3.12-slim-bookworm
+FROM ${BASE_IMAGE}
 
 ARG SANDBOX_UID=1000
 ARG SANDBOX_GID=1000

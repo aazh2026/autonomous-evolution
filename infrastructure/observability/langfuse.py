@@ -20,7 +20,6 @@ from __future__ import annotations
 import base64
 from collections.abc import Awaitable, Callable, Mapping
 from enum import StrEnum
-from typing import Any
 
 import httpx
 
@@ -28,7 +27,7 @@ from infrastructure.config.settings import Settings, get_settings
 from infrastructure.observability.logging import get_logger
 
 #: 一次上报的传输函数。注入它就能在没有 Langfuse 的环境里测试降级路径。
-Transport = Callable[[str, Mapping[str, Any]], Awaitable[None]]
+Transport = Callable[[str, Mapping[str, object]], Awaitable[None]]
 
 #: Langfuse 公共 trace 接口路径（相对 ``langfuse_host``）。
 TRACES_PATH = "/api/public/traces"
@@ -97,9 +96,9 @@ class LangfuseClient:
         *,
         trace_id: str | None = None,
         session_id: str | None = None,
-        input_data: Mapping[str, Any] | None = None,
-        output_data: Mapping[str, Any] | None = None,
-        metadata: Mapping[str, Any] | None = None,
+        input_data: Mapping[str, object] | None = None,
+        output_data: Mapping[str, object] | None = None,
+        metadata: Mapping[str, object] | None = None,
     ) -> bool:
         """记录一条 trace。**永不抛异常。**
 
@@ -109,7 +108,7 @@ class LangfuseClient:
         if self._state is LangfuseState.DISABLED:
             return False
 
-        body: dict[str, Any] = {"name": name}
+        body: dict[str, object] = {"name": name}
         if trace_id is not None:
             body["traceId"] = trace_id
         if session_id is not None:
@@ -193,7 +192,7 @@ class LangfuseClient:
             f"{public_key.get_secret_value()}:{secret_key.get_secret_value()}".encode()
         ).decode()
 
-        async def _send(_name: str, body: Mapping[str, Any]) -> None:
+        async def _send(_name: str, body: Mapping[str, object]) -> None:
             async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SECONDS) as client:
                 response = await client.post(
                     url,
@@ -208,7 +207,7 @@ class LangfuseClient:
         return _send
 
 
-async def _unconfigured_transport(_name: str, _body: Mapping[str, Any]) -> None:
+async def _unconfigured_transport(_name: str, _body: Mapping[str, object]) -> None:
     """没配凭证时的传输：直接失败，让调用方走降级路径。"""
     raise RuntimeError("Langfuse 未配置凭证（ASES_LANGFUSE_PUBLIC_KEY / ASES_LANGFUSE_SECRET_KEY）")
 

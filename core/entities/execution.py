@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -46,14 +45,14 @@ class AgentSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     session_id: Mapped[str] = mapped_column(String(255), nullable=False)
     #: 授权范围快照：agent_id / task_id / project_id / workspace_id / expiry。
     #: 落库是为了事后审计"当时授权的是什么"，而不是只在内存里存在。
-    authorization: Mapped[dict[str, Any]] = mapped_column(JSONDocument, nullable=False)
+    authorization: Mapped[dict[str, object]] = mapped_column(JSONDocument, nullable=False)
     #: active / completed / cancelled / failed。
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utcnow
     )
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    extra: Mapped[dict[str, Any]] = mapped_column(JSONDocument, nullable=False, default=dict)
+    extra: Mapped[dict[str, object]] = mapped_column(JSONDocument, nullable=False, default=dict)
 
     events: Mapped[list[ExecutionEvent]] = relationship(
         back_populates="session", lazy="selectin", cascade="all, delete-orphan"
@@ -83,7 +82,7 @@ class ExecutionEvent(UUIDPrimaryKeyMixin, Base):
     project_id: Mapped[str | None] = mapped_column(ForeignKey("project.id", ondelete="RESTRICT"))
     agent_id: Mapped[str | None] = mapped_column(String(128))
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    payload: Mapped[dict[str, Any]] = mapped_column(JSONDocument, nullable=False, default=dict)
+    payload: Mapped[dict[str, object]] = mapped_column(JSONDocument, nullable=False, default=dict)
     #: 直接原因的事件 id。
     causation_id: Mapped[str | None] = mapped_column(String(64))
     #: 同一次请求的关联 id。

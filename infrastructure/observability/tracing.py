@@ -14,7 +14,6 @@ OTel 的 SDK 里已经内置了这个降级：没设置 provider 时，
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -99,7 +98,7 @@ def is_configured() -> bool:
     return _state.provider is not None
 
 
-def current_span_attributes() -> dict[str, Any]:
+def current_span_attributes() -> dict[str, object]:
     """当前活跃 span 的属性。诊断用 —— 没有活跃 span 时返回空字典。
 
     没装 provider 时 OTel 会给出一个**无效**的 span（全零 ID），

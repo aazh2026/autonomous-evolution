@@ -23,7 +23,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     CheckConstraint,
@@ -90,7 +90,7 @@ class Task(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
     #: 验收契约（R-051）。进入执行态前必须存在并绑定本任务。
-    acceptance_contract: Mapped[dict[str, Any] | None] = mapped_column(JSONDocument)
+    acceptance_contract: Mapped[dict[str, object] | None] = mapped_column(JSONDocument)
 
     #: 集成分支名。
     branch: Mapped[str | None] = mapped_column(String(255))
@@ -103,7 +103,7 @@ class Task(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    extra: Mapped[dict[str, Any]] = mapped_column(JSONDocument, nullable=False, default=dict)
+    extra: Mapped[dict[str, object]] = mapped_column(JSONDocument, nullable=False, default=dict)
 
     decision: Mapped[EvolutionDecision] = relationship(
         "EvolutionDecision", back_populates="tasks", lazy="selectin"

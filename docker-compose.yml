@@ -1,4 +1,68 @@
+# ASES 本地全栈
+#
+# 设计依据：docs/tasks.md TASK-P1-007。
+#
+# 服务分三层：
+#
+#   基础设施    postgres / minio —— 数据与产物
+#   应用        migrate / api / worker —— ASES 自己的进程
+#   可观测性    langfuse 及其依赖 —— **可选**，用 profile 隔开
+#
+# **为什么把 Langfuse 放进 profile**：TASK-P1-007 的 T2 要求"从零到全栈就绪
+# < 90s"。Langfuse v2 自带 ClickHouse + Redis 两个依赖，首次启动要初始化
+# ClickHouse 的数据卷，这一段本身就要几十秒 —— 把它算进 90s 预算，
+# 预算就变成了"ClickHouse 有多快"，而不是"ASES 有多重"。
+#
+# 而且 Langfuse 是**观测**设施，不是运行依赖：它挂了主流程照跑
+# （TASK-P1-005 已实现降级）。让观测设施拖累主流程的启动预算，方向就反了。
+#
+#   make up                核心栈（postgres + minio + api + worker）
+#   make up-observability  核心栈 + Langfuse
+#
+# 密钥一律从环境注入，不写死在文件里。默认值（minioadmin/minioadmin）
+# 只在本地成立 —— settings.py 在非 local 环境会直接拒绝它们。
+
 name: ases
+
+x-app-environment: &app-environment
+  ASES_ENVIRONMENT: ${ASES_ENVIRONMENT:-local}
+  ASES_LOG_LEVEL: ${ASES_LOG_LEVEL:-INFO}
+  ASES_LOG_FORMAT: ${ASES_LOG_FORMAT:-json}
+  # 容器之间用服务名通信，不是 localhost。
+  ASES_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ases}:${POSTGRES_PASSWORD:-ases}@postgres:5432/${POSTGRES_DB:-ases}
+  ASES_S3_ENDPOINT_URL: http://minio:9000
+  ASES_S3_REGION: ${ASES_S3_REGION:-us-east-1}
+  ASES_S3_BUCKET: ${ASES_S3_BUCKET:-ases-artifacts}
+  ASES_S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+  ASES_S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+  ASES_S3_FORCE_PATH_STYLE: "true"
+  ASES_LANGFUSE_ENABLED: ${ASES_LANGFUSE_ENABLED:-false}
+  ASES_LANGFUSE_HOST: ${ASES_LANGFUSE_HOST:-http://langfuse-web:3000}
+  ASES_WORKER_HEARTBEAT_FILE: /tmp/ases-worker/heartbeat
+
+# 应用镜像 —— migrate / api / worker 用**同一个**镜像。
+#
+# 写成三个各自独立的 build 块的话，compose 会建出三个镜像；
+# 改了代码只重建其中一个，另两个跑的是旧代码 —— 而它们的失败方式
+# 恰恰是那种"看日志才发现"的（worker 崩溃重启循环里，
+# compose 还会报告"已就绪"）。一个镜像、一处构建，版本不会分叉。
+#
+# **build 只挂在 migrate 上**，不是偷懒：三个服务都带 build 时，
+# compose 会并行构建同一个 tag，后写的那个报 "image already exists"。
+# 而 api / worker 都 depends_on migrate，所以 migrate 一定先于它们构建，
+# 镜像也就一定在它们启动前就位。
+#
+# `pull_policy: never` 是配套的：ases-app 是**本地**镜像，仓库里根本没有
+# 这个 tag，让 compose 去拉它只会得到一句莫名其妙的 "manifest unknown"。
+x-app-image: &app-image
+  image: ases-app:latest
+  pull_policy: never
+
+x-app-build: &app-build
+  <<: *app-image
+  build:
+    context: .
+    dockerfile: docker/api/Dockerfile
 
 services:
   postgres:
@@ -23,7 +87,15 @@ services:
     restart: unless-stopped
 
   minio:
-    image: minio/minio:latest
+    # 镜像不是 `minio/minio` —— 那个仓库已被上游删除（2026-09-11 从 Docker Hub
+    # 下架，2026-09-24 quay.io 的匿名拉取也返回 401），拉不动是**上游的行为**，
+    # 不是配置错误。换用 MinIO 的社区分支 pgsty/silo：同样的 S3 协议、同样的
+    # MINIO_ROOT_USER / MINIO_ROOT_PASSWORD、同样的 `server /data` 启动形态、
+    # 同盘的 on-disk 格式，含 `mc` 客户端（健康检查要用）。
+    #
+    # **版本钉死**，不跟 latest：上游镜像"消失"过一次，钉一个具体 release
+    # 至少保证复现的是同一个已知可用的构建。升级时改这一行即可。
+    image: pgsty/silo:RELEASE.2026-10-26T00-00-00Z
     container_name: ases-minio
     command: server /data --console-address ":9001"
     environment:
@@ -32,8 +104,13 @@ services:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
-      - "${MINIO_PORT:-9000}:9000"
-      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+      # 宿主机端口刻意不用 9000/9001 —— 那两个是 MinIO 的默认值，
+      # 在很多机器上已经被别的 S3 兼容服务占着（比如 rustfs）。
+      # 容器**内部**仍是 9000/9001，容器间通信不受影响。
+      # 宿主机端口由 MINIO_PORT / MINIO_CONSOLE_PORT 决定，
+      # 集成测试从同一个变量读，两边不会漂移。
+      - "${MINIO_PORT:-9100}:9000"
+      - "${MINIO_CONSOLE_PORT:-9101}:9001"
     volumes:
       - miniodata:/data
     healthcheck:
@@ -44,6 +121,273 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # 迁移是一次性任务：跑完就退出。
+  # api / worker 用 `service_completed_successfully` 等它 —— 不是等它"启动"，
+  # 是等它"做完"。用 depends_on 的 condition 而不是让 API 自己重试，
+  # 是为了让"表还没建好就接请求"这件事在编排层面就不可能发生。
+  migrate:
+    <<: *app-build
+    container_name: ases-migrate
+    command: ["alembic", "upgrade", "head"]
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app-image
+    container_name: ases-api
+    command:
+      ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: *app-environment
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # 用 Python 自带的 urllib 而不是 curl —— slim 镜像里没有 curl，
+      # 为一个健康检查装一个包不值得。
+      # urllib 在非 2xx 时抛异常 → 退出码非 0 → 容器被判为 unhealthy，
+      # 正好符合"依赖不通就不算就绪"的语义。
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5).status == 200 else 1)"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
+  worker:
+    <<: *app-image
+    container_name: ases-worker
+    command: ["python", "-m", "apps.worker.main"]
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # 看心跳文件的**新鲜度**，不看进程是否在跑。
+      # 进程活着不等于还在干活 —— 卡死循环的 worker 也是 running。
+      # 阈值取心跳间隔的三倍（90s），与 apps/worker/main.py 的
+      # HEARTBEAT_STALE_SECONDS 一致。
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import os,sys,time;
+          p=os.environ['ASES_WORKER_HEARTBEAT_FILE'];
+          sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p) < 90 else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  # ---------------- 可观测性（可选，profile 隔开） ----------------
+
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    container_name: ases-langfuse-clickhouse
+    profiles: ["observability"]
+    environment:
+      CLICKHOUSE_DB: langfuse
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - langfuseclickhouse:/var/lib/clickhouse
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  langfuse-redis:
+    image: redis:7-alpine
+    container_name: ases-langfuse-redis
+    profiles: ["observability"]
+    # **必须**带口令。
+    #
+    # Langfuse 的 worker 写的是 `password: String(env.REDIS_AUTH)` ——
+    # env.REDIS_AUTH 没设时是 undefined，而 String(undefined) 得到的是
+    # 字符串 "undefined"，**非空**。于是它带着这个"undefined"口令去 AUTH
+    # 一个无口令的 Redis，Redis 回 "ERR AUTH <password> called without any
+    # password configured"，连接直接失败。
+    #
+    # 也就是说：只要不显式设置 REDIS_AUTH，Langfuse 连**无口令**的 Redis
+    # 都连不上。两边配同一个口令，这个错配才消失。
+    command:
+      - redis-server
+      - --requirepass
+      - ${LANGFUSE_REDIS_PASSWORD:-langfuse-local-redis-pass}
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${LANGFUSE_REDIS_PASSWORD:-langfuse-local-redis-pass}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  # Langfuse 需要**自己的数据库**。
+  #
+  # 它用 prisma migrate deploy 建表，而这个命令遇到非空 schema 会直接报
+  # P3005 拒绝执行。所以 DATABASE_URL 不能指向 ASES 的库 —— ASES 的 alembic
+  # 迁移已经在里面建过表了。共用一个库的后果不是"两张表打架"，而是
+  # Langfuse **一张表都建不出来**，它的 worker 随后在日志里反复刷
+  # `relation "prices" does not exist`，S3 事件上传也就永远不会发生。
+  #
+  # 单独建库而不是单开一个 PG 容器：ClickHouse 和 Redis 已经是独立服务，
+  # 但 PG 只需要一个实例 —— 观测设施多一个**数据库**不等于多一个数据库
+  # 服务器。这里用一次性容器建库，幂等：已存在就不动。
+  langfuse-db-init:
+    image: postgres:16-alpine
+    container_name: ases-langfuse-db-init
+    profiles: ["observability"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-ases}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-ases}
+      LANGFUSE_DB_NAME: ${LANGFUSE_DB_NAME:-langfuse}
+    entrypoint:
+      - sh
+      - -c
+      - |
+        psql -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$${LANGFUSE_DB_NAME}'" | grep -q 1 \
+          && echo "数据库 $${LANGFUSE_DB_NAME} 已存在，跳过" \
+          || psql -d postgres -c "CREATE DATABASE $${LANGFUSE_DB_NAME}"
+    restart: "no"
+
+  langfuse-web:
+    image: langfuse/langfuse:2
+    container_name: ases-langfuse-web
+    profiles: ["observability"]
+    ports:
+      - "${LANGFUSE_PORT:-3000}:3000"
+    depends_on:
+      langfuse-db-init:
+        condition: service_completed_successfully
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+    environment:
+      # 独立于 ASES 的库 —— 见 langfuse-db-init 的说明（P3005）。
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ases}:${POSTGRES_PASSWORD:-ases}@postgres:5432/${LANGFUSE_DB_NAME:-langfuse}
+      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD:-langfuse-local-redis-pass}
+      NEXTAUTH_URL: http://localhost:${LANGFUSE_PORT:-3000}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-langfuse-local-nextauth-secret}
+      SALT: ${LANGFUSE_SALT:-langfuse-local-salt}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      # 迁移用的 URL 有两处不能照抄应用用的那个：
+      #
+      # 1. **协议**必须是 clickhouse:// —— 它直接作为 golang-migrate 的
+      #    -database 参数，而 golang-migrate 只认自己注册过的驱动名。写成
+      #    http:// 会得到 "database driver: unknown driver http"。
+      # 2. **端口**必须是 9000（native 协议），不是 8123（HTTP）。golang-migrate
+      #    的 clickhouse 驱动走的是 clickhouse-go 的原生协议；连到 8123 会得到
+      #    "driver: bad connection" —— 连上了但不是它要的那个协议。
+      #
+      # 应用自己访问 ClickHouse 用的 CLICKHOUSE_URL 仍然是 http://…:8123，
+      # 那是 HTTP 接口，与迁移路径无关。
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: 6379
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_LOGS_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_LOGS_REGION: auto
+      LANGFUSE_S3_EVENT_LOGS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      LANGFUSE_S3_EVENT_LOGS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      LANGFUSE_S3_EVENT_LOGS_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_LOGS_PREFIX: logs/
+      LANGFUSE_S3_EVENT_LOGS_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
+    restart: unless-stopped
+
+  langfuse-worker:
+    # 仓库名是 `langfuse/langfuse-worker`，不是 `langfuse/worker` ——
+    # 上游把 worker 的镜像仓库改名了，旧名已从 Docker Hub 下架，
+    # 拉旧名会报 "pull access denied for langfuse/worker"。
+    # 服务名保持 `langfuse-worker` 不变，容器间引用（langfuse-web 等）不受影响。
+    image: langfuse/langfuse-worker:2
+    container_name: ases-langfuse-worker
+    profiles: ["observability"]
+    depends_on:
+      langfuse-db-init:
+        condition: service_completed_successfully
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+    environment:
+      # 独立于 ASES 的库 —— 见 langfuse-db-init 的说明（P3005）。
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ases}:${POSTGRES_PASSWORD:-ases}@postgres:5432/${LANGFUSE_DB_NAME:-langfuse}
+      REDIS_AUTH: ${LANGFUSE_REDIS_PASSWORD:-langfuse-local-redis-pass}
+      NEXTAUTH_URL: http://localhost:${LANGFUSE_PORT:-3000}
+      NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET:-langfuse-local-nextauth-secret}
+      SALT: ${LANGFUSE_SALT:-langfuse-local-salt}
+      ENCRYPTION_KEY: ${LANGFUSE_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      # 迁移用的 URL 有两处不能照抄应用用的那个：
+      #
+      # 1. **协议**必须是 clickhouse:// —— 它直接作为 golang-migrate 的
+      #    -database 参数，而 golang-migrate 只认自己注册过的驱动名。写成
+      #    http:// 会得到 "database driver: unknown driver http"。
+      # 2. **端口**必须是 9000（native 协议），不是 8123（HTTP）。golang-migrate
+      #    的 clickhouse 驱动走的是 clickhouse-go 的原生协议；连到 8123 会得到
+      #    "driver: bad connection" —— 连上了但不是它要的那个协议。
+      #
+      # 应用自己访问 ClickHouse 用的 CLICKHOUSE_URL 仍然是 http://…:8123，
+      # 那是 HTTP 接口，与迁移路径无关。
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: langfuse
+      CLICKHOUSE_PASSWORD: langfuse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: 6379
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
+    restart: unless-stopped
+
 volumes:
   pgdata:
   miniodata:
+  langfuseclickhouse:

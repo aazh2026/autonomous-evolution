@@ -19,7 +19,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -48,7 +48,7 @@ class EvolutionCycle(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     trigger: Mapped[str] = mapped_column(String(64), nullable=False, default="schedule")
     #: 周期结局：completed / aborted / budget_exhausted / blocked / …
     outcome: Mapped[str | None] = mapped_column(String(64))
-    metrics: Mapped[dict[str, Any]] = mapped_column(JSONDocument, nullable=False, default=dict)
+    metrics: Mapped[dict[str, object]] = mapped_column(JSONDocument, nullable=False, default=dict)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -85,11 +85,13 @@ class EvolutionCandidate(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     category: Mapped[str] = mapped_column(String(32), nullable=False)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     #: 证据列表。每条至少含 ``ref`` 与 ``kind``。
-    evidence: Mapped[list[dict[str, Any]]] = mapped_column(JSONDocument, nullable=False)
+    evidence: Mapped[list[dict[str, object]]] = mapped_column(JSONDocument, nullable=False)
     #: 假设：做了这件事会怎样。
     hypothesis: Mapped[str | None] = mapped_column(Text)
     #: 预期结果。
-    expected_outcome: Mapped[list[Any]] = mapped_column(JSONDocument, nullable=False, default=list)
+    expected_outcome: Mapped[list[object]] = mapped_column(
+        JSONDocument, nullable=False, default=list
+    )
 
     #: 预期价值 V，归一化到 0~1（design.md §3.3 优先级公式）。
     value: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False, default=Decimal(0))
@@ -149,7 +151,7 @@ class EvolutionDecision(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     #: 决策理由。reject 必须有理由 —— 拒绝一个候选也要说清楚为什么。
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
     #: defer 触发的补充分析项。非 defer 时为空数组。
-    requested_analysis: Mapped[list[Any]] = mapped_column(
+    requested_analysis: Mapped[list[object]] = mapped_column(
         JSONDocument, nullable=False, default=list
     )
     #: 决策被 Critic 否决 / 被人工推翻时留痕。

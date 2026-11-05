@@ -27,7 +27,6 @@ import uuid
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,9 +96,9 @@ class CandidateRepository:
         project_id: str,
         category: str,
         title: str,
-        evidence: Sequence[Mapping[str, Any]],
+        evidence: Sequence[Mapping[str, object]],
         hypothesis: str | None = None,
-        expected_outcome: Sequence[Any] = (),
+        expected_outcome: Sequence[object] = (),
         value: Decimal = Decimal(0),
         risk: Decimal = Decimal(0),
         confidence: Decimal = Decimal(0),
@@ -148,7 +147,7 @@ class DecisionRepository:
         candidate_id: uuid.UUID,
         decision: str,
         rationale: str,
-        requested_analysis: Sequence[Any] = (),
+        requested_analysis: Sequence[object] = (),
         cycle_id: uuid.UUID | None = None,
         overridden_by: str | None = None,
     ) -> EvolutionDecision:
@@ -220,7 +219,7 @@ class TaskRepository:
         branch: str | None = None,
         workspace_id: str | None = None,
         executor: str | None = None,
-        extra: Mapping[str, Any] | None = None,
+        extra: Mapping[str, object] | None = None,
     ) -> Task:
         """由一条 ``record`` 决策派生任务。
 
@@ -263,7 +262,7 @@ class TaskRepository:
         return list(result)
 
     async def bind_acceptance_contract(
-        self, task_id: uuid.UUID, contract: Mapping[str, Any]
+        self, task_id: uuid.UUID, contract: Mapping[str, object]
     ) -> Task:
         """绑定验收契约（R-051）。
 
@@ -346,7 +345,7 @@ class AgentSessionRepository:
         agent_id: str,
         executor: str,
         session_id: str,
-        authorization: Mapping[str, Any],
+        authorization: Mapping[str, object],
         started_at: datetime | None = None,
     ) -> AgentSession:
         """开一个执行会话。

@@ -32,7 +32,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from core.evidence.artifact_hash import (
     HASH_LENGTH,
@@ -142,9 +142,18 @@ class ObjectStore(ABC):
 
     @abstractmethod
     async def ping(self) -> bool:
-        """后端是否可用。健康检查用。
+        """后端是否**可达**。健康检查用。
 
-        语义是"这个后端现在能正常读写"，不是"某个 key 存在"。
+        语义是"服务在响应"，不是"某个 key 存在"，也不是"桶已建好"。
+        桶/目录是否就绪是 :meth:`ensure_ready` 的事 —— 把两件事混在一处，
+        "连不上"和"还没建桶"就分不开了，而这两者的处置完全不同。
+        """
+
+    @abstractmethod
+    async def ensure_ready(self) -> bool:
+        """确保后端可以直接写入。返回是否新建了东西。
+
+        幂等：已就绪时不报错、不重复创建。
         """
 
 
@@ -234,9 +243,13 @@ class LocalObjectStore(ObjectStore):
     async def ping(self) -> bool:
         return self._root.is_dir()
 
+    async def ensure_ready(self) -> bool:
+        # 根目录在构造时就建好了 —— 没有"待建"的时刻。
+        return False
+
 
 @contextmanager
-def _atomic_writer(target: Path) -> Iterator[Any]:
+def _atomic_writer(target: Path) -> Iterator[IO[bytes]]:
     """写临时文件再原子改名。
 
     失败时删掉临时文件 —— 半截内容留在证据目录里，读的时候会被判成
@@ -399,7 +412,7 @@ class S3ObjectStore(ObjectStore):
         async with self._client_context() as client:
             token: str | None = None
             while True:
-                kwargs: dict[str, Any] = {"Bucket": self._bucket}
+                kwargs: dict[str, object] = {"Bucket": self._bucket}
                 if prefix:
                     kwargs["Prefix"] = prefix
                 if token:
@@ -418,17 +431,25 @@ class S3ObjectStore(ObjectStore):
         return f"s3://{self._bucket}/{key}"
 
     async def ping(self) -> bool:
-        """桶在不在、能不能访问。
+        """服务在不在。
 
-        桶不存在时 ``head_bucket`` 报 404 —— 那说明"后端连上了但没建桶"，
-        对健康检查来说是不可用（写产物会失败）。
+        桶不存在时 ``head_bucket`` 报 404 —— 那仍然说明**服务是通的**
+        （它明确回答了"这个桶没有"）。所以 404 算可达，只有连不上
+        （连接被拒、超时）才算不可达。
+
+        把"桶还没建"当成"服务挂了"会让健康检查误报：桶是应用启动时
+        创建的，在它创建之前服务一直是好的。
         """
         try:
             async with self._client_context() as client:
                 await client.head_bucket(Bucket=self._bucket)
-        except Exception:
-            return False
+        except Exception as exc:
+            return _is_not_found(exc)
         return True
+
+    async def ensure_ready(self) -> bool:
+        """确保桶存在。返回是否新建。"""
+        return await self.ensure_bucket()
 
     async def ensure_bucket(self) -> bool:
         """确保桶存在。返回是否新建。
@@ -465,7 +486,7 @@ class _InjectedClient:
         return None
 
 
-def _botocore_config() -> Any:
+def _botocore_config() -> object:
     """botocore 的 path-style 配置。
 
     MinIO 用 path-style（``http://host:9000/bucket/key``）而不是
@@ -635,6 +656,14 @@ class ContentAddressedStore:
 
     async def exists(self, key: str) -> bool:
         return await self._store.exists(key)
+
+    async def ensure_ready(self) -> bool:
+        """确保后端可直接写入（建桶 / 建根目录）。"""
+        return await self._store.ensure_ready()
+
+    async def ping(self) -> bool:
+        """后端是否可达。"""
+        return await self._store.ping()
 
 
 # --------------------------------------------------------------------------

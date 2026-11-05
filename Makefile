@@ -44,17 +44,35 @@ test-cov: ## 覆盖率报告
 
 # ---------- 本地环境 ----------
 
+# 启动等待时间（秒）。
+#
+# `--wait` 会等所有带健康检查的服务变成 healthy。给一个明确的上限，
+# 而不是让它无限等 —— "卡住"和"就绪"必须能区分开。
+COMPOSE_WAIT_TIMEOUT ?= 120
+
 .PHONY: up
-up: ## 启动本地全栈（PG + MinIO + Langfuse + API）
-	$(COMPOSE) up -d --wait
+up: ## 启动本地全栈（PG + MinIO + API + worker）
+	$(COMPOSE) up -d --wait --wait-timeout $(COMPOSE_WAIT_TIMEOUT)
+
+.PHONY: up-observability
+up-observability: ## 启动本地全栈并带上 Langfuse（较慢，见 docs/tasks.md TASK-P1-007）
+	$(COMPOSE) --profile observability up -d --wait --wait-timeout $(COMPOSE_WAIT_TIMEOUT)
 
 .PHONY: down
-down: ## 停止本地全栈
+down: ## 停止本地全栈（**保留数据卷**）
 	$(COMPOSE) down
 
 .PHONY: logs
 logs: ## 查看本地全栈日志
 	$(COMPOSE) logs -f --tail=100
+
+.PHONY: ps
+ps: ## 查看本地全栈状态
+	$(COMPOSE) ps
+
+.PHONY: health
+health: ## 查看 API 健康检查结果
+	@curl -sS http://localhost:$${API_PORT:-8000}/healthz | $(PY) -m json.tool
 
 .PHONY: reset
 reset: ## 停止并清空本地数据卷

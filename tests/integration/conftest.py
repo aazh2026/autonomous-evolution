@@ -45,7 +45,12 @@ PG_USER = os.environ.get("ASES_TEST_PG_USER", "ases")
 PG_PASSWORD = os.environ.get("ASES_TEST_PG_PASSWORD", "ases")
 TEST_DB_NAME = os.environ.get("ASES_TEST_DB_NAME", "ases_test")
 
-S3_ENDPOINT_URL = os.environ.get("ASES_TEST_S3_ENDPOINT_URL", "http://localhost:9000")
+S3_ENDPOINT_URL = os.environ.get(
+    "ASES_TEST_S3_ENDPOINT_URL",
+    # 端口与 docker-compose.yml 的 MINIO_PORT 默认值一致 —— 两边读同一个变量，
+    # 就不会因为"compose 改了端口、测试还指着旧端口"而出现查无此桶的假失败。
+    f"http://localhost:{os.environ.get('MINIO_PORT', '9100')}",
+)
 S3_ACCESS_KEY = os.environ.get("ASES_TEST_S3_ACCESS_KEY", "minioadmin")
 S3_SECRET_KEY = os.environ.get("ASES_TEST_S3_SECRET_KEY", "minioadmin")
 
