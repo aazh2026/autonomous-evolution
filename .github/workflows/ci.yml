@@ -22,7 +22,7 @@ jobs:
         with:
           enable-cache: true
       - name: 安装依赖
-        run: uv sync --extra dev --all-extras
+        run: uv sync --all-extras
       - name: Ruff
         run: uv run ruff check .
       - name: Ruff format 检查
@@ -39,7 +39,7 @@ jobs:
         with:
           enable-cache: true
       - name: 安装依赖
-        run: uv sync --extra dev --all-extras
+        run: uv sync --all-extras
       - name: pytest（不含 integration）
         run: uv run pytest -m "not integration" --cov --cov-report=xml
       - name: 上传覆盖率
@@ -88,7 +88,7 @@ jobs:
         with:
           enable-cache: true
       - name: 安装依赖
-        run: uv sync --extra dev --all-extras
+        run: uv sync --all-extras
       - name: 数据库迁移
         run: uv run alembic upgrade head
       - name: pytest（含 integration）
