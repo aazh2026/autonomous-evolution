@@ -66,7 +66,12 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       minio:
-        image: minio/minio:latest
+        # 不是 `minio/minio` —— 上游已于 2026-09-11 从 Docker Hub 删除该仓库
+        # （2026-09-24 quay.io 匿名拉取也转为 401）。GitHub runner 上拉它会直接
+        # 报 "pull access denied" 并让整个集成测试 job 起不来。
+        # 改用 MinIO 社区分支 pgsty/silo：S3 协议、凭证环境变量、启动形态、
+        # on-disk 格式全部兼容，含健康检查所需的 `mc`。版本钉死以保证可复现。
+        image: pgsty/silo:RELEASE.2026-10-26T00-00-00Z
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
