@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -29,20 +28,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 pytestmark = [pytest.mark.integration, pytest.mark.slow]
 
-SANDBOX_IMAGE = "ases/sandbox:test"
 TARGET_IMAGE = "ases/target-template:test"
 
 #: 用来探测外网可达性的目标。用公共 DNS，任何网络环境都能解析它 ——
 #: 换成内网地址的话，"连不上"可能只是地址不对，断言就失去意义了。
 PROBE_HOST = "1.1.1.1"
 PROBE_PORT = 443
-
-
-def _docker_available() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    result = subprocess.run(["docker", "info"], capture_output=True, text=True, check=False)
-    return result.returncode == 0
 
 
 def _build(context: Path, tag: str, *args: str) -> None:
@@ -69,20 +60,8 @@ def _run(image: str, *command: str, network: str | None = None) -> subprocess.Co
     return subprocess.run(args, capture_output=True, text=True, check=False)
 
 
-@pytest.fixture(scope="session")
-def docker_available() -> None:
-    if not _docker_available():
-        pytest.skip("Docker 不可用；跳过沙箱镜像集成测试")
-
-
-@pytest.fixture(scope="session")
-def sandbox_image(
-    docker_available: None,  # noqa: ARG001
-) -> str:
-    """构建沙箱镜像。会话级 —— 只构建一次。"""
-    # docker_available 是依赖注入守卫：Docker 不可用时先跳过，参数本身用不到。
-    _build(REPO_ROOT / "docker" / "sandbox", SANDBOX_IMAGE)
-    return SANDBOX_IMAGE
+# ``docker_available`` 与 ``sandbox_image`` 两个夹具在 ``conftest.py`` 里 ——
+# 与 ``test_sandbox_mounts.py`` 共用，镜像只构建一次。
 
 
 @pytest.fixture(scope="session")

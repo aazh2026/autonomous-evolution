@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -36,6 +37,7 @@ from sqlalchemy.pool import NullPool
 
 from infrastructure.config.settings import Settings
 from infrastructure.storage.object_store import ContentAddressedStore, S3ObjectStore
+from tests.integration.docker_utils import is_registry_unreachable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -323,3 +325,46 @@ async def _delete_bucket(bucket: str) -> None:
 def s3_store(s3_backend: S3ObjectStore) -> ContentAddressedStore:
     """内容寻址的 S3 存储。"""
     return ContentAddressedStore(s3_backend)
+
+
+# --------------------------------------------------------------------------
+# Docker（沙箱镜像）
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def docker_available() -> None:
+    """Docker 不可用时跳过。"""
+    if shutil.which("docker") is None:
+        pytest.skip("Docker 不可用；跳过沙箱集成测试")
+    result = subprocess.run(["docker", "info"], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        pytest.skip("Docker 守护进程不可用；跳过沙箱集成测试")
+
+
+@pytest.fixture(scope="session")
+def sandbox_image(request: pytest.FixtureRequest) -> str:
+    """构建沙箱基础镜像。会话级 —— 只构建一次。
+
+    与 ``test_sandbox_image.py`` 共用同一个夹具，所以两个测试模块不会各
+    构建一次镜像。
+    """
+    # 显式取值而不是写成参数 —— 参数名会被 ruff 判成"未使用"，
+    # 而这个依赖的价值恰恰在于"它的副作用是跳过"。
+    request.getfixturevalue("docker_available")
+
+    context = REPO_ROOT / "docker" / "sandbox"
+    result = subprocess.run(
+        ["docker", "build", "-t", "ases/sandbox:test", str(context)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        combined = result.stdout + result.stderr
+        # 拉不到基础镜像是**环境限制**，不是代码缺陷 —— 断网的机器上
+        # 不该报一堆红。但 Dockerfile 写错了必须照常报错。
+        if is_registry_unreachable(combined):
+            pytest.skip("镜像仓库不可达，无法构建沙箱镜像；跳过沙箱集成测试")
+        raise RuntimeError(f"构建沙箱镜像失败：\n{result.stdout}\n{result.stderr}")
+    return "ases/sandbox:test"

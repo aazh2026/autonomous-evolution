@@ -63,6 +63,10 @@ ignore = [
 # 健康检查的假实现：接口方法签名由契约定死，实现里用不到的参数是常态
 # （比如 put_bytes 的 key 与 content_type —— 假后端不关心）。
 "tests/unit/api/test_health.py" = ["ARG002"]
+# 同理：假 git 实现 GitClient 协议，方法签名由契约定死 —— 内存里的假实现
+# 不关心 repo 指向哪里、force 是什么，但签名必须一模一样，否则 mypy 会
+# 判成"这个类没有实现那个协议"。
+"tests/unit/harness/workspace/doubles.py" = ["ARG002"]
 "**/__init__.py" = ["F401"]
 # 仓储层的写方法把实体的字段一一对应成关键字参数 —— 参数多是有意的，
 # 参数名本身就是文档。刻意逐列列出，比收成一个 dict 更难写错。
@@ -86,6 +90,11 @@ ignore = [
 # 参数。收成一个 dict 只会把"这个指标属于哪一层、单位是什么"这份契约
 # 藏进调用点的字典字面量里 —— 而读注册表的人要能一眼看到它。
 "evaluation/registry.py" = ["PLR0913", "PLR0917"]
+# 沙箱描述的构造函数同理：`build_workspace_sandbox_spec` 的每一个参数都
+# 是"沙箱长什么样"的一项独立事实（挂哪个目录、什么网络、用哪张镜像、
+# 给哪些环境变量）。收成一个 dict 只会把这些事实塞进调用点的字典字面量
+# 里，而这份描述恰恰是安全策略的输入 —— 它必须一眼可读。
+"harness/sandbox/policy.py" = ["PLR0913"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
