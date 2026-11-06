@@ -41,6 +41,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Final
 
+from core.task.cancellation import StopReport
 from core.task.outcome import ExecutionStatus
 from executors.base import (
     AgentSession,
@@ -376,6 +377,37 @@ class CliAdapter(CodingAgentAdapter, ABC):
             session.result = self._build_result(
                 session, status=ExecutionStatus.CANCELLED, summary=None
             )
+
+    async def ensure_process_stopped(self, session_id: str) -> StopReport:
+        """确保这个会话背后的进程真的不在运行。
+
+        **这一层与 :meth:`interrupt` 不是同一件事。** :meth:`interrupt` 问的
+        是"执行器说自己停了吗"，这一层问的是"那个进程还在吗" —— 取消传播
+        链（``harness.sandbox.cancellation``）把两者分开，因为执行器可能只
+        停了它管的**主**进程，而它 spawn 出来的子进程还在跑。
+
+        这里是**唯一**知道那个进程是谁的地方，所以只有执行器能回答这个
+        问题。
+        """
+        session = self._session(session_id)
+        process = session.process
+        if process is None:
+            # 没起过进程 —— 没有进程在跑，后置条件天然成立。
+            return StopReport(stopped=True, detail="这个会话没有起过进程")
+        if process.returncode is not None:
+            return StopReport(
+                stopped=True,
+                detail=f"进程已经退出（退出码 {process.returncode}）",
+            )
+        self._kill(process)
+        try:
+            await asyncio.wait_for(process.wait(), timeout=_KILL_TIMEOUT_SECONDS)
+        except TimeoutError:
+            return StopReport(
+                stopped=False,
+                detail=f"进程在 {_KILL_TIMEOUT_SECONDS:.0f} 秒内没有退出",
+            )
+        return StopReport(stopped=True, detail="进程已被终止")
 
     # ------------------------------------------------------------------
     # 内部

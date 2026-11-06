@@ -103,6 +103,15 @@ ignore = [
 # 一个 dict 只会把这些事实塞进调用点的字典字面量里 —— 而这份配置恰恰是
 # "这次模拟的进程行为是什么"这份契约的输入，它必须一眼可读。
 "tests/unit/executors/stub_cli.py" = ["PLR0913"]
+# 取消链的"没有这一类资源"实现：`NoProcessStopper` 与 `NoContainerStopper`
+# 的方法签名由端口协议定死，而它们**要的就是**不用那个参数 —— 没有进程就
+# 没有进程要停，没有容器就没有容器要停。参数不用不是疏忽，是这两个实现
+# 的全部含义。
+"harness/sandbox/cancellation.py" = ["ARG002"]
+# 取消链的测试替身：层与停止器的签名由端口协议定死，而替身**要的就是**
+# 不用那些参数 —— 它们只关心"这一层有没有被走到"。参数不用不是疏忽，
+# 是这些替身的全部含义。
+"tests/unit/harness/sandbox/test_cancellation.py" = ["ARG002"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

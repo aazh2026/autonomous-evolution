@@ -15,6 +15,9 @@ stdout 的每一行、把退出码变成统一状态、在进程还在跑的时�
 
 **它记下自己的 argv 与环境**，是为了让"凭证只走环境变量、不进 argv"这条
 约定**可断言** —— 那条约定一旦破了，从结果里是看不出来的。
+
+**它也记下自己的 PID**，是为了让"进程真的被停掉了"这条能被**操作系统**证
+实 —— 问适配器"你那个进程还在吗"没有意义，它当然说不在了。
 """
 
 from __future__ import annotations
@@ -62,6 +65,10 @@ if CONFIG.get("record", True):
                 {
                     "argv": ARGV,
                     "cwd": os.getcwd(),
+                    # 记下自己的 PID —— 测试要能从**操作系统**这一侧确认
+                    # "那个进程真的没了"，而不是问适配器"你那个进程还在吗"
+                    # （那当然说不在了）。
+                    "pid": os.getpid(),
                     "session_id": SESSION_ID,
                     "env": {
                         key: os.environ.get(key)

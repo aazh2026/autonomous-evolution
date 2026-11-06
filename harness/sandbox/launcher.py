@@ -29,6 +29,12 @@ from harness.sandbox.policy import (
     validate_sandbox_spec,
 )
 
+#: ``docker ps`` 里算"还在跑"的容器状态。
+#:
+#: ``paused`` 与 ``restarting`` 也算：这两种容器都还占着资源，"它没在跑"
+#: 是个假结论。
+_RUNNING_CONTAINER_STATES: frozenset[str] = frozenset({"running", "paused", "restarting"})
+
 
 class SandboxLaunchError(RuntimeError):
     """沙箱容器起不来。
@@ -118,11 +124,38 @@ class SandboxLauncher:
         self._ignore_failure(("rm", "-f", container_id))
 
     def is_running(self, container_id: str) -> bool:
-        """容器还在不在跑。"""
-        completed = self._ignore_failure(("inspect", "-f", "{{.State.Running}}", container_id))
+        """容器还在不在跑。
+
+        **"问不话"算作"没在跑"。** 只关心"在不在跑"时够用；要区分"docker
+        说它没在跑"与"docker 根本没说上话"，用 :meth:`container_running`。
+        """
+        return self.container_running(container_id) is True
+
+    def container_running(self, container_id: str) -> bool | None:
+        """容器还在不在跑。**docker 不可用时返回 ``None``**。
+
+        三态而不是两态，因为"容器没在跑"与"我们没问上话"必须分开：取消传
+        播链要靠这个区别判断"停掉了"还是"停不掉"（TASK-P1-033）。问不话
+        却报"没在跑"，会把"我们没停掉它"与"它本来就没在跑"混成一句话。
+
+        **用 ``docker ps -a`` 而不是 ``docker inspect``。** 区别在"容器已经
+        被删了"这一种情况：``inspect`` 对着不存在的容器会报错退出，于是
+        "容器没了"与"docker 坏了"长得一模一样；而 ``ps -a`` 对着不存在的
+        容器只是**列不出来**（输出为空），对 docker 本身不可用才是**报错**。
+        取消传播恰恰要在这两种情况里分辨：容器没了正是我们要的，docker 坏
+        了则意味着"我们没停掉它"。
+        """
+        completed = self._ignore_failure(
+            ("ps", "-a", "--filter", f"id={container_id}", "--format", "{{.State}}")
+        )
         if completed is None or completed.returncode != 0:
+            # docker 不可用 —— 不是"没在跑"，是"没问上话"。
+            return None
+        state = completed.stdout.strip()
+        if not state:
+            # 容器已经不在了（多半是我们刚删的）。它当然没在跑。
             return False
-        return completed.stdout.strip() == "true"
+        return state in _RUNNING_CONTAINER_STATES
 
     def _ignore_failure(self, args: tuple[str, ...]) -> subprocess.CompletedProcess[str] | None:
         try:
