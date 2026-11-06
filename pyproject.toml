@@ -95,6 +95,14 @@ ignore = [
 # 给哪些环境变量）。收成一个 dict 只会把这些事实塞进调用点的字典字面量
 # 里，而这份描述恰恰是安全策略的输入 —— 它必须一眼可读。
 "harness/sandbox/policy.py" = ["PLR0913"]
+# codex 骨架：`summarize` 的签名由 Adapter 契约定死，而协议表还没填 ——
+# 事件流读不出结论，参数用不到是常态，不是疏忽。
+"executors/codex/events.py" = ["ARG001"]
+# 打桩 CLI 的配置面：`write_stub` 的每个参数对应打桩 CLI 配置里的一项独立
+# 事实（吐什么事件、退出码几、睡多久、stderr 写什么、报哪个会话 ID）。收成
+# 一个 dict 只会把这些事实塞进调用点的字典字面量里 —— 而这份配置恰恰是
+# "这次模拟的进程行为是什么"这份契约的输入，它必须一眼可读。
+"tests/unit/executors/stub_cli.py" = ["PLR0913"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

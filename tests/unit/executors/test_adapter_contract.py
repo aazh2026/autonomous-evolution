@@ -138,6 +138,12 @@ class TestExecutingATask:
         assert handle.task_id == "TASK-1"
         assert handle.attempt == 1
 
+        # 会话用完必须终止。**这不是收尾的礼貌，是契约的一部分** —— CLI
+        # 执行器背后是一个真的子进程，不终止它就等于让一个进程接着跑下去。
+        # 留着不终止的会话在测试里表现为"事件循环关掉时留下一句
+        # Task was destroyed but it is pending"，在生产里表现为进程泄漏。
+        await adapter.terminate(session.session_id)
+
     async def test_the_result_names_the_task_and_the_executor(
         self, adapter: CodingAgentAdapter
     ) -> None:
