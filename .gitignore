@@ -37,3 +37,7 @@ var/
 .idea/
 .vscode/
 .DS_Store
+
+# Claude Code 的本地运行时目录
+# 里面是调度器的锁文件之类的临时状态 —— 不是项目资产，不入库。
+.claude/
