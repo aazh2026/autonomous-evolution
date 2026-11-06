@@ -40,7 +40,7 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 #: 每一项都必须能回答："这里为什么不得不动态？"答不上来的就该改代码。
 #:
 #: - ``core.policy.autonomy`` / ``core.policy.budget`` / ``core.project.models`` /
-#:   ``core.metrics.cycle``：定义 Pydantic 模型 —— mypy 把继承自
+#:   ``core.metrics.cycle`` / ``executors.base``：定义 Pydantic 模型 —— mypy 把继承自
 #:   ``BaseModel.__init__`` 的 ``Any`` 记在子类定义行上。
 #: - ``infrastructure.config.settings``：``BaseSettings`` 同上。
 #: - ``infrastructure.storage.object_store``：aioboto3 / botocore 不发布
@@ -52,6 +52,7 @@ ALLOWED_ANY_MODULES: dict[str, str] = {
     "core.policy.budget": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.project.models": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.metrics.cycle": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "executors.base": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "infrastructure.config.settings": "Pydantic BaseSettings —— 继承自 BaseModel.__init__ 的 Any",
     "infrastructure.storage.object_store": "aioboto3 / botocore 无类型标记，客户端方法面是动态的",
     "tests.*": "测试用 Any 造动态结构的假数据 —— 被断言的对象本身就是动态的",
@@ -175,13 +176,17 @@ class TestExemptionListIsNotAWideDoor:
         )
 
     def test_core_modules_in_exemption_list_are_still_any_free(self) -> None:
-        """被豁免的 ``core/`` 模块里，注解也不许有 ``Any``。
+        """被豁免的 ``core/`` / ``executors/`` 模块里，注解也不许有 ``Any``。
 
         豁免只针对 mypy 记在**继承成员**上的那笔账 —— 我们自己写的
         注解一律受这条约束。所以豁免模块也要单独查一遍。
+
+        ``infrastructure.storage.object_store`` 不在这次检查范围内：它的豁免
+        是另一回事（第三方库没有类型标记，``Any`` 是**如实**的），它用不用
+        ``Any`` 由它自己的模块负责。
         """
         for module_name in ALLOWED_ANY_MODULES:
-            if not module_name.startswith("core."):
+            if not module_name.startswith(("core.", "executors.")):
                 continue
             path = REPO_ROOT / Path(*module_name.split(".")).with_suffix(".py")
             assert path.exists(), f"豁免清单里的模块不存在：{module_name}"

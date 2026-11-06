@@ -55,6 +55,11 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN", "S101", "PLR2004"]
+# 契约测试用的两个参考实现：方法签名由 Adapter 契约定死，实现里用不到的
+# 参数是常态（不支持中断的实现里 session_id 就是要不到）；`_build_result`
+# 的参数是统一结果的字段，逐个列出反而更清楚 —— 收成一个 dict 只会把
+# "结果由哪些字段构成"藏进调用点的字典字面量里。
+"tests/unit/executors/doubles.py" = ["ARG002", "PLR0913"]
 # 健康检查的假实现：接口方法签名由契约定死，实现里用不到的参数是常态
 # （比如 put_bytes 的 key 与 content_type —— 假后端不关心）。
 "tests/unit/api/test_health.py" = ["ARG002"]
@@ -122,6 +127,7 @@ module = [
     "core.policy.budget",
     "core.project.models",
     "core.metrics.cycle",
+    "executors.base",
     "infrastructure.config.settings",
 ]
 disallow_any_explicit = false
