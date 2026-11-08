@@ -151,6 +151,17 @@ ignore = [
 # 调用点的字典字面量里 —— 而"过期覆盖批准、拒绝压过过期"这两条次序规则
 # 恰恰要靠逐个改字段才验得出来。
 "tests/unit/policy/test_approval.py" = ["PLR0913"]
+# Critic 测试的构造器：``_checker`` 的每一个参数都是"这次审查要面对的一项
+# 独立事实"（目标、任务表里已有的任务、已登记的产物、失败的用例、相关提交、
+# 已违反的约束、实际指标、运行期事实）。列全了才能一眼看出"改一个参数会
+# 改什么"；收成 dict 只会把这份契约藏进调用点的字典字面量里 —— 而这份契约
+# 恰恰要靠逐个改字段才验得出来（同一句候选用不同的世界去审，结论就该不同）。
+"tests/unit/agents/critic/test_critic.py" = ["PLR0913"]
+# Critic 测试的产物登记处替身：``_FakeRegistry`` 实现 ``ArtifactRegistry``
+# 协议，四个方法的方法签名由契约定死 —— 而这个替身**要的就是**只回答"这
+# 条产物登记过没有"：``get_by_uri`` 与 ``record_archive`` 用到的参数对它没
+# 有意义。参数不用不是疏忽，是这个替身的全部含义。
+"tests/unit/agents/critic/test_tools.py" = ["ARG002"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
@@ -197,6 +208,9 @@ module = [
     "core.evolution.decision",
     "core.evolution.evidence",
     "core.evolution.priority",
+    "agents.critic.checks",
+    "agents.critic.report",
+    "agents.critic.tools",
     "executors.base",
     "harness.verification.contract",
     "infrastructure.config.settings",
