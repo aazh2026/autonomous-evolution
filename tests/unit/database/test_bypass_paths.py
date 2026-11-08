@@ -47,6 +47,17 @@ SKIP_DIRS = {
     "dist",
 }
 
+#: 持久化实体所在的包。
+#:
+#: **为什么扫描要按来源分辨，而不是按名字。** 领域模型
+#: ``core.evolution.decision.EvolutionDecision`` 与持久化实体
+#: ``core.entities.EvolutionDecision`` **同名** —— 一个是"决策长什么样"的领域
+#: 模型（纯 Python，随便造），一个是"决策那一行"的数据库实体（只能由仓储层
+#: 写）。只看名字的扫描分不出这两者：要么把领域模型的构造误判成"绕过决策
+#: 路径写库"，要么图省事加个白名单 —— 而白名单会把**真正的旁路**一起放过
+#: 去。**按来源分辨，两个问题一起没有。**
+ENTITY_MODULE = "core.entities"
+
 
 def _python_files() -> Iterator[Path]:
     for path in sorted(REPO_ROOT.rglob("*.py")):
@@ -79,12 +90,81 @@ def _constructed_names(path: Path) -> set[str]:
     return names
 
 
+def _entity_local_names(tree: ast.Module, entity_name: str) -> set[str]:
+    """这个文件里指向该持久化实体的**本地名字**。
+
+    空集意味着这个文件压根没引用那个实体 —— 它里面同名的构造调用是别的东西
+    （多半是领域模型）。
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if not node.module or not node.module.startswith(ENTITY_MODULE):
+            continue
+        for alias in node.names:
+            if alias.name == entity_name:
+                names.add(alias.asname or alias.name)
+    return names
+
+
+def _entity_module_aliases(tree: ast.Module) -> set[str]:
+    """``import core.entities.xxx`` 引进来的模块别名。"""
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Import):
+            continue
+        for alias in node.names:
+            if alias.name.startswith(ENTITY_MODULE):
+                aliases.add(alias.asname or alias.name)
+    return aliases
+
+
+def _attribute_root(node: ast.expr) -> str | None:
+    """属性链的根名字：``a.b.c`` → ``"a"``。"""
+    current = node
+    while isinstance(current, ast.Attribute):
+        current = current.value
+    return current.id if isinstance(current, ast.Name) else None
+
+
+def _entity_constructed_names(path: Path, entity_name: str) -> set[str]:
+    """这个文件里构造了**持久化实体**的调用名。
+
+    **按来源分辨，不按名字分辨** —— 见 :data:`ENTITY_MODULE` 的说明。
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    local_names = _entity_local_names(tree, entity_name)
+    module_aliases = _entity_module_aliases(tree)
+    if not local_names and not module_aliases:
+        return set()
+
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name):
+            if func.id in local_names:
+                names.add(func.id)
+        elif (
+            isinstance(func, ast.Attribute)
+            and func.attr == entity_name
+            # ``core.entities.EvolutionDecision(...)`` 这种带包前缀的写法。
+            and _attribute_root(func.value) in module_aliases
+        ):
+            names.add(entity_name)
+    return names
+
+
 class TestNoBypassWritePath:
     """③ 静态检查。"""
 
     def test_task_is_only_constructed_in_the_repository(self) -> None:
         offenders = [
-            _relative(path) for path in _python_files() if "Task" in _constructed_names(path)
+            _relative(path)
+            for path in _python_files()
+            if "Task" in _entity_constructed_names(path, "Task")
         ]
         # 实体定义文件里是 class Task(...) —— 不是 Call，不会被算进来。
         assert set(offenders) <= TASK_CONSTRUCTION_ALLOWLIST, (
@@ -95,7 +175,7 @@ class TestNoBypassWritePath:
         offenders = [
             _relative(path)
             for path in _python_files()
-            if "EvolutionDecision" in _constructed_names(path)
+            if "EvolutionDecision" in _entity_constructed_names(path, "EvolutionDecision")
         ]
         assert set(offenders) <= DECISION_CONSTRUCTION_ALLOWLIST, (
             f"以下文件直接构造了 EvolutionDecision：{sorted(set(offenders))}"
@@ -132,8 +212,8 @@ class TestNoBypassWritePath:
     def test_no_direct_session_add_of_task_outside_repository(self) -> None:
         """``session.add(Task(...))`` 这类写法同样被上面的扫描覆盖。
 
-        这里补一条更严格的：任何 ``.add(`` 调用如果参数里含 ``Task``，
-        只能出现在仓储层。
+        这里补一条更严格的：任何 ``.add(`` 调用如果参数里含**持久化实体**
+        ``Task``，只能出现在仓储层。
         """
         offenders: list[str] = []
         for path in _python_files():
@@ -141,6 +221,7 @@ class TestNoBypassWritePath:
             if relative in TASK_CONSTRUCTION_ALLOWLIST:
                 continue
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            local_names = _entity_local_names(tree, "Task")
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):
                     continue
@@ -151,7 +232,7 @@ class TestNoBypassWritePath:
                     if (
                         isinstance(argument, ast.Call)
                         and isinstance(argument.func, ast.Name)
-                        and argument.func.id == "Task"
+                        and argument.func.id in local_names
                     ):
                         offenders.append(relative)
         assert not offenders, f"以下文件把 Task 直接塞进了会话：{sorted(set(offenders))}"
@@ -164,6 +245,34 @@ class TestScanCoverage:
         """扫描器能发现仓储层里的 Task 构造 —— 否则"没有违例"是假的。"""
         repository = REPO_ROOT / "infrastructure/database/repositories.py"
         assert "Task" in _constructed_names(repository)
+
+    def test_the_scanner_catches_a_real_bypass(self, tmp_path: Path) -> None:
+        """扫描器自己能逮住一个真的旁路 —— 否则"没有违例"是假的。"""
+        offender = tmp_path / "rogue.py"
+        offender.write_text(
+            "from core.entities import EvolutionDecision\n\n\n"
+            "def make():\n"
+            "    return EvolutionDecision(candidate_id='x')\n",
+            encoding="utf-8",
+        )
+
+        assert "EvolutionDecision" in _entity_constructed_names(offender, "EvolutionDecision")
+
+    def test_the_scanner_ignores_a_same_named_domain_model(self, tmp_path: Path) -> None:
+        """同名但**不同源**的领域模型不算旁路。
+
+        领域模型随便造 —— 那是它的本职。把它算成"绕过决策路径写库"，逼着人
+        加白名单，而白名单会把真正的旁路一起放过。
+        """
+        innocent = tmp_path / "innocent.py"
+        innocent.write_text(
+            "from core.evolution.decision import EvolutionDecision\n\n\n"
+            "def make():\n"
+            "    return EvolutionDecision(id='EVD-1')\n",
+            encoding="utf-8",
+        )
+
+        assert not _entity_constructed_names(innocent, "EvolutionDecision")
 
     def test_scanner_visits_the_whole_repository(self) -> None:
         files = list(_python_files())

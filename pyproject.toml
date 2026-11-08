@@ -194,6 +194,7 @@ module = [
     "core.metrics.cycle",
     "core.evolution.assessment",
     "core.evolution.candidate",
+    "core.evolution.decision",
     "core.evolution.evidence",
     "core.evolution.priority",
     "executors.base",

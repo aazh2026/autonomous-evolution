@@ -41,9 +41,9 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 #:
 #: - ``core.policy.autonomy`` / ``core.policy.budget`` / ``core.project.models`` /
 #:   ``core.metrics.cycle`` / ``core.evolution.assessment`` /
-#:   ``core.evolution.candidate`` / ``core.evolution.evidence`` /
-#:   ``core.evolution.priority`` / ``executors.base`` /
-#:   ``harness.verification.contract``：
+#:   ``core.evolution.candidate`` / ``core.evolution.decision`` /
+#:   ``core.evolution.evidence`` / ``core.evolution.priority`` /
+#:   ``executors.base`` / ``harness.verification.contract``：
 #:   定义 Pydantic 模型 —— mypy 把继承自
 #:   ``BaseModel.__init__`` 的 ``Any`` 记在子类定义行上。
 #: - ``infrastructure.config.settings``：``BaseSettings`` 同上。
@@ -58,6 +58,7 @@ ALLOWED_ANY_MODULES: dict[str, str] = {
     "core.metrics.cycle": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.evolution.assessment": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.evolution.candidate": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "core.evolution.decision": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.evolution.evidence": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.evolution.priority": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "executors.base": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
