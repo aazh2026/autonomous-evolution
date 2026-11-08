@@ -115,6 +115,13 @@ ignore = [
 # 验证引擎的测试替身：运行器协议的方法签名由 ``CheckRunner`` 契约定死，
 # 而替身**要的就是**只用命令与结果 —— 工作区路径与超时对它没有意义。
 "tests/unit/harness/verification/test_engine.py" = ["ARG002"]
+# 授权测试的构造器：``_grant`` / ``_request`` 的每个参数都是"这条授权 /
+# 这次请求的一项独立事实"（身份四要素 + 有效期 + 两道范围 + 资源）。
+# 列全了才能一眼看出"改一个参数会改什么"；收成 dict 只会把这份契约藏进
+# 调用点的字典字面量里。
+# ``BrokenSink.record`` 的参数由留痕接口的签名定死 —— 假去处要的就是
+# 写不成功，用不到那个参数。
+"tests/unit/harness/security/test_authorization.py" = ["PLR0913", "ARG002"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
