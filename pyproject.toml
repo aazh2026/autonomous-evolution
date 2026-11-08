@@ -193,6 +193,7 @@ module = [
     "core.project.models",
     "core.metrics.cycle",
     "core.evolution.assessment",
+    "core.evolution.candidate",
     "core.evolution.evidence",
     "executors.base",
     "harness.verification.contract",

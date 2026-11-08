@@ -53,4 +53,21 @@ class PriorityLevel(StrEnum):
     LOW = "low"
 
 
-__all__ = ["OpportunityCategory", "PriorityLevel"]
+class RiskLevel(StrEnum):
+    """做这件事的风险档。
+
+    **与优先级不是一回事**：优先级说的是"值不值得先做"，风险说的是"做了
+    可能出什么事"。一个高价值高风险的事该排在前面（只是要小心），一个低
+    价值低风险的事该排在后面 —— 合成一个分数就把这两个维度糊成了一团。
+
+    三档而不是连续分数：风险等级是给人看的定性判断，而六因子公式里的
+    ``R``（风险系数）才是那个 0~1 的数 —— 档与系数的换算在
+    :mod:`core.evolution.priority` 里，两边不混。
+    """
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+__all__ = ["OpportunityCategory", "PriorityLevel", "RiskLevel"]

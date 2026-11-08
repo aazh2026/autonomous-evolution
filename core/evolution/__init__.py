@@ -28,15 +28,32 @@ from core.evolution.assessment import (
     OverallStatus,
     ProjectAssessment,
 )
+from core.evolution.candidate import (
+    CandidateDiscoverer,
+    CandidateStatus,
+    DiscoveryContext,
+    DiscoveryResult,
+    DroppedTrend,
+    EvolutionCandidate,
+    ProjectBenefit,
+    TechnologyTrend,
+    TechnologyTrendDiscoverer,
+)
 from core.evolution.evidence import ARTIFACT_SCHEME, ISSUE_SCHEME, Evidence, EvidenceKind
-from core.evolution.taxonomy import OpportunityCategory, PriorityLevel
+from core.evolution.taxonomy import OpportunityCategory, PriorityLevel, RiskLevel
 
 __all__ = [
     "ARTIFACT_SCHEME",
     "ISSUE_SCHEME",
+    "CandidateDiscoverer",
+    "CandidateStatus",
     "DeferredOpportunity",
+    "DiscoveryContext",
+    "DiscoveryResult",
+    "DroppedTrend",
     "Evidence",
     "EvidenceKind",
+    "EvolutionCandidate",
     "GapSeverity",
     "GoalGap",
     "Opportunity",
@@ -44,4 +61,8 @@ __all__ = [
     "OverallStatus",
     "PriorityLevel",
     "ProjectAssessment",
+    "ProjectBenefit",
+    "RiskLevel",
+    "TechnologyTrend",
+    "TechnologyTrendDiscoverer",
 ]
