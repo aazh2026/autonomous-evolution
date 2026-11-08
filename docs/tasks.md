@@ -453,7 +453,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **预估**：0.75d
 - **验证结果**：T1 —— **32 个单元测试**（`tests/unit/harness/verification/test_contract.py`）覆盖四类断言：契约非空（`required` 不得为空、不得重复、未知检查名被拒）、任务绑定（空 `task_id` 被拒、拿 A 任务的契约放行 B 任务判失败）、阈值类型校验（`>=` 配字符串/布尔被拒、标量 `0.85` 被解析为数值型、`==` 配文本合法、类型不匹配的比较**报错**而不是悄悄返回 False）、判定规则（缺必检项算"没产出结果"而非"算过"、`ERROR` 与 `FAILED` 分开、缺实测值算失败、缺产物算失败、命中 `forbidden` 一票否决）。判定实现为**与**逻辑 —— `forbidden` 一票否决是规则的推论而非特例分支，因此"三项通过、一项命中密钥"必然整体判失败。阈值映射包进 `FrozenDict`，进程内改松验收口径的路被封死。`ruff check` / `mypy --strict`（3 个源文件）/ `pytest` 全绿；`harness.verification.contract` 已登记进 `tests/unit/core/test_no_any_escape.py` 的豁免清单（Pydantic 模型继承 `BaseModel.__init__` 的 `Any`，见 pyproject 同源说明）。**反向验证**：对生产代码做 **12 处**定点变异（把判定改成计分、把"缺结果"当通过、去掉 `forbidden` 的一票否决、把 `FrozenDict` 换回普通 dict、放宽运算符与值类型的配对校验、把"缺实测值"默认成通过、把 `ERROR` 当 `PASSED` 等），每次都让对应用例转红 —— **12 处全部被抓住**，生产文件还原后与原文逐字节一致。
 
-### [ ] TASK-P1-041 最小独立验证引擎
+### [x] TASK-P1-041 最小独立验证引擎
 
 - **工作流**：HN
 - **设计要求**：R-049, R-051, I-22（§3.5B 不要让 Coding Agent 自己决定是否验收通过；验证引擎独立于执行器）
@@ -463,6 +463,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证（T2）**：验证结论与 `self_assessment` 的一致率为 0（阶段一用构造样本验证二者完全解耦）
 - **自主权**：L2
 - **预估**：1d
+- **验证结果**：T1 —— **33 个单元测试**（`tests/unit/harness/verification/test_engine.py`）。**T1 ①**：验证进程用 `asyncio.create_subprocess_exec` 以独立进程组（`start_new_session=True`）启动，环境由 `build_verification_env` 白名单构造 —— 只放行 15 个无害变量（`PATH`/`HOME`/`LANG`/`TZ`…），`HOME` 指向一次性临时目录（退出即删），凭据形状的名字（`SECRET`/`TOKEN`/`PASSWORD`/`KEY`/`SESSION`…）**直接拒绝**而不是静默丢弃；断言落在**运行器实际收到的环境**上，而不是"某个参数没传"。另有一条真起子进程把 `os.environ` 整个 dump 出来的用例，用它证明验证进程里既没有会话句柄也没有密钥。**T1 ②**：Agent 的 `self_assessment.completed = true` 与"测试实际失败"同时成立时，验证结论为 **failed**、任务状态为 **failed** —— 这条不是靠"引擎不读 `self_assessment`"的约定守住的，而是**结构上做不到**：`VerificationRequest` 的字段集合就是 `{task_id, workspace, contract, plan}`，压根没有能装下执行结果的地方；`harness/` 整个包不 import `executors/`（由 `tests/unit/harness/test_layering.py` 用 AST 守着），依赖方向被钉死为 `执行器 → 领域 ← 验证引擎`。**T1 ③**：检查起不来（`started=False`）、超时、被信号打死一律判 `error` 而非 `passed` —— fail-closed 双向都守："没跑成"与"跑了没过"分属 `ERROR` 与 `FAILED`，前者该重跑、后者该返工。**T2**：四个构造样本（单元测试失败 / lint 失败 / 进程起不来 / 密钥命中）里 Agent 全都说"做完了"，验证结论与 `self_assessment` 的**一致率为 0**。`ruff check` / `ruff format --check` / `mypy --strict`（209 个源文件）/ 全量单元测试全绿。**反向验证**：对生产代码做 **19 处**定点变异（把退出码非 0 当通过、把 `ERROR` 当 `FAILED`、让证据不齐也能给通过/不通过、指标读不到时返回 0、不乘 `scale`、继承宿主机整个环境、`HOME` 不指向一次性目录、放行凭据形状的环境变量、契约没要求的检查也照跑、扫描命中不记为违规、出错的检查也去读指标、结论永远 `passed` 等），每次都让对应用例转红 —— **19 处全部被抓住**。变异脚本跑在仓库外的独立沙箱副本里（`/tmp/ases-mut-p1041/tree`），主仓库全程不被改动；沙箱内每次写入后清掉 `__pycache__` —— Python 的 pyc 头部只记 mtime（秒级）与大小，而本轮变异全是**等长替换**（`FAILED`→`PASSED`），还原又常发生在同一秒里，于是缓存字节码与还原后的源文件"对得上"而被复用，跑出来的其实是含变异的旧字节码（实测表现为"还原后测试仍然转红"，看着像断言太严，其实是加载了脏字节码）。
 
 ### [ ] TASK-P1-042 覆盖率模块基线机制
 

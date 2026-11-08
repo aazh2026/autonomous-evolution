@@ -135,12 +135,21 @@ def _plan(**overrides: object) -> VerificationPlan:
     return VerificationPlan(**payload)  # type: ignore[arg-type]
 
 
+#: 默认的成功输出 —— 覆盖率 95%。
+_COVERAGE_OUTPUT = "TOTAL   95.00% covered"
+
+
 @dataclass
 class FakeRunner:
     """按命令返回预设结果的运行器。
 
     **不是 mock 框架里的那种"万能替身"** —— 它只做一件事：命令 → 结果。
     引擎怎么把结果折成结论，由引擎自己的代码负责，替身不参与。
+
+    **默认返回的成功结果里带一条可读的覆盖率。** 这不是为了"看起来像真的"，
+    是为了让每个用例的失败原因都是**它自己制造的那一个**：如果默认输出里
+    没有覆盖率，那么"覆盖率没实测值"会跟着每一个用例，掩盖掉真正想验的
+    那条 —— 用例会因为一个无关的理由而通过或失败，那它就白写了。
     """
 
     results: dict[tuple[str, ...], CheckExecution] = field(default_factory=dict)
@@ -158,14 +167,16 @@ class FakeRunner:
         key = tuple(command)
         self.calls.append(key)
         self.seen_envs.append(dict(env))
-        return self.results.get(key, CheckExecution(exit_code=0, stdout="", stderr=""))
+        return self.results.get(
+            key, CheckExecution(exit_code=0, stdout=_COVERAGE_OUTPUT, stderr="")
+        )
 
 
 def _passing_runner() -> FakeRunner:
     """四项检查全过、扫描干净、覆盖率 0.95。"""
     return FakeRunner(
         results={
-            _UNIT: CheckExecution(exit_code=0, stdout="TOTAL   95.00% covered", stderr=""),
+            _UNIT: CheckExecution(exit_code=0, stdout=_COVERAGE_OUTPUT, stderr=""),
             _INTEGRATION: CheckExecution(exit_code=0, stdout="", stderr=""),
             _LINT: CheckExecution(exit_code=0, stdout="", stderr=""),
             _ARCHITECTURE: CheckExecution(exit_code=0, stdout="", stderr=""),
@@ -333,13 +344,18 @@ class TestTheVerdictDoesNotFollowTheAgent:
         """Agent 说"我做完了"，测试其实没过 → 验证判 **failed**。"""
         runner = FakeRunner(
             results={
-                _UNIT: CheckExecution(exit_code=1, stdout="1 failed, 9 passed", stderr=""),
+                _UNIT: CheckExecution(
+                    exit_code=1, stdout=f"{_COVERAGE_OUTPUT}\n1 failed, 9 passed", stderr=""
+                ),
             }
         )
         engine = VerificationEngine(runner=runner)
 
         run = await engine.verify(_request(tmp_path))
 
+        # 退出码非 0 就是"没过"。别的检查都过、覆盖率也达标 —— 唯一不通过
+        # 的理由必须是这一条，所以这条断言成立时，失败原因只可能是它。
+        assert run.checks[RequiredCheck.UNIT_TESTS_PASS].outcome is CheckOutcome.FAILED
         assert run.evaluation.passed is False
         assert run.to_report().verdict is VerificationVerdict.FAILED
 
@@ -349,7 +365,9 @@ class TestTheVerdictDoesNotFollowTheAgent:
         """任务状态为 failed —— 领域层拿的是验证结论，不是 Agent 的话。"""
         runner = FakeRunner(
             results={
-                _UNIT: CheckExecution(exit_code=1, stdout="1 failed", stderr=""),
+                _UNIT: CheckExecution(
+                    exit_code=1, stdout=f"{_COVERAGE_OUTPUT}\n1 failed", stderr=""
+                ),
             }
         )
         engine = VerificationEngine(runner=runner)
@@ -368,8 +386,12 @@ class TestTheVerdictDoesNotFollowTheAgent:
         一致率不是 0 意味着什么？意味着"Agent 说自己做完了"这件事在某个
         样本里**影响了结论** —— 那就是被测者给自己判卷。
         """
-        samples = {
-            "单元测试失败": {_UNIT: CheckExecution(exit_code=1, stdout="1 failed", stderr="")},
+        samples: dict[str, dict[tuple[str, ...], CheckExecution]] = {
+            "单元测试失败": {
+                _UNIT: CheckExecution(
+                    exit_code=1, stdout=f"{_COVERAGE_OUTPUT}\n1 failed", stderr=""
+                )
+            },
             "lint 失败": {_LINT: CheckExecution(exit_code=1, stdout="E501 too long", stderr="")},
             "进程起不来": {_UNIT: CheckExecution(exit_code=-1, stdout="", stderr="no such file")},
             "密钥命中": {_SECRET_SCAN: CheckExecution(exit_code=1, stdout="found", stderr="")},
@@ -477,6 +499,31 @@ class TestTheFailClosedDirections:
 
         assert "test_coverage" not in run.metrics
         assert run.evaluation.passed is False
+        assert "test_coverage" in run.evaluation.missing
+
+    async def test_an_errored_check_yields_no_metric(self, tmp_path: Path) -> None:
+        """出错的检查**不产出实测值** —— 它连跑完都没跑完。
+
+        这一条专门盯一种情况：检查跑着跑着超时或被打死了，但它**已经打印了
+        一部分输出**（覆盖率那行往往在收尾时打，于是半截输出里偏偏带着它）。
+        把那份半截输出当成实测值，等于拿一次没跑完的运行去填阈值 —— 而
+        阈值是验收口径，宁可缺值也不能拿废值去比。
+        """
+        runner = FakeRunner(
+            results={
+                _UNIT: CheckExecution(
+                    exit_code=-1,
+                    stdout=_COVERAGE_OUTPUT,
+                    stderr="超时",
+                    timed_out=True,
+                )
+            }
+        )
+        engine = VerificationEngine(runner=runner)
+
+        run = await engine.verify(_request(tmp_path))
+
+        assert "test_coverage" not in run.metrics
         assert "test_coverage" in run.evaluation.missing
 
     async def test_a_failing_check_never_yields_a_passed_verdict(self, tmp_path: Path) -> None:
@@ -623,16 +670,25 @@ class TestTheArtifacts:
 
 class TestTheRunIsReadOnly:
     async def test_the_run_cannot_be_edited_after_the_fact(self, tmp_path: Path) -> None:
-        """结论一旦产出就不能就地改 —— 改结论等于改验收。"""
+        """结论一旦产出就不能就地改 —— 改结论等于改验收。
+
+        ``# type: ignore[index]`` 是**故意**的：mypy 判"不能往 Mapping 里
+        赋值"完全正确，而这条用例要验的正是运行时也会拒绝这件事。所以这里
+        必须写一条运行时跑得起来、而类型检查器明确反对的语句 —— 用
+        ``# type: ignore`` 把它标出来，是让"类型上不允许"这件事同时被
+        类型检查器与运行时两边都钉住。
+        """
         runner = _passing_runner()
         engine = VerificationEngine(runner=runner)
 
         run = await engine.verify(_request(tmp_path))
 
         with pytest.raises(TypeError):
-            run.checks[RequiredCheck.UNIT_TESTS_PASS] = run.checks[RequiredCheck.UNIT_TESTS_PASS]
+            run.checks[RequiredCheck.UNIT_TESTS_PASS] = run.checks[  # type: ignore[index]
+                RequiredCheck.UNIT_TESTS_PASS
+            ]
         with pytest.raises(TypeError):
-            run.metrics["test_coverage"] = run.metrics["test_coverage"]
+            run.metrics["test_coverage"] = run.metrics["test_coverage"]  # type: ignore[index]
 
 
 class TestTheMetricsAreReadHonestly:
