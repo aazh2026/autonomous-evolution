@@ -48,7 +48,19 @@ pytestmark = [pytest.mark.integration, pytest.mark.slow]
 _STUB_SLEEP_SECONDS = 300
 
 #: 这次运行的任务超时。给得短一点：等的就是超时本身。
-_TIMEOUT_SECONDS = 1
+#:
+#: **但不能是 1 秒。** 这个超时是**从进程被 spawn 出来那一刻开始算的**，而
+#: 子进程从 fork 到真正跑起来（解释器启动、读配置、写下自己的第一行）还要
+#: 花掉几十毫秒 —— 机器忙的时候（磁盘被 docker 拉镜像占满、页缓存是冷的）
+#: 这段启动时间会明显变长。1 秒的预算把"进程还没起来"和"进程超时了"挤在
+#: 了一起：子进程还没写下自己就被掐了，于是"这次执行确实超时了"这个前提
+#: 根本立不住 —— 失败时报出来的是"没有产出任何事件"，而真相是"进程压根没
+#: 活到能证明自己活着"。
+#:
+#: 5 秒给了子进程上百倍于正常值的启动余量。代价是这个文件整体多花二十几
+#: 秒 —— 它本来就标了 ``slow``，而一个每几轮就假一次的测试比一个慢的测试
+#: 贵得多。
+_TIMEOUT_SECONDS = 5
 
 #: 这次运行的标识。容器名带它 —— 两次并发运行就不会撞名。
 _RUN_TOKEN = str(os.getpid())
@@ -132,27 +144,121 @@ async def _timed_out_session(tmp_path: Path) -> tuple[ClaudeCodeAdapter, str, Ex
         timeout_seconds=_TIMEOUT_SECONDS,
     )
     await adapter.execute(task)
-    await _wait_until_the_process_is_running(adapter, session.session_id)
-    pid = read_log(tmp_path / "cli")[-1]["pid"]
+    await _wait_until_the_process_is_running(adapter, session.session_id, tmp_path / "cli")
+    pid = await _wait_until_the_cli_has_recorded_itself(
+        tmp_path / "cli", adapter, session.session_id
+    )
     # 掐掉那个进程的是适配器的超时 —— 进程没了，就说明超时真的到过。
     await _wait_until_the_process_is_gone(pid)
     return adapter, session.session_id, task, pid
 
 
-async def _wait_until_the_process_is_running(adapter: ClaudeCodeAdapter, session_id: str) -> None:
+async def _wait_until_the_process_is_running(
+    adapter: ClaudeCodeAdapter, session_id: str, directory: Path
+) -> None:
     """等到进程真的跑起来了。
 
     **用事件流而不是"睡一会儿"。** 适配器是在 ``create_subprocess_exec`` 返
     回之后才把进程记进会话的，事件是那之后才读到的 —— 所以"读到第一条事
     件"就意味着"进程已经起来了"。
+
+    **但"流结束了"不等于"进程起来了"。** 进程若压根没产出任何东西（起不
+    来、刚起就被掐了），事件流会直接结束 —— 而一个什么都没等到的等待函
+    数，返回时却和"等到了"长得一模一样。于是这里显式地分一次：等到了事
+    件就返回，没等到就报错。**空结果必须和"等到了"区分开**，否则调用方会
+    拿着一个从没发生过的前提继续往下走。
     """
     events = await adapter.stream_events(session_id)
 
     async def _first_event() -> None:
         async for _event in events:
             return
+        raise AssertionError(await _describe_the_dead_session(adapter, session_id, directory))
 
     await asyncio.wait_for(_first_event(), timeout=10)
+
+
+async def _describe_the_dead_session(
+    adapter: ClaudeCodeAdapter, session_id: str, directory: Path
+) -> str:
+    """这次执行没产出任何事件 —— 把现场报出来。
+
+    **"没跑起来"有两种完全不同的坏法**，报出来才能分得清：
+
+    - 打桩 CLI 的日志**不在** —— 进程压根没活到能写下自己的那一行
+      （起不来，或刚起就被超时掐了）；
+    - 日志**在**（甚至有内容）—— 进程起来了，但它的话没人听见（输出已经
+      写进管道，读它的那个协程却被超时取消掉了）。
+
+    两种情况的修法完全不同，所以不能只说"没跑起来"。
+    """
+    session = adapter._sessions.get(session_id)
+    log = directory / "stub_cli.log"
+    exists = log.exists()
+    size = log.stat().st_size if exists else 0
+    status = await adapter.get_status(session_id)
+    exit_code = getattr(session, "exit_code", None)
+    timed_out = getattr(session, "timed_out", None)
+    error = getattr(session, "error", None)
+    return (
+        f"这次执行没有产出任何事件：打桩 CLI 的日志文件"
+        f"{'在' if exists else '不在'}（{size} 字节）—— "
+        f"{'进程起来了但输出没人读' if exists else '进程压根没活到写下自己'}；"
+        f"会话状态 {status}，退出码 {exit_code}，超时标记 {timed_out}，错误 {error}。"
+    )
+
+
+async def _wait_until_the_cli_has_recorded_itself(
+    directory: Path,
+    adapter: ClaudeCodeAdapter,
+    session_id: str,
+    *,
+    timeout: float = 30.0,
+) -> int:
+    """等到打桩 CLI 把自己记下来，返回它的 PID。
+
+    **"看见第一条事件"不等于"日志已经写下来了"。** 事件是适配器转述子进程
+    输出之后的结果，日志是子进程**自己**写下的文件 —— 两者之间隔着一次文件
+    写入。读完事件就立刻去读日志，是在赌那次写入已经发生；赌输了的代价不
+    是"重试一下"，而是一句 ``IndexError``：既不说是哪一步没发生，也不说
+    进程当时是什么状态。
+
+    所以这里等的是**外部事实**（子进程自己记下的那一行），等不到就把现
+    场报出来：日志文件在不在、多大、会话是什么状态。
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        records = read_log(directory)
+        if records:
+            return int(records[-1]["pid"])
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                await _describe_the_missing_record(directory, adapter, session_id, timeout)
+            )
+        await asyncio.sleep(0.02)
+
+
+async def _describe_the_missing_record(
+    directory: Path,
+    adapter: ClaudeCodeAdapter,
+    session_id: str,
+    waited: float,
+) -> str:
+    """说清楚"日志里没有记录"这件事当时到底怎么了。
+
+    **报不出现场的失败等于没报。** 只说"读不到日志"，读的人还得自己从头
+    复现一遍才知道是哪一步没发生。
+    """
+    log = directory / "stub_cli.log"
+    exists = log.exists()
+    size = log.stat().st_size if exists else 0
+    status = await adapter.get_status(session_id)
+    return (
+        f"等了 {waited:.0f} 秒，打桩 CLI 仍没有把自己记下来："
+        f"日志文件{'在' if exists else '不在'}（{size} 字节），会话状态 {status}。"
+        f"任务的超时间是 {_TIMEOUT_SECONDS} 秒 —— 进程若在起跑阶段就被超时掐"
+        f"掉，就来不及留下任何记录。"
+    )
 
 
 async def _wait_until_the_process_is_gone(pid: int, *, timeout: float = 30.0) -> None:
