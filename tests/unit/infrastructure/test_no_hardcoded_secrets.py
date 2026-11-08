@@ -117,6 +117,14 @@ ALLOWED_CANARIES: dict[tuple[str, str], str] = {
         "tests/unit/infrastructure/test_no_hardcoded_secrets.py",
         "sk-live-abcdefghijklmnop",
     ): "扫描器自检样本 —— 它必须长得像真密钥，才能证明扫描器有效",
+    (
+        "tests/unit/harness/security/test_gate.py",
+        "AKIAQWERTYUIOPASDFGH",
+    ): "安全门测试用的假 AWS 形状凭据 —— 该测试断言安全门能认出它",
+    (
+        "tests/unit/infrastructure/test_no_hardcoded_secrets.py",
+        "AKIAQWERTYUIOPASDFGH",
+    ): "上一条白名单里的值在本文件里也要出现 —— 位置写错或值改了就失效",
 }
 
 
