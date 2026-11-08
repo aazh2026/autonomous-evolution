@@ -42,6 +42,7 @@ from core.entities import (
 from core.entities.base import utcnow
 from core.metrics import cycle as cycle_domain
 from core.metrics.cycle import CycleCounts, CycleStatus
+from core.planning.roadmap import EvolutionRoadmap
 from core.task.state_machine import TaskAction, TaskState, TransitionContext, apply_action
 
 #: 决策三态（tasks.md TASK-P1-054）。
@@ -85,6 +86,35 @@ class NonExecutableDecisionError(RepositoryError):
 
 class AcceptanceContractError(RepositoryError):
     """验收契约缺失或与任务不匹配（R-051）。"""
+
+
+class OverriddenDecisionError(RepositoryError):
+    """这条决策已经被推翻 —— 不能由它派生任务。
+
+    **被推翻的决策不再派生的道理，与"决策不可变、只能追加"是同一条。** 一条
+    被 Critic 否决（或被人推翻）的决策，它记录的是"当初这么想过"；要行动，
+    就再记一条新的决策 —— 那条新决策会带着新的理由与新的授权。
+
+    **这条检查堵的是"忘了"。** 拆解器已经会把没放行的决策挡在外面，但拆解
+    器是应用层的一环，它可以被绕过、可以被改错、也可能压根不在那条路径上。
+    仓储层是最后一道 —— 它挡的是"代码写错了"这种再普通不过的情况。
+    """
+
+    def __init__(self, decision_id: uuid.UUID, overridden_by: str) -> None:
+        super().__init__(
+            f"决策 {decision_id} 已被 {overridden_by!r} 推翻，不能由它派生任务 —— "
+            "要行动请另记一条决策"
+        )
+        self.decision_id = decision_id
+        self.overridden_by = overridden_by
+
+
+class MissingDecisionRowError(RepositoryError):
+    """路线图里的决策没有对应的数据库行。"""
+
+    def __init__(self, decision_ids: Sequence[str]) -> None:
+        super().__init__(f"路线图里的这些决策没有对应的数据库行：{'、'.join(decision_ids)}")
+        self.decision_ids = tuple(decision_ids)
 
 
 class DuplicateCycleError(RepositoryError):
@@ -210,6 +240,39 @@ class DecisionRepository:
             raise NotFoundError("演进决策", decision_id)
         return record
 
+    async def overturn(self, decision_id: uuid.UUID, *, by: str) -> EvolutionDecision:
+        """把一条已记录的决策标记为**被推翻**。
+
+        **"推翻"是一个后来发生的事件，不是一条决策生下来就带着的属性。**
+        决策行是一份证据 —— 它记录"当时做了什么决定、依据是什么"。推翻是
+        之后另一次判断：审查层在决策落地之后回过味来，或者人改了主意。把
+        这层意思压进"记录决策时顺手写一个字段"，等于让一份证据生下来就带着
+        后来的结论 —— 时间线上说不通。
+
+        **这条顺序决定了仓储层那道闸怎么读。** 闸门在**派生任务的那一刻**
+        看决策的状态：
+
+        - 推翻发生在派生**之前** → 拒。已经知道这条决策站不住了，就不该再
+          从它派生任务；
+        - 推翻发生在派生**之后** → 已经派生的任务**依然算数** —— 那是真做
+          过的活；但这条决策不再计入"采纳率"。
+
+        两种顺序都要能表示，所以这里给的是**一次追加**（改字段），而不是
+        记录时的一个可选参数。
+        """
+        if not by.strip():
+            raise InvalidDecisionError("推翻决策必须写明是谁推翻的")
+        record = await self._session.get(EvolutionDecision, decision_id)
+        if record is None:
+            raise NotFoundError("演进决策", decision_id)
+        if record.decision != DECISION_RECORD:
+            raise InvalidDecisionError(
+                f"只有 {DECISION_RECORD!r} 决策才谈得上被推翻 —— 这一条是 {record.decision!r}"
+            )
+        record.overridden_by = by
+        await self._session.flush()
+        return record
+
 
 class TaskRepository:
     """研发任务的仓储 —— **任务唯一的新增入口**。
@@ -240,12 +303,18 @@ class TaskRepository:
 
         这是全代码库唯一构造 :class:`~core.entities.Task` 的地方
         （``tests/unit/database/test_bypass_paths.py`` 静态校验这一点）。
+
+        **三条准入**：决策存在、是 ``record``、**没有被推翻**。第三条堵的是
+        "代码写错了"—— 被 Critic 否决的决策哪怕被错传进来，也不会派生出
+        任务。
         """
         record = await self._session.get(EvolutionDecision, decision_id)
         if record is None:
             raise NotFoundError("演进决策", decision_id)
         if record.decision != DECISION_RECORD:
             raise NonExecutableDecisionError(decision_id, record.decision)
+        if record.overridden_by is not None:
+            raise OverriddenDecisionError(decision_id, record.overridden_by)
 
         task = Task(
             project_id=record.project_id,
@@ -263,6 +332,64 @@ class TaskRepository:
         self._session.add(task)
         await self._session.flush()
         return task
+
+    async def land_roadmap(
+        self,
+        roadmap: EvolutionRoadmap,
+        *,
+        decision_rows: Mapping[str, uuid.UUID],
+    ) -> list[Task]:
+        """把一份路线图落成任务行。
+
+        **每一个任务都走 :meth:`create_from_decision`。** 这不是风格问题 ——
+        那条路是全代码库唯一构造 ``Task`` 的地方，也是唯一会检查"决策是不是
+        ``record``、是不是被推翻"的地方。绕开它写一行任务，就绕开了全部三道
+        准入。
+
+        **领域侧的标识与数据库侧的 id 是两回事，对应关系由调用方给出。**
+        路线图里用的是决策的**领域 id**（``"EVD-cycle-0007-002"``），数据库里
+        的决策行用的是 uuid。两者的对应关系是编排层知道的（它刚刚记下那些
+        决策），领域层不猜 —— 猜错了就是任务挂到了别的决策上，而**不会
+        报错**。
+
+        对不上的直接报错：路线图里出现的每一个决策都必须在对应表里有着落。
+        """
+        if not roadmap.tasks:
+            return []
+
+        missing = sorted({task.decision_id for task in roadmap.tasks} - set(decision_rows))
+        if missing:
+            raise MissingDecisionRowError(missing)
+
+        tasks: list[Task] = []
+        by_key: dict[str, Task] = {}
+        for planned in roadmap.tasks:
+            task = await self.create_from_decision(
+                decision_rows[planned.decision_id],
+                title=planned.title,
+                task_type=planned.task_type.value,
+                description=planned.description or None,
+                priority=planned.priority,
+                extra={
+                    "roadmap_key": planned.key,
+                    "cycle_id": roadmap.cycle_id,
+                    "acceptance_focus": planned.acceptance_focus,
+                    "rationale": planned.rationale,
+                },
+            )
+            tasks.append(task)
+            by_key[planned.key] = task
+
+        dependencies = TaskDependencyRepository(self._session)
+        project_id = tasks[0].project_id
+        for edge in roadmap.dependencies:
+            await dependencies.add(
+                project_id=project_id,
+                predecessor_id=by_key[edge.predecessor_key].id,
+                successor_id=by_key[edge.successor_key].id,
+                dependency_type=edge.dependency_type.value,
+            )
+        return tasks
 
     async def get(self, task_id: uuid.UUID) -> Task:
         task = await self._session.get(Task, task_id)

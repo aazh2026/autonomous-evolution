@@ -11,7 +11,8 @@ TASK-P1-055（R-085 / R-086 / R-087 / I-18）。
 - :mod:`agents.critic.tools` —— 事实核验工具的接口与调用账本；
 - :mod:`agents.critic.sources` —— 工具的具体实现（**这一层做 IO**）；
 - :mod:`agents.critic.report` —— 把九项检查跑起来，产出 :class:`CriticReport`；
-- :mod:`agents.critic.matching` —— 词面匹配（判定"是否触碰非目标"）。
+- :mod:`agents.critic.matching` —— 词面匹配（判定"是否触碰非目标"）；
+- :mod:`agents.critic.approval` —— 把报告翻译成领域层认识的放行凭据。
 
 **为什么 IO 在 ``agents/`` 而不是 ``core/``。** ``core/`` 是领域层，一行 IO
 都不做；这些工具唯一的职责就是做 IO。它们按接口取事实，不拥有事实 ——
@@ -21,6 +22,7 @@ TASK-P1-055（R-085 / R-086 / R-087 / I-18）。
 
 from __future__ import annotations
 
+from agents.critic.approval import ReportMismatchError, approval_for
 from agents.critic.checks import (
     CHECK_QUESTIONS,
     VETOING_CHECKS,
@@ -56,6 +58,7 @@ __all__ = [
     "FactChecker",
     "FactTool",
     "ProjectStatusFact",
+    "ReportMismatchError",
     "TaskLookup",
     "TaskSummary",
     "ToolCall",
@@ -63,5 +66,6 @@ __all__ = [
     "ToolResult",
     "ToolUnavailableError",
     "Verdict",
+    "approval_for",
     "require_no_veto",
 ]

@@ -125,7 +125,6 @@ async def _seed_chain(session: AsyncSession) -> tuple[uuid.UUID, list[uuid.UUID]
         decision=DECISION_RECORD,
         rationale="证据充分",
         cycle_id=row.id,
-        overridden_by="critic",
     )
     await decision_repo.record(
         candidate_id=second.id,
@@ -155,6 +154,11 @@ async def _seed_chain(session: AsyncSession) -> tuple[uuid.UUID, list[uuid.UUID]
         also_done.id, {"task_id": str(also_done.id), "checks": ["unit_tests"]}
     )
     also_done.status = TaskState.COMPLETED.value
+
+    # **推翻发生在任务派生之后。** 审查层在任务落地之后回过味来 —— 那是真做
+    # 过的活，撤不回来；但这条决策不再计入"采纳率"。
+    # 顺序反过来（先推翻再派生）会被仓储层挡下 —— 那条另有用例盯着。
+    await decision_repo.overturn(overturned.id, by="critic")
 
     await task_repo.create_from_decision(recorded.id, title="任务三", task_type="test")
 

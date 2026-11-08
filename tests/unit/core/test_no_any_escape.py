@@ -43,7 +43,8 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 #:   ``core.metrics.cycle`` / ``core.evolution.assessment`` /
 #:   ``core.evolution.candidate`` / ``core.evolution.decision`` /
 #:   ``core.evolution.evidence`` / ``core.evolution.priority`` /
-#:   ``agents.critic.checks`` / ``agents.critic.report`` /
+#:   ``core.planning.roadmap`` / ``agents.critic.checks`` /
+#:   ``agents.critic.report`` /
 #:   ``agents.critic.tools`` / ``executors.base`` /
 #:   ``harness.verification.contract``：
 #:   定义 Pydantic 模型 —— mypy 把继承自
@@ -63,6 +64,7 @@ ALLOWED_ANY_MODULES: dict[str, str] = {
     "core.evolution.decision": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.evolution.evidence": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.evolution.priority": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "core.planning.roadmap": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "agents.critic.checks": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "agents.critic.report": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "agents.critic.tools": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",

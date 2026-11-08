@@ -157,6 +157,39 @@ def _entity_constructed_names(path: Path, entity_name: str) -> set[str]:
     return names
 
 
+def _constructing_methods(tree: ast.Module, entity_name: str) -> list[str]:
+    """哪些**方法**里构造了这个持久化实体。
+
+    **文件级的白名单管不住方法级。** "构造 Task 的文件是仓储层"这条规则，
+    放行了 ``land_roadmap`` 里直接 ``Task(...)`` 的写法 —— 文件合法，但三道
+    准入全被绕过了。所以这里按方法再问一遍。
+    """
+    local_names = _entity_local_names(tree, entity_name)
+    module_aliases = _entity_module_aliases(tree)
+    if not local_names and not module_aliases:
+        return []
+
+    methods: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for inner in ast.walk(node):
+            if not isinstance(inner, ast.Call):
+                continue
+            func = inner.func
+            if isinstance(func, ast.Name) and func.id in local_names:
+                methods.append(node.name)
+                break
+            if (
+                isinstance(func, ast.Attribute)
+                and func.attr == entity_name
+                and _attribute_root(func.value) in module_aliases
+            ):
+                methods.append(node.name)
+                break
+    return methods
+
+
 class TestNoBypassWritePath:
     """③ 静态检查。"""
 
@@ -199,6 +232,39 @@ class TestNoBypassWritePath:
         assert not (public_methods & forbidden), (
             f"TaskRepository 暴露了通用写入口：{sorted(public_methods & forbidden)}"
         )
+
+    def test_the_repository_constructs_tasks_in_exactly_one_place(self) -> None:
+        """仓储层内部也只有一个构造点 —— :meth:`create_from_decision`。
+
+        **为什么"在仓储层里"还不够。** 上面那条扫描只保证"构造 Task 的文件是
+        仓储层"—— 但仓储层自己有好几个方法。在 ``land_roadmap`` 里直接
+        ``Task(...)``，文件层面完全合法，却绕开了那三道准入（决策存在、是
+        ``record``、没有被推翻）。
+
+        这就是**文件级白名单的天花板**：它管得住"在哪个文件"，管不住"在这个
+        文件的哪个方法"。所以这一条把粒度收到方法级。
+        """
+        repository = REPO_ROOT / "infrastructure/database/repositories.py"
+        tree = ast.parse(repository.read_text(encoding="utf-8"), filename=str(repository))
+
+        constructing_methods = _constructing_methods(tree, "Task")
+
+        assert constructing_methods == ["create_from_decision"], (
+            "构造 Task 的方法必须只有 create_from_decision 一个 —— "
+            f"实际是：{sorted(constructing_methods)}"
+        )
+
+    def test_the_one_construction_site_is_actually_guarded(self) -> None:
+        """那个唯一的构造点必须真的在做准入 —— 否则"只有一处"是空的。
+
+        守卫的三条：决策存在、是 ``record``、没有被推翻。前两条在没有决策行
+        时会直接报错，第三条只在 ``overridden_by`` 非空时才触发。
+        """
+        source = (REPO_ROOT / "infrastructure/database/repositories.py").read_text(encoding="utf-8")
+        body = source.split("async def create_from_decision", 1)[1]
+        body = body.split("\n    async def ", 1)[0]
+        assert "NonExecutableDecisionError" in body, "准入检查之一被删掉了"
+        assert "OverriddenDecisionError" in body, "准入检查之一被删掉了"
 
     def test_task_repository_creation_path_is_decision_bound(self) -> None:
         """唯一的创建方法必须以 decision_id 为必需参数。"""

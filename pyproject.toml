@@ -208,6 +208,7 @@ module = [
     "core.evolution.decision",
     "core.evolution.evidence",
     "core.evolution.priority",
+    "core.planning.roadmap",
     "agents.critic.checks",
     "agents.critic.report",
     "agents.critic.tools",
