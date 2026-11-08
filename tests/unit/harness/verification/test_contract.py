@@ -135,9 +135,7 @@ class TestTheContractIsBoundToATask:
 
     def test_a_contract_without_task_id_is_rejected(self) -> None:
         with pytest.raises(ValidationError):
-            AcceptanceContract.model_validate(
-                {"required": [RequiredCheck.UNIT_TESTS_PASS.value]}
-            )
+            AcceptanceContract.model_validate({"required": [RequiredCheck.UNIT_TESTS_PASS.value]})
 
     def test_a_contract_for_another_task_does_not_pass_this_one(self) -> None:
         """拿 A 任务的契约放行 B 任务 —— 等于没有契约。"""
@@ -239,7 +237,7 @@ class TestTheEvaluation:
         assert any("3 个用例失败" in reason for reason in result.failures)
 
     def test_an_errored_check_is_distinguished_from_a_failed_one(self) -> None:
-        """"没跑成"与"跑了没过"必须分开 —— 处置完全不同。"""
+        """ "没跑成"与"跑了没过"必须分开 —— 处置完全不同。"""
         checks = _all_passed()
         checks[RequiredCheck.UNIT_TESTS_PASS] = CheckResult(
             RequiredCheck.UNIT_TESTS_PASS, CheckOutcome.ERROR, "pytest 装不上"
@@ -300,9 +298,7 @@ class TestTheForbiddenRulesAreOneShot:
 
     def test_every_forbidden_rule_can_veto(self) -> None:
         for rule in ForbiddenRule:
-            result = evaluate_contract(
-                _contract(), _evidence(violations=frozenset({rule}))
-            )
+            result = evaluate_contract(_contract(), _evidence(violations=frozenset({rule})))
 
             assert result.passed is False, f"{rule.value} 应当一票否决"
 

@@ -356,8 +356,7 @@ def evaluate_contract(
 
     if contract.task_id != evidence.task_id:
         failures.append(
-            f"验收契约绑定的是任务 {contract.task_id}，"
-            f"与本次执行的任务 {evidence.task_id} 不符"
+            f"验收契约绑定的是任务 {contract.task_id}，与本次执行的任务 {evidence.task_id} 不符"
         )
 
     failures.extend(_missing_required(contract, evidence, missing))

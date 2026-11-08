@@ -99,3 +99,24 @@ class TestTheHarnessStaysAnAdapter:
                 if imported.startswith(("orchestration.", "agents.")):
                     hits.append((path, imported))
         assert hits == [], f"harness/ 不该依赖编排层：{hits}"
+
+    def test_the_harness_does_not_import_the_executors(self) -> None:
+        """R-049：验证引擎独立于执行器。
+
+        **这条要守在整个 ``harness/`` 上，不只是验证引擎那一个模块。**
+        验证引擎一旦 import 了执行器，它就能拿到 ``ExecutionResult`` ——
+        而 ``ExecutionResult`` 里有 ``self_assessment``。从"能拿到"到"会去
+        看"只差一个顺手，而"顺手"在赶进度的时候最容易发生。
+
+        所以方向被钉死成一条：**执行器 → 领域 ← 验证引擎**。验证引擎认识
+        执行器的一切，只通过 ``core/`` 里的领域模型（``ExecutionStatus``、
+        ``VerificationReport``）与它打交道。
+        """
+        hits: list[tuple[Path, str]] = []
+        for path in sorted(HARNESS_DIR.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            for imported in _imported_modules(path):
+                if imported == "executors" or imported.startswith("executors."):
+                    hits.append((path, imported))
+        assert hits == [], f"harness/ 不该依赖执行器层：{hits}"

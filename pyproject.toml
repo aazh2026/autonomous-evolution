@@ -112,6 +112,9 @@ ignore = [
 # 不用那些参数 —— 它们只关心"这一层有没有被走到"。参数不用不是疏忽，
 # 是这些替身的全部含义。
 "tests/unit/harness/sandbox/test_cancellation.py" = ["ARG002"]
+# 验证引擎的测试替身：运行器协议的方法签名由 ``CheckRunner`` 契约定死，
+# 而替身**要的就是**只用命令与结果 —— 工作区路径与超时对它没有意义。
+"tests/unit/harness/verification/test_engine.py" = ["ARG002"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
