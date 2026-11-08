@@ -254,6 +254,23 @@ class ApprovalGate:
         outcome = request.outcome(self._now())
         return ApprovalVerdict(outcome=outcome, reason=_describe(outcome, request), request=request)
 
+    async def verdict_for(self, request_id: str) -> ApprovalVerdict:
+        """**指定那一条**请求的结论。
+
+        与 :meth:`verdict` 的区别：那个按 (任务, 操作) 找**最近**的一条，
+        这个只看给定的这一条。
+
+        **为什么需要后者。** 合并路径批的是**具体的某个提交** —— 分支头变了
+        就要重新批。那么"这次合并能不能做"就必须落在**同一条**请求上：按
+        "最近一条"来判，人批的东西与被判定的东西就可能不是同一个。
+
+        结论照旧由 :meth:`ApprovalRequest.outcome` 现算 —— 过期是读取时的
+        判断，不依赖谁去跑一个"把过期请求翻成 expired"的后台任务。
+        """
+        request = await self._store.get(request_id)
+        outcome = request.outcome(self._now())
+        return ApprovalVerdict(outcome=outcome, reason=_describe(outcome, request), request=request)
+
     async def approval_outcome(self, *, task_id: str, operation: Operation) -> ApprovalOutcome:
         """:class:`~core.policy.autonomy.ApprovalChecker` 的实现。
 
