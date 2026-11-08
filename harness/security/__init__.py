@@ -25,6 +25,20 @@ TASK-P1-045、R-048、R-054、R-059~R-063。
 
 from __future__ import annotations
 
+from harness.security.audit import (
+    NOT_APPLICABLE,
+    AuditDecision,
+    AuditEvent,
+    AuditLog,
+    AuditOutcome,
+    AuditQuery,
+    AuditRecorder,
+    AuditResult,
+    AuditStore,
+    AuditWriteError,
+    InMemoryAuditStore,
+    JsonlAuditStore,
+)
 from harness.security.authorization import (
     HIGH_RISK_CAPABILITIES,
     AuthorizationDecision,
@@ -37,6 +51,7 @@ from harness.security.authorization import (
     Capability,
     DecisionSink,
     TaskAuthorization,
+    capability_for,
     path_scope,
 )
 from harness.security.gate import (
@@ -66,6 +81,16 @@ __all__ = [
     "DEFAULT_PROTECTED_PACKAGES",
     "DEFAULT_SECRET_PATTERNS",
     "HIGH_RISK_CAPABILITIES",
+    "NOT_APPLICABLE",
+    "AuditDecision",
+    "AuditEvent",
+    "AuditLog",
+    "AuditOutcome",
+    "AuditQuery",
+    "AuditRecorder",
+    "AuditResult",
+    "AuditStore",
+    "AuditWriteError",
     "AuthorizationDecision",
     "AuthorizationDeniedError",
     "AuthorizationIdentity",
@@ -78,12 +103,15 @@ __all__ = [
     "DecisionSink",
     "FileChange",
     "GateReport",
+    "InMemoryAuditStore",
+    "JsonlAuditStore",
     "NetworkPolicy",
     "NetworkPolicyError",
     "SecurityGate",
     "SecurityPolicy",
     "TaskAuthorization",
     "Violation",
+    "capability_for",
     "check_url",
     "default_network_policy",
     "fetch_url",

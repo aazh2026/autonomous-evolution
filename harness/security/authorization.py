@@ -111,6 +111,19 @@ _OPERATION_CAPABILITY: Final[Mapping[Operation, Capability]] = {
 }
 
 
+def capability_for(operation: Operation) -> Capability | None:
+    """这个操作行使的是哪项资源级能力。
+
+    **表里没有就返回 ``None``** —— 那意味着"这个操作还没有对应的能力
+    要求"，而它在判定时拿不到任何能力（这张表只朝收紧的方向生效：表里
+    没有 = 拿不到）。
+
+    审计记录要用它把"改了代码"翻译成"动了 ``repo:write``" —— 读审计的
+    人不该为了看懂一条记录先去查另一张表。
+    """
+    return _OPERATION_CAPABILITY.get(operation)
+
+
 class AuthorizationIdentity(NamedTuple):
     """授权记录归属的四个身份要素。
 

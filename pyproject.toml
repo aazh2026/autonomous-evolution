@@ -122,6 +122,16 @@ ignore = [
 # ``BrokenSink.record`` 的参数由留痕接口的签名定死 —— 假去处要的就是
 # 写不成功，用不到那个参数。
 "tests/unit/harness/security/test_authorization.py" = ["PLR0913", "ARG002"]
+# 审计测试的假存储 ``BrokenStore``：``append`` / ``query`` 的签名由
+# ``AuditStore`` 协议定死 —— 假存储要的就是**写不成功**，它压根不关心
+# 写的是哪条记录、查的是哪张表。参数不用不是疏忽，是这个替身的全部含义。
+"tests/unit/harness/security/test_audit.py" = ["ARG002"]
+# 审计的写入口：``record_tool_call`` / ``audited_call`` 的每一个参数都是
+# "这次工具调用的一项独立事实"（身份四要素 + 资源 + 操作 + 结果 + 判定 +
+# 理由 + 会话）。列全了才能一眼看出"这条记录凭什么这么写"；收成一个 dict
+# 只会把这份契约塞进调用点的字典字面量里 —— 而这份契约恰恰是"四要素齐不
+# 齐"的唯一检查点，藏起来就没人看得见了。
+"harness/security/audit.py" = ["PLR0913"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
