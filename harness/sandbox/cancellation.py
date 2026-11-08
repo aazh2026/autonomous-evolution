@@ -319,6 +319,30 @@ class NoContainerStopper:
         return StopReport(stopped=True, detail=self.detail)
 
 
+@dataclass(frozen=True, slots=True)
+class ChainResourceReclaimer:
+    """把取消链包装成"回收器"。
+
+    **为什么要有这层包装。** 超时处置（``executors/recovery.py``）要"把这次
+    执行留下的资源收干净"，而收干净这件事**就是**取消链在做的事 —— 只是
+    动机不同：取消是用户提的要求，回收是处置，两者的**后置条件**完全一样
+    （每一类资源都不在了）。
+
+    执行器那一侧不能直接 import 沙箱（待裁决 13），所以那边把"怎么回收"
+    写成一个端口，这边提供一个**结构上满足**它的实现。两边不需要共享同一
+    份声明 —— 需要共享的只有 :mod:`core.task.cancellation` 里的那些词汇。
+
+    **它跑的就是同一条链**，所以四层的顺序与"失败不挡路"那些规矩一条都
+    不打折。
+    """
+
+    chain: CancellationChain
+
+    async def reclaim(self, target: CancellationTarget) -> CancellationReport:
+        """收干净，并如实回报每一层的结论。"""
+        return await self.chain.cancel(target)
+
+
 def build_cancellation_chain(
     *,
     interrupter: Interrupter,
@@ -356,6 +380,7 @@ __all__ = [
     "AdapterLayer",
     "CancellationChain",
     "CancellationLayer",
+    "ChainResourceReclaimer",
     "ContainerLauncher",
     "LauncherContainerStopper",
     "NoContainerStopper",

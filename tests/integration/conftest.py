@@ -342,12 +342,32 @@ def docker_available() -> None:
         pytest.skip("Docker 守护进程不可用；跳过沙箱集成测试")
 
 
+def _image_exists(image: str) -> bool:
+    """本地有没有这个镜像。
+
+    **问 docker 自己，不要问文件系统。** 镜像的存在与否是 docker 的账 ——
+    磁盘上有没有那几层文件，docker 说了算。
+    """
+    result = subprocess.run(
+        ["docker", "image", "inspect", image],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0
+
+
 @pytest.fixture(scope="session")
 def sandbox_image(request: pytest.FixtureRequest) -> str:
     """构建沙箱基础镜像。会话级 —— 只构建一次。
 
     与 ``test_sandbox_image.py`` 共用同一个夹具，所以两个测试模块不会各
     构建一次镜像。
+
+    **仓库不可达但本地已经有这个镜像时，用本地那个。** 跳过的测试**什么
+    都证明不了** —— 而"本地明明有一个能跑的镜像"却整组跳过，等于把能验的
+    事白白放过。本地的镜像可能比 Dockerfile 旧一点，但内容变过时重建一次
+    就行；跳过的代价却是这一轮完全没有证据。
     """
     # 显式取值而不是写成参数 —— 参数名会被 ruff 判成"未使用"，
     # 而这个依赖的价值恰恰在于"它的副作用是跳过"。
@@ -360,11 +380,13 @@ def sandbox_image(request: pytest.FixtureRequest) -> str:
         text=True,
         check=False,
     )
-    if result.returncode != 0:
-        combined = result.stdout + result.stderr
-        # 拉不到基础镜像是**环境限制**，不是代码缺陷 —— 断网的机器上
-        # 不该报一堆红。但 Dockerfile 写错了必须照常报错。
-        if is_registry_unreachable(combined):
-            pytest.skip("镜像仓库不可达，无法构建沙箱镜像；跳过沙箱集成测试")
+    if result.returncode == 0:
+        return "ases/sandbox:test"
+    combined = result.stdout + result.stderr
+    # 拉不到基础镜像是**环境限制**，不是代码缺陷 —— 断网的机器上
+    # 不该报一堆红。但 Dockerfile 写错了必须照常报错。
+    if not is_registry_unreachable(combined):
         raise RuntimeError(f"构建沙箱镜像失败：\n{result.stdout}\n{result.stderr}")
-    return "ases/sandbox:test"
+    if _image_exists("ases/sandbox:test"):
+        return "ases/sandbox:test"
+    pytest.skip("镜像仓库不可达且本地没有沙箱镜像；跳过沙箱集成测试")

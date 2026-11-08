@@ -74,6 +74,7 @@ from executors.cli.errors import (
 )
 from executors.cli.events import RawEvent, parse_event_line
 from executors.cli.exit_codes import ExitOutcome, classify_exit
+from executors.recovery import SessionProbeResult
 
 #: 一条原始事件映射出的统一事件碎片：``(kind, payload)``。
 EventFragment = tuple[str, Mapping[str, object]]
@@ -302,6 +303,20 @@ class CliAdapter(CodingAgentAdapter, ABC):
                 state=CancellationState.REFUSED,
                 detail=f"进程在 {_KILL_TIMEOUT_SECONDS:.0f} 秒内没有退出，无法确认已停止",
             )
+        if session.timed_out:
+            # 这次执行是**超时**结束的，不是被取消的 —— 两个不同的状态
+            # （R-097）。中断不能把它改写成"已取消"：那是抹掉证据，超时与
+            # 失败就再也分不开了。超时处置（TASK-P1-034）正是靠这条区分，才
+            # 知道该续跑还是该重试。
+            session.status = ExecutionStatus.TIMED_OUT
+            session.result = self._build_result(
+                session, status=ExecutionStatus.TIMED_OUT, summary=None
+            )
+            return CancellationAck(
+                session_id=session_id,
+                state=CancellationState.CONFIRMED,
+                detail="这次执行已经超时结束",
+            )
         session.status = ExecutionStatus.CANCELLED
         session.result = self._build_result(session, status=ExecutionStatus.CANCELLED, summary=None)
         detail = "执行进程已终止"
@@ -408,6 +423,30 @@ class CliAdapter(CodingAgentAdapter, ABC):
                 detail=f"进程在 {_KILL_TIMEOUT_SECONDS:.0f} 秒内没有退出",
             )
         return StopReport(stopped=True, detail="进程已被终止")
+
+    async def probe_session(self, session_id: str) -> SessionProbeResult:
+        """这个会话还能不能接着跑。
+
+        **问的是"工作还在不在"，不是"CLI 的对话上下文能不能恢复"。** 后者
+        是 CLI 的内部实现（Claude Code 把它写在会话记录里），我们不猜它的
+        格式 —— 猜错了就会得出一个假的"能续跑"，而假的"能续跑"会让编排层
+        去续一个其实已经没了的会话。
+
+        所以这里只查两件**我们真的知道**的事：这个会话我们还认不认，以及它
+        的工作空间还在不在。两件都在，就说"可以接着跑"。
+
+        **认不认得会话，与工作空间在不在，是两件事。** 会话记录没了（执行
+        器重启过、租约被回收）说明我们无从接着跑；工作空间没了说明工作已
+        经丢了 —— 那种情况下接着跑没有意义，重做一次才是对的。这两种情形
+        都报"续不上"，但理由不同：事后对账时要能分清是哪一种。
+        """
+        try:
+            session = self._session(session_id)
+        except UnknownSessionError:
+            return SessionProbeResult(resumable=False, reason="执行器不认这个会话了")
+        if not Path(session.workspace).exists():
+            return SessionProbeResult(resumable=False, reason="工作空间没了 —— 工作已经丢了")
+        return SessionProbeResult(resumable=True, reason="会话还在，工作空间也在")
 
     # ------------------------------------------------------------------
     # 内部
