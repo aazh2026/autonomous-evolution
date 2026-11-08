@@ -40,7 +40,9 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 #: 每一项都必须能回答："这里为什么不得不动态？"答不上来的就该改代码。
 #:
 #: - ``core.policy.autonomy`` / ``core.policy.budget`` / ``core.project.models`` /
-#:   ``core.metrics.cycle`` / ``executors.base`` / ``harness.verification.contract``：
+#:   ``core.metrics.cycle`` / ``core.evolution.assessment`` /
+#:   ``core.evolution.evidence`` / ``executors.base`` /
+#:   ``harness.verification.contract``：
 #:   定义 Pydantic 模型 —— mypy 把继承自
 #:   ``BaseModel.__init__`` 的 ``Any`` 记在子类定义行上。
 #: - ``infrastructure.config.settings``：``BaseSettings`` 同上。
@@ -53,6 +55,8 @@ ALLOWED_ANY_MODULES: dict[str, str] = {
     "core.policy.budget": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.project.models": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.metrics.cycle": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "core.evolution.assessment": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "core.evolution.evidence": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "executors.base": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "harness.verification.contract": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "infrastructure.config.settings": "Pydantic BaseSettings —— 继承自 BaseModel.__init__ 的 Any",

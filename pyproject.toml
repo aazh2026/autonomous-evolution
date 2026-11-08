@@ -192,6 +192,8 @@ module = [
     "core.policy.budget",
     "core.project.models",
     "core.metrics.cycle",
+    "core.evolution.assessment",
+    "core.evolution.evidence",
     "executors.base",
     "harness.verification.contract",
     "infrastructure.config.settings",
