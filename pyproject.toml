@@ -195,6 +195,7 @@ module = [
     "core.evolution.assessment",
     "core.evolution.candidate",
     "core.evolution.evidence",
+    "core.evolution.priority",
     "executors.base",
     "harness.verification.contract",
     "infrastructure.config.settings",

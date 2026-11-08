@@ -40,11 +40,26 @@ from core.evolution.candidate import (
     TechnologyTrendDiscoverer,
 )
 from core.evolution.evidence import ARTIFACT_SCHEME, ISSUE_SCHEME, Evidence, EvidenceKind
+from core.evolution.priority import (
+    MINIMUM_COST,
+    ActualOutcome,
+    HeuristicCalibrator,
+    PriorityFactors,
+    ScoredCandidate,
+    ValueCalibrator,
+    normalize_measure,
+    normalize_priority,
+    rank,
+    raw_priority,
+    risk_coefficient,
+)
 from core.evolution.taxonomy import OpportunityCategory, PriorityLevel, RiskLevel
 
 __all__ = [
     "ARTIFACT_SCHEME",
     "ISSUE_SCHEME",
+    "MINIMUM_COST",
+    "ActualOutcome",
     "CandidateDiscoverer",
     "CandidateStatus",
     "DeferredOpportunity",
@@ -56,13 +71,22 @@ __all__ = [
     "EvolutionCandidate",
     "GapSeverity",
     "GoalGap",
+    "HeuristicCalibrator",
     "Opportunity",
     "OpportunityCategory",
     "OverallStatus",
+    "PriorityFactors",
     "PriorityLevel",
     "ProjectAssessment",
     "ProjectBenefit",
     "RiskLevel",
+    "ScoredCandidate",
     "TechnologyTrend",
     "TechnologyTrendDiscoverer",
+    "ValueCalibrator",
+    "normalize_measure",
+    "normalize_priority",
+    "rank",
+    "raw_priority",
+    "risk_coefficient",
 ]
