@@ -12,7 +12,8 @@
 ## 当前状态
 
 阶段一（Thin Slice）实现中。任务清单见 [`docs/tasks.md`](docs/tasks.md)，
-设计文档见 [`docs/design.md`](docs/design.md)。
+设计文档见 [`docs/design.md`](docs/design.md)，
+**使用手册见 [`docs/user-guide.md`](docs/user-guide.md)**（含能力边界说明与可运行示例）。
 
 ## 快速开始
 
