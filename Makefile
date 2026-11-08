@@ -42,6 +42,14 @@ test-all: ## 全部测试（含 integration，需先 make up）
 test-cov: ## 覆盖率报告
 	uv run pytest --cov --cov-report=term-missing --cov-report=html
 
+# ---------- 演示 ----------
+
+# 审批门演示（TASK-P1-046 的 T3 验收）：真的建 git 仓库、真的跑测试、真的合并。
+# 不需要数据库与 Docker —— 它在临时目录里造一个自己的仓库。
+.PHONY: demo-approval
+demo-approval: ## 人工审批门演示（验证通过 → 审批 → 合并到 main）
+	uv run python -m scripts.demo_approval_gate
+
 # ---------- 本地环境 ----------
 
 # 启动等待时间（秒）。

@@ -76,6 +76,7 @@ ALL_TABLES = (
     "project_snapshot",
     "architecture_decision",
     "project",
+    "approval_request",
     "budget_entry",
     "budget_account",
 )
@@ -92,7 +93,7 @@ APPEND_ONLY_TABLES = (
     "budget_account",
 )
 
-#: 十二个核心实体 + 两张预算账本表的表名。
+#: 十二个核心实体 + 两张预算账本表 + 审批请求表的表名。
 ENTITY_TABLES = ALL_TABLES
 
 

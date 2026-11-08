@@ -132,6 +132,12 @@ ignore = [
 # 只会把这份契约塞进调用点的字典字面量里 —— 而这份契约恰恰是"四要素齐不
 # 齐"的唯一检查点，藏起来就没人看得见了。
 "harness/security/audit.py" = ["PLR0913"]
+# 审批测试的构造器：``_request`` 的每个参数都是"这条审批请求的一项独立
+# 事实"（身份 + 操作 + 人看到的那份改动 + 证据 + 状态 + 两端的时间戳）。
+# 列全了才能一眼看出"改一个参数会改什么"；收成 dict 只会把这份契约藏进
+# 调用点的字典字面量里 —— 而"过期覆盖批准、拒绝压过过期"这两条次序规则
+# 恰恰要靠逐个改字段才验得出来。
+"tests/unit/policy/test_approval.py" = ["PLR0913"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

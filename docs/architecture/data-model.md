@@ -1,4 +1,4 @@
-# 数据模型 —— 十二个核心实体 + 预算账本
+# 数据模型 —— 十二个核心实体 + 预算账本 + 审批请求
 
 设计依据：`docs/design.md` §3.6（核心数据模型、四类存储职责分离）、
 `docs/tasks.md` TASK-P1-020（schema 与迁移）、TASK-P1-022（三表分离约束）、
@@ -24,7 +24,8 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 
 ## 1. 实体总览
 
-十二个核心实体，四组归属；外加两张**预算账本**表（第五组）：
+十二个核心实体，四组归属；外加两张**预算账本**表（第五组）与一张**审批请求**
+表（第六组）：
 
 | 组 | 实体 | 表名 | 作用 |
 | --- | --- | --- | --- |
@@ -42,10 +43,16 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 | 知识 | `ArchitectureDecision` | `architecture_decision` | 架构决策（背景 / 决策 / 取舍） |
 | 预算 | `BudgetAccount` | `budget_account` | 预算累计额（归属 / 维度 / 周期 → 已花） |
 | 预算 | `BudgetEntry` | `budget_entry` | 预算流水（append-only，每次扣减一条） |
+| 审批 | `ApprovalRequest` | `approval_request` | 人工审批请求（谁在什么时候批了什么） |
 
 > **预算那两张表不在 `docs/design.md` §3.6 的清单里** —— 那是设计文档的一处缺口，
 > 已在 `docs/tasks.md` 第 6 节列为待裁决项 8。补它们的理由很直接：TASK-P1-012
 > 要求"用真实并发写库验证"，而十二个实体里没有任何一张表能承载预算累计额。
+
+> **审批那张表也不在 §3.6 的清单里** —— 但 §7 的初始自主权限里写着"代码合并 =
+> L2 需要人工审批"。人工审批必须落到某张表上，否则那条权限只是一句文档：编排器
+> 等审批、API 让人批、CLI 让人批，三者看到的必须是**同一条记录**。补它的理由与
+> 预算那两张一样具体 —— 没有这张表，"等审批"就只能是编排器内存里的一个布尔值。
 
 > `core.entities.Project`（ORM 实体）与 `core.project.models.Project`（纯领域模型）
 > 是两个同名但不同层的对象。前者负责落库，后者负责校验。两者之间用
@@ -93,6 +100,16 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 拆成三行写是因为本表一列一行；实际在库里是一个 `ForeignKeyConstraint`，
 指向联合主键 `(scope, metric, period)`。
 
+**`approval_request` 不在上表里，因为它是唯一一张没有外键的业务表。**
+这不是漏了 —— 是刻意的：审批请求可以在任务还没落库时被发起（策略检查发生在
+编排早期），一条悬空引用不该让整张表写不进去。代价是"这条审批属于哪个任务"
+只能靠应用层保证；补偿手段是 `task_id` 上建了索引，查询照常快。
+
+这一点与三表分离并不冲突：三表分离管的是"任务从哪来"（决策 → 任务），
+审批管的是"这次操作能不能做" —— 审批是**放行的条件**，不是任务的**来源**。
+把审批挂成任务的外键，等于说"没有任务的审批不合法"，而策略检查恰恰发生在
+任务落库之前。
+
 ### 2.2 图版
 
 ```mermaid
@@ -127,6 +144,20 @@ erDiagram
     architecture_decision ||--o| architecture_decision : "取代"
 
     budget_account ||--o{ budget_entry : "流水"
+
+    approval_request {
+        uuid id PK
+        string task_id
+        string operation
+        text diff_summary
+        string evidence_ref
+        string status
+        string requested_by
+        datetime requested_at
+        string decided_by
+        datetime decided_at
+        datetime expires_at
+    }
 
     project {
         string id PK
@@ -533,6 +564,49 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 被拒绝的扣减尝试也留痕（`status = 'blocked'`）—— "系统试图超预算但被拦住了"
 本身就是需要被看见的事实，尤其是当它反复发生时。
 
+### 6.15 `approval_request`
+
+| 列 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `id` | UUID | PK | 与领域层 `ApprovalRequest.request_id` 是同一个身份，不搞两套编号 |
+| `task_id` | VARCHAR(64) | NOT NULL | 被审批的任务。**不建外键** —— 见 §2.1 |
+| `operation` | VARCHAR(64) | NOT NULL | 被审批的操作。取值来自 `core.policy.autonomy.Operation` |
+| `diff_summary` | TEXT | NOT NULL | 人批的是他看到的那份改动 |
+| `evidence_ref` | VARCHAR(1024) | NOT NULL | 验证证据引用（验证记录或产物 URI） |
+| `status` | VARCHAR(32) | NOT NULL, CHECK 五态 | pending / approved / rejected / expired / withdrawn |
+| `requested_by` | VARCHAR(128) | NOT NULL | 请求人 |
+| `requested_at` | TIMESTAMPTZ | NOT NULL | 发起时刻 |
+| `decided_by` | VARCHAR(128) | | 审批人。还没有结论时为空 |
+| `decided_at` | TIMESTAMPTZ | | 表态时刻 |
+| `expires_at` | TIMESTAMPTZ | | 有效期。**过期后不可用于放行**（I-12） |
+| `comment` | TEXT | NOT NULL | 审批意见 / 撤回理由 |
+| `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+索引：`ix_approval_request_task_operation`（按任务 + 操作查最新一条）、
+`ix_approval_request_status`（审批列表按状态筛）。
+
+约束：`ck_approval_request_approval_status_values` —— 状态取值由
+`core.policy.approval.ApprovalStatus` 枚举生成，枚举加状态，约束自动跟着变。
+
+**这张表记的是"人做了什么"，不是"现在能不能做"。** 两个问题的答案落在不同的
+地方：表里有 `requested_by` / `decided_by` / `requested_at` / `decided_at`，记的是
+谁在什么时候对什么做出了什么动作；而"现在能不能放行"是**算出来的**结论
+（`core/policy/approval.py` 拿 `expires_at` 与当前时刻比）。把后者也存成一列，
+就会出现"表里写着 approved、系统却拒绝放行"这种两边都觉得自己对的状态。
+
+**过期是终态，不是"还没批"。** 人批的是"当时那一份 diff" —— diff 变了、代码变了，
+那份批准就不再成立。所以过期的记录不能放行，哪怕它当时是 approved；反过来，
+**拒绝是粘的** —— 拒绝过的记录不会因为过期而变成"没人反对"。这两条次序规则
+写在 `ApprovalRequest.outcome()` 里，并有定点变异测试盯着。
+
+**一条请求只能被表态一次**，且这件事在并发下也成立。实现上用
+`SELECT … FOR UPDATE` 锁住那一行：两个人同时点"批准"和"拒绝"，后到的那次
+必须失败，而不是覆盖掉先到的结论 —— 同一个请求有两个互相矛盾的结论，
+"哪个算数"这个问题没有好答案。
+
+**状态不是自由文本。** CHECK 约束是最后一道防线：脚本、手工 SQL 直插也要过它。
+否则"这条审批到底处于什么状态"这个问题就没有唯一答案。
+
 ## 7. 命名的三条约定
 
 1. **表名复数、单数混乱** —— 一律单数下划线（`evolution_candidate`）。
@@ -552,6 +626,8 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 | `0001` | 十二张表 + 三表分离约束 + 验收契约 CHECK + 决策三态 CHECK + append-only 触发器 |
 | `0002` | `project.environment` 列（JSONB）—— 领域模型有、库里缺 |
 | `0003` | 预算账本两表 + 累计额单调守卫 + 预算流水 append-only 触发器 |
+| `0004` | `evolution_cycle` 一分为二：`status`（怎么结束）+ `outcome`（有没有变好） |
+| `0005` | 审批请求表 + 状态 CHECK 约束 + 查询索引 |
 
 迁移工具链的验证见 `tests/integration/test_migrations.py`：
 `upgrade head` → `downgrade base` → `upgrade head` 可逆；空库从零迁移 < 30s；
@@ -570,3 +646,5 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 - `core/task/state_machine.py` —— 14 态状态机
 - `core/policy/budget.py` —— 预算领域逻辑与账本端口
 - `infrastructure/database/budget.py` —— 数据库预算账本（行级锁）
+- `core/policy/approval.py` —— 审批领域模型（结论怎么算、过期怎么算）
+- `infrastructure/database/approval.py` —— 数据库审批存储（`FOR UPDATE` 独占表态）

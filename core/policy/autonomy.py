@@ -16,11 +16,13 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from core.immutable import FrozenDict
+from core.policy.approval import ApprovalOutcome
 
 
 class AutonomyLevel(StrEnum):
@@ -122,6 +124,13 @@ class Decision:
     reason: str
     granted_level: AutonomyLevel | None = None
     task_ctx: TaskContext | None = None
+    #: 判定时查到的审批结论。仅在判定涉及审批时非空。
+    #:
+    #: **它把"人拒绝了"和"请求过期了"分开。** 两者都是 ``DENY``，但对调用方
+    #: 的后续动作完全不同：前者要把任务推进 ``BLOCKED``（人明确说不），后者
+    #: 只需重新发起一次审批（人还没说）。只靠 ``reason`` 的中文文案去分，那是
+    #: 拿字符串编程。
+    approval_outcome: ApprovalOutcome | None = None
 
     @property
     def is_allowed(self) -> bool:
@@ -130,6 +139,14 @@ class Decision:
     @property
     def needs_approval(self) -> bool:
         return self.kind is DecisionKind.REQUIRE_APPROVAL
+
+    @property
+    def is_rejected_by_human(self) -> bool:
+        """这次拒绝是不是**人**明确拒绝的。
+
+        判据是审批结论而不是 ``reason`` 的措辞 —— 见 :attr:`approval_outcome`。
+        """
+        return self.approval_outcome is ApprovalOutcome.REJECTED
 
 
 class OperationRule(BaseModel):
@@ -243,6 +260,23 @@ def default_policy() -> AutonomyPolicy:
             ),
         }
     )
+
+
+@runtime_checkable
+class ApprovalChecker(Protocol):
+    """人工审批的查询端口。
+
+    **策略层问审批层"这条操作批过没有"，而不是反过来。** 依赖方向只有这一
+    条：审批记录存在哪儿（内存、数据库、将来的审批服务）不该被策略层知道。
+
+    查询是异步的：审批记录存在数据库里，问一次就是一次 IO。同步的策略判定
+    配一个异步的查询，两者凑不到一起 —— 所以联合判定是 :meth:`PolicyManager.authorize`
+    这样一个**异步**方法，而不是把 ``check()`` 改成异步。
+    """
+
+    async def approval_outcome(self, *, task_id: str, operation: Operation) -> ApprovalOutcome:
+        """这个任务在这个操作上的审批结论。"""
+        ...
 
 
 class PolicyManager:
@@ -364,8 +398,111 @@ class PolicyManager:
     def allows(self, operation: Operation, task_ctx: TaskContext | None = None) -> bool:
         return self.check(operation, task_ctx).is_allowed
 
+    async def authorize(
+        self,
+        operation: Operation,
+        task_ctx: TaskContext | None = None,
+        *,
+        approval: ApprovalChecker | None = None,
+    ) -> Decision:
+        """策略 + 审批的联合判定。
+
+        :meth:`check` 是**纯策略**的：它只看规则表与任务授权范围，同步、无
+        IO。合并到 main 需要人批（design.md §7：L2），但"批没批"这件事不在
+        规则表里 —— 它在数据库里。
+
+        所以联合判定分成两步：先按纯策略判定，只有判定结果是"需要审批"时
+        才去问审批。
+
+        **结论只有一处。** 判定结果里带着 ``approval_outcome``，调用方据此分
+        辨"人拒绝了"（任务进 ``BLOCKED``）与"请求过期了"（重新发起即可）。
+
+        审批结论到判定结果的映射：
+
+        - ``APPROVED``  → ``ALLOW``：有有效审批，放行。
+        - ``PENDING``   → ``REQUIRE_APPROVAL``：人在看，还没批。
+        - ``MISSING``   → ``REQUIRE_APPROVAL``：**压根没有审批记录** —— 同样
+          放不了行，但要说清楚是"还没申请"，而不是"申请了还没批"。
+        - ``REJECTED``  → ``DENY``：人明确拒绝。
+        - ``EXPIRED``   → ``DENY``：请求作废了。**过期不可放行**（I-12）——
+          哪怕它当时是 approved：批的是"当时那一份 diff"，diff 变了批准就
+          不再成立。
+        - ``WITHDRAWN`` → ``DENY``：请求被撤回，同样要重新发起。
+
+        **没有 ``approval`` 就不会有 ``ALLOW``。** 没给查询口时，结论停在
+        ``REQUIRE_APPROVAL`` —— 少一个查询口不该变成放行。
+        """
+        base = self.check(operation, task_ctx)
+        if base.kind is not DecisionKind.REQUIRE_APPROVAL:
+            return base
+        if approval is None:
+            return base
+
+        task_id = task_ctx.task_id if task_ctx is not None else ""
+        outcome = await approval.approval_outcome(task_id=task_id, operation=operation)
+        return _decide_with_approval(base, outcome)
+
     def __repr__(self) -> str:
         return f"PolicyManager(operations={len(self._policy.rules)})"
+
+
+def _decide_with_approval(base: Decision, outcome: ApprovalOutcome) -> Decision:
+    """把审批结论翻译成判定结果。"""
+    match outcome:
+        case ApprovalOutcome.APPROVED:
+            return Decision(
+                kind=DecisionKind.ALLOW,
+                operation=base.operation,
+                reason=f"操作 {base.operation.value} 已有有效的人工审批",
+                granted_level=base.granted_level,
+                task_ctx=base.task_ctx,
+                approval_outcome=outcome,
+            )
+        case ApprovalOutcome.PENDING:
+            return Decision(
+                kind=DecisionKind.REQUIRE_APPROVAL,
+                operation=base.operation,
+                reason=f"操作 {base.operation.value} 正在等待人工审批",
+                granted_level=base.granted_level,
+                task_ctx=base.task_ctx,
+                approval_outcome=outcome,
+            )
+        case ApprovalOutcome.MISSING:
+            return Decision(
+                kind=DecisionKind.REQUIRE_APPROVAL,
+                operation=base.operation,
+                reason=f"操作 {base.operation.value} 没有审批记录，不得放行",
+                granted_level=base.granted_level,
+                task_ctx=base.task_ctx,
+                approval_outcome=outcome,
+            )
+        case ApprovalOutcome.REJECTED:
+            return Decision(
+                kind=DecisionKind.DENY,
+                operation=base.operation,
+                reason=f"操作 {base.operation.value} 的人工审批已被拒绝",
+                granted_level=base.granted_level,
+                task_ctx=base.task_ctx,
+                approval_outcome=outcome,
+            )
+        case ApprovalOutcome.EXPIRED:
+            return Decision(
+                kind=DecisionKind.DENY,
+                operation=base.operation,
+                reason=f"操作 {base.operation.value} 的审批已过期，不能用于放行",
+                granted_level=base.granted_level,
+                task_ctx=base.task_ctx,
+                approval_outcome=outcome,
+            )
+        case ApprovalOutcome.WITHDRAWN:
+            return Decision(
+                kind=DecisionKind.DENY,
+                operation=base.operation,
+                reason=f"操作 {base.operation.value} 的审批已被撤回，需重新发起",
+                granted_level=base.granted_level,
+                task_ctx=base.task_ctx,
+                approval_outcome=outcome,
+            )
 
 
 def load_policy(path: Path | None, *, fallback: PolicyManager | None = None) -> PolicyManager:
@@ -380,6 +517,7 @@ def load_policy(path: Path | None, *, fallback: PolicyManager | None = None) -> 
 
 
 __all__ = [
+    "ApprovalChecker",
     "AutonomyLevel",
     "AutonomyPolicy",
     "Decision",

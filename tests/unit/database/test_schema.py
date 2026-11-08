@@ -6,9 +6,10 @@
 之所以两层都要：元数据断言跑得快、每次都跑，能第一时间发现"有人改了
 模型但忘了改迁移"；集成断言连真库，确认约束在 PostgreSQL 里真的生效。
 
-表的数量是**十四个**而不是十二个：十二个核心实体之外还有两张预算账本表
-（TASK-P1-012）。它们不在 design.md §3.6 的清单里，是设计文档的一处缺口，
-已在 docs/tasks.md 第 6 节列为待裁决项 8。
+表的数量是**十五个**而不是十二个：十二个核心实体之外还有两张预算账本表
+（TASK-P1-012）与一张审批请求表（TASK-P1-046）。后三张都不在 design.md §3.6
+的清单里 —— 预算那两张是设计文档的一处缺口，已在 docs/tasks.md 第 6 节列为
+待裁决项 8；审批那张是 §7「代码合并 = L2 需要人工审批」必须落到的地方。
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ EXPECTED_TABLES = {
     "evolution_cycle",
     "budget_account",
     "budget_entry",
+    "approval_request",
 }
 
 
@@ -52,8 +54,10 @@ def _constraint_texts(table_name: str) -> list[str]:
 class TestEntitySet:
     """实体与表。"""
 
-    def test_twelve_core_entities_plus_two_budget_tables_are_defined(self) -> None:
-        assert len(ALL_ENTITIES) == 14
+    def test_twelve_core_entities_plus_two_budget_tables_and_the_approval_table_are_defined(
+        self,
+    ) -> None:
+        assert len(ALL_ENTITIES) == 15
 
     def test_all_tables_are_mapped(self) -> None:
         tables = set(Base.metadata.tables) - {"alembic_version"}
@@ -305,3 +309,65 @@ class TestBudgetLedger:
             if isinstance(constraint, ForeignKeyConstraint):
                 for element in constraint.elements:
                     assert element.ondelete == "RESTRICT"
+
+
+class TestApprovalRequest:
+    """TASK-P1-046 —— 审批请求表的结构。"""
+
+    def test_it_records_who_asked_and_who_decided(self) -> None:
+        """这张表记的是"人做了什么" —— 两端的人都要留下名字。
+
+        只记"批了"不记"谁批的"，事后审计就答不出"当时授权了什么"。
+        """
+        columns = _table("approval_request").columns
+        for name in (
+            "requested_by",
+            "requested_at",
+            "decided_by",
+            "decided_at",
+            "comment",
+        ):
+            assert name in columns
+
+    def test_the_diff_and_the_evidence_are_required(self) -> None:
+        """人批的是**他看到的那份改动** —— diff 摘要与验证证据不能为空。
+
+        这两列为空时，人点"批准"批的是一个自己没看过的东西。
+        """
+        columns = _table("approval_request").columns
+        assert columns["diff_summary"].nullable is False
+        assert columns["evidence_ref"].nullable is False
+
+    def test_the_expiry_is_stored(self) -> None:
+        """有效期要落在表里 —— 否则"过期不可放行"只能靠内存里那份记录。"""
+        assert "expires_at" in _table("approval_request").columns
+
+    def test_the_status_is_constrained_to_the_five_values(self) -> None:
+        """状态只能是那五个 —— 绕过应用层也必须落在合法集合里。"""
+        texts = _constraint_texts("approval_request")
+        status_check = next((text for text in texts if "status IN (" in text), None)
+        assert status_check is not None, "approval_request 缺少状态 CHECK 约束"
+        for value in ("pending", "approved", "rejected", "expired", "withdrawn"):
+            assert f"'{value}'" in status_check
+
+    def test_it_has_no_foreign_key(self) -> None:
+        """**审批可以先于任务存在。**
+
+        策略检查发生在编排早期，那时任务未必已经落库。外键会让一条悬空引用
+        写不进去 —— 那就等于"任务还没建就不许申请审批"，而那正是审批门最需要
+        工作的时刻。
+
+        代价是"这条审批属于哪个任务"只能靠应用层保证；补偿手段是索引。
+        """
+        table = _table("approval_request")
+        assert not [
+            constraint
+            for constraint in table.constraints
+            if isinstance(constraint, ForeignKeyConstraint)
+        ]
+
+    def test_it_is_indexed_by_task_and_operation(self) -> None:
+        """按 (任务, 操作) 查最新一条 —— 索引是那张无外键表的补偿手段。"""
+        names = {index.name for index in _table("approval_request").indexes}
+        assert "ix_approval_request_task_operation" in names
+        assert "ix_approval_request_status" in names

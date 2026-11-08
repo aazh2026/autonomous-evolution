@@ -24,6 +24,13 @@
 理由很直接：TASK-P1-012 要求"用真实并发写库验证"，而十二个实体里没有任何
 一张表能承载预算累计额。
 
+还有一张**审批请求**表：
+
+    ApprovalRequest      人工审批请求（谁在什么时候批了什么）
+
+它同样不在 design.md §3.6 的清单里，但 §7 的初始自主权限里明确写着"代码合并
+= L2 需要人工审批" —— 人工审批必须落到某张表上，否则那条权限只是一句文档。
+
 导入本模块会把全部实体注册到同一个 ``Base.metadata`` —— Alembic 的
 autogenerate 与 ``create_all`` 都依赖这一点。少导入一个实体，迁移就会
 悄悄漏掉那张表。
@@ -31,6 +38,7 @@ autogenerate 与 ``create_all`` 都依赖这一点。少导入一个实体，迁
 
 from __future__ import annotations
 
+from core.entities.approval import ApprovalRequest
 from core.entities.architecture import ArchitectureDecision
 from core.entities.base import Base, JSONDocument, TimestampMixin, UUIDPrimaryKeyMixin
 from core.entities.budget import BudgetAccount, BudgetEntry
@@ -40,10 +48,10 @@ from core.entities.execution import AgentSession, ExecutionEvent
 from core.entities.project import Project, ProjectSnapshot
 from core.entities.task import Task, TaskDependency
 
-#: 十二个核心实体 + 两张预算账本表。
+#: 十二个核心实体 + 两张预算账本表 + 一张审批请求表。
 #:
-#: 前十二个的顺序与 design.md §3.6 的表格一致，便于逐条核对；最后两个是
-#: 预算账本（见模块文档与 tasks.md 第 6 节待裁决项 8）。
+#: 前十二个的顺序与 design.md §3.6 的表格一致，便于逐条核对；后面三个是
+#: 预算账本（见模块文档与 tasks.md 第 6 节待裁决项 8）与审批请求。
 ALL_ENTITIES = (
     Project,
     ProjectSnapshot,
@@ -59,11 +67,13 @@ ALL_ENTITIES = (
     EvolutionCycle,
     BudgetAccount,
     BudgetEntry,
+    ApprovalRequest,
 )
 
 __all__ = [
     "ALL_ENTITIES",
     "AgentSession",
+    "ApprovalRequest",
     "ArchitectureDecision",
     "Artifact",
     "Base",
