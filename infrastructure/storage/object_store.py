@@ -30,20 +30,16 @@ import tempfile
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 
 from core.evidence.artifact_hash import (
-    HASH_LENGTH,
     ArtifactHashMismatchError,
     compute_file_hash,
     compute_hash,
 )
+from core.evidence.artifacts import DIGEST_PREFIX, StoredObject, digest_from_key, key_for
 from infrastructure.config.settings import Settings, get_settings
-
-#: 内容寻址 key 的前缀。完整 key 形如 ``sha256:<hex>``。
-DIGEST_PREFIX = "sha256:"
 
 #: 流式读写的块大小。1 MiB —— 足够大以减少调用开销，
 #: 又小到不会把大产物整个读进内存。
@@ -78,25 +74,6 @@ class ObjectNotFoundError(ObjectStoreError):
     def __init__(self, key: str) -> None:
         super().__init__(f"对象不存在：{key}")
         self.key = key
-
-
-@dataclass(frozen=True)
-class StoredObject:
-    """一次写入的结果。
-
-    ``digest`` 是内容 sha256（十六进制，不带前缀），
-    ``key`` 是内容寻址的完整 key（``sha256:<digest>``），
-    ``uri`` 是这个对象在具体后端里的地址。
-
-    ``skipped`` 表示"key 已存在，本次没有写入"。
-    """
-
-    key: str
-    uri: str
-    digest: str
-    size_bytes: int
-    #: 这次调用是否跳过了写入（同 key 的对象已存在）。
-    skipped: bool = False
 
 
 # --------------------------------------------------------------------------
@@ -554,18 +531,18 @@ class ContentAddressedStore:
 
     @staticmethod
     def key_for(digest: str) -> str:
-        """由内容摘要得到内容寻址 key。"""
-        return f"{DIGEST_PREFIX}{digest}"
+        """由内容摘要得到内容寻址 key。
+
+        **实现在 :mod:`core.evidence.artifacts`** —— 归档器也要用同一套
+        key 词汇（它得能从登记的摘要算出 key 才能取回证据），两边各写一份
+        迟早对不上。这里只做转发。
+        """
+        return key_for(digest)
 
     @staticmethod
     def digest_from_key(key: str) -> str:
         """从 key 反解出内容摘要。"""
-        if not key.startswith(DIGEST_PREFIX):
-            raise ValueError(f"不是内容寻址 key：{key!r}")
-        digest = key[len(DIGEST_PREFIX) :]
-        if len(digest) != HASH_LENGTH:
-            raise ValueError(f"内容寻址 key 的摘要长度不对：{key!r}")
-        return digest
+        return digest_from_key(key)
 
     def uri_for(self, key: str) -> str:
         return self._store.uri(key)

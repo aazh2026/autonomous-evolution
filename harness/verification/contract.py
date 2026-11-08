@@ -45,6 +45,14 @@ R-051~R-054。
 两种不同的答案。代价是模块名不贴切（比较词汇住在 project models 里），
 那是一个已知的小别扭，记在这里备查。
 
+**为什么产出物词汇（``ArtifactKind``）住在 :mod:`core.evidence.artifacts`**：
+三方都要说同一套话 —— 契约说"要哪些"，归档器说"存了哪些"，数据库
+``artifact.type`` 列存的也是它们。词表放在使用方之一（这里），另外两方就
+得各自抄一份；抄本迟早对不上，而对不上的那一刻没人说得清哪一份是对的。
+所以它搬到了三方都往下能看见的地方（``core/``）。这里仍然可以直接
+``from harness.verification.contract import ArtifactKind`` —— 转出只是为了让
+老调用点不必改，不是因为它该住在这一层。
+
 **这个模块只定义契约与判定规则，不执行任何检查。** 执行是验证引擎的事
 （TASK-P1-041）。分开的原因是方向：契约说"什么算完成"，引擎说"这次够不够"；
 反过来就等于让执行者自己定义验收标准。
@@ -59,6 +67,7 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from core.evidence.artifacts import ArtifactKind
 from core.immutable import FrozenDict
 from core.project.models import ComparisonOperator, TargetExpression, TargetValue, ValueKind
 
@@ -96,14 +105,6 @@ class ForbiddenRule(StrEnum):
     SECRETS_IN_DIFF = "secrets_in_diff"
     UNAUTHORIZED_DEPENDENCY_CHANGE = "unauthorized_dependency_change"
     PUBLIC_API_BREAKING_CHANGE = "public_api_breaking_change"
-
-
-class ArtifactKind(StrEnum):
-    """契约要求的产出物（design.md §3.5B 的 ``artifacts``）。"""
-
-    GIT_DIFF = "git_diff"
-    TEST_REPORT = "test_report"
-    EXECUTION_TRACE = "execution_trace"
 
 
 class CheckOutcome(StrEnum):

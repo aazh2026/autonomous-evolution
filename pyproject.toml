@@ -73,6 +73,13 @@ ignore = [
 # 提交信息对它没有意义（结果按工作区给，不按命令给）。参数不用不是疏忽，
 # 是这些替身的全部含义。
 "tests/unit/harness/integration/doubles.py" = ["ARG002"]
+# 归档器的测试替身：``FakeArtifactStorage`` / ``FakeArtifactRegistry`` /
+# ``StubCollector`` 实现 ``ArtifactStorage`` / ``ArtifactRegistry`` /
+# ``ArtifactCollector`` 三个端口协议，方法签名由协议定死 —— 而**故意失败**
+# 的那几个（``FailingStorage`` / ``FailingRegistry``）要的就是**写不成功**，
+# 它们压根不关心写的是哪份内容、摘要对不对得上。参数不用不是疏忽，是这些
+# 替身的全部含义。
+"tests/unit/knowledge/artifacts/doubles.py" = ["ARG002"]
 "**/__init__.py" = ["F401"]
 # 仓储层的写方法把实体的字段一一对应成关键字参数 —— 参数多是有意的，
 # 参数名本身就是文档。刻意逐列列出，比收成一个 dict 更难写错。
