@@ -154,6 +154,7 @@ module = [
     "core.project.models",
     "core.metrics.cycle",
     "executors.base",
+    "harness.verification.contract",
     "infrastructure.config.settings",
 ]
 disallow_any_explicit = false
