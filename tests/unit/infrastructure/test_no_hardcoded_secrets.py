@@ -125,6 +125,22 @@ ALLOWED_CANARIES: dict[tuple[str, str], str] = {
         "tests/unit/infrastructure/test_no_hardcoded_secrets.py",
         "AKIAQWERTYUIOPASDFGH",
     ): "上一条白名单里的值在本文件里也要出现 —— 位置写错或值改了就失效",
+    (
+        "tests/unit/evaluation/test_executor_benchmark_driver.py",
+        "sk-cp-abcdefghijklmnopqrstuvwxyz012345",
+    ): "脱敏测试的哨兵值 —— 该测试断言它被 redact 抹掉；形状规则只认白名单",
+    (
+        "tests/unit/evaluation/test_executor_benchmark_driver.py",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0",
+    ): "JWT 脱敏测试的哨兵值 —— 该测试断言它被 redact 抹掉；形状规则只认白名单",
+    (
+        "tests/unit/infrastructure/test_no_hardcoded_secrets.py",
+        "sk-cp-abcdefghijklmnopqrstuvwxyz012345",
+    ): "上一条白名单里的值在本文件里也要出现 —— 位置写错或值改了就失效",
+    (
+        "tests/unit/infrastructure/test_no_hardcoded_secrets.py",
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0",
+    ): "上一条白名单里的值在本文件里也要出现 —— 位置写错或值改了就失效",
 }
 
 
