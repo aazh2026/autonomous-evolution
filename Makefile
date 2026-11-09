@@ -5,7 +5,7 @@ COMPOSE ?= docker compose
 
 .PHONY: help
 help: ## 显示可用目标
-	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
+	@grep -hE '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
 
 # ---------- 工具链 ----------
 
@@ -49,6 +49,18 @@ test-cov: ## 覆盖率报告
 .PHONY: demo-approval
 demo-approval: ## 人工审批门演示（验证通过 → 审批 → 合并到 main）
 	uv run python -m scripts.demo_approval_gate
+
+# M1 单轮闭环演示（TASK-P1-081 的 T3 验收）：真的走一遍
+# 候选 → 决策 → 任务 → 执行 → 独立验证 → 记录。
+#
+# **要一个真的 PostgreSQL** —— 那些记录得真的在库里（T1 的验收口径就是
+# "每一步的 DB 记录可查"）。先 `make up`。
+#
+# 跑完不清库是故意的：留下这一轮的行，才好对着 docs/demo/m1-walkthrough.md
+# 里的查询语句自己查。
+.PHONY: demo-m1
+demo-m1: ## M1 单轮闭环演示（候选 → 决策 → 任务 → 执行 → 独立验证 → 记录）
+	uv run python -m scripts.demo_m1_cycle
 
 # ---------- 本地环境 ----------
 

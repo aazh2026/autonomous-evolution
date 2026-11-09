@@ -1,0 +1,97 @@
+# 演练脚本 —— M1 单轮闭环的那条链（TASK-P1-081 的 T1 用）。
+#
+# 这是**输入**，不是答案：它说"世界是什么样、Agent 会做什么、验证会怎么判"，
+# 不说"这一轮应该是什么结果"。结果由系统算出来。
+#
+# **这份脚本是 M1 那条链的镜子。** 候选、评分、任务草稿与
+# ``apps/director/m1_cycle.py`` 里手工注入的那一个**逐字对应** ——
+# 同样的候选、同样的置信度与风险、同样的四项评分、同样的任务标识与标题。
+# 换掉执行器与验证器之后，链路走出来的形状必须一样：同样十五个循环 B 的
+# 节点、同样十一条循环 A 的事件、同样一串任务状态迁移。
+#
+# **它不写"结果"。** 决策由真的策略算，放行由真的
+# ``agents.critic.approval.approval_for`` 翻译 —— 脚本只提供"模型会给出的
+# 东西"。这里唯一被换掉的是执行器（打桩）与验证器（打桩）：M1 那条链真的
+# 改了代码、真的跑了 pytest；这一条不打桩就跑不起来。
+project_id: pilot-tinylib-replay
+cycle_id: cycle-m1-replay-0001
+trigger: quality
+
+observation:
+  commit: "1111111111111111111111111111111111111111"
+  branch: main
+  goal: 把演进闭环跑通
+  tech_stack: [python, postgresql]
+  metrics: {}
+  # **达成度不填。** M1 的观察者不报达成度（试点项目的四条关键结果里，
+  # 修掉一条缺陷不等于整体达成度变了），而达成度会影响周期结局的判定 ——
+  # 两边不一致，比较的就不是同一条链了。
+  latest_snapshot_version: 0
+
+snapshot: snap-m1-replay-0001
+
+gaps:
+  - id: gap-m1-001
+    description: CLI 在空输入时抛未捕获的 ValueError
+    severity: medium
+    evidence:
+      - kind: file
+        ref: src/tinylib/cli.py
+        note: stats 分支没有空输入守卫，直接把空序列交给 mean()
+      - kind: file
+        ref: known_issues/test_known_issues.py
+        note: PILOT-001 的复现用例：期望退出码 2，实际抛 ValueError
+
+candidates:
+  - id: CAND-M1-001
+    category: quality
+    title: CLI 在空输入时抛未捕获的 ValueError
+    hypothesis: 空输入是一句用法错误，不该是一段 traceback
+    expected_outcome:
+      - "cli.main(['stats', '']) 返回 2，不再抛 ValueError"
+    risk: low
+    confidence: "0.90"
+    estimated_effort: 0.5d
+    evidence:
+      - kind: file
+        ref: src/tinylib/cli.py
+        note: stats 分支没有空输入守卫，直接把空序列交给 mean()
+      - kind: file
+        ref: known_issues/test_known_issues.py
+        note: PILOT-001 的复现用例：期望退出码 2，实际抛 ValueError
+
+# 四项评分与 ``apps.director/m1_cycle.py`` 的 ``_Evaluator`` 一致 ——
+# 风险与置信度由候选自己带，这两项由脚本给。
+scores:
+  - candidate_id: CAND-M1-001
+    value: "0.70"
+    impact: "0.60"
+    urgency: "0.50"
+    cost: "0.30"
+
+drafts:
+  - key: T-M1-001
+    candidate_id: CAND-M1-001
+    task_type: bugfix
+    title: CLI 在空输入时抛未捕获的 ValueError
+    description: 空输入是一句用法错误，不该是一段 traceback
+    depends_on: []
+
+critic:
+  veto: false
+  check: evidence_sufficient
+  summary: 九项检查全部通过
+
+attempts:
+  - status: completed
+    changed_files: 3
+    branch: agent/T-M1-001
+    commit: "2222222222222222222222222222222222222222"
+    cost: "0.631445"
+
+verifications:
+  - verdict: passed
+    reasons: []
+
+failure_category: auto_repairable
+repair_budget: 3

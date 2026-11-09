@@ -120,6 +120,23 @@ class MissingDecisionRowError(RepositoryError):
         self.decision_ids = tuple(decision_ids)
 
 
+class AlreadyAssignedError(RepositoryError):
+    """这一栏已经有主了 —— 不能改派。
+
+    **改派等于改写历史。** 任务行上的执行器记的是"这件事是谁做的"，工作区
+    记的是"在哪儿干的"；一个任务被两个执行器先后认领、或者在两个工作区里各
+    干一遍，改派之后查到的就只剩最后一个 —— 而先前那个执行器留下的会话与
+    事件仍然在库里，两者对不上，且没人说得清哪个是真的。
+    """
+
+    def __init__(self, task_id: uuid.UUID, field: str, assigned: str, requested: str) -> None:
+        super().__init__(f"任务 {task_id} 的 {field} 已经是 {assigned!r}，不能再改成 {requested!r}")
+        self.task_id = task_id
+        self.field = field
+        self.assigned = assigned
+        self.requested = requested
+
+
 class DuplicateCycleError(RepositoryError):
     """周期编号重复。
 
@@ -405,6 +422,44 @@ class TaskRepository:
             select(Task).where(Task.project_id == project_id).order_by(Task.created_at)
         )
         return list(result)
+
+    async def assign_executor(self, task_id: uuid.UUID, executor: str) -> Task:
+        """指派执行器 —— 任务行上记下"谁来做这件事"。
+
+        **调度决定谁做，落库记下谁做。** 资源调度那一步把执行器分给了某个
+        任务，但调度结果只活在编排层的内存里；任务行上不记，事后查一条任务
+        就不知道它是哪个执行器做的 —— 会话行上倒是记着，可会话与任务是两件
+        事，靠会话行反推任务行是猜。
+
+        **不覆盖已有的执行器。** 已经有主了再指派，说明流程乱了；那种情况该
+        报错，而不是悄悄改掉历史（见 :class:`AlreadyAssignedError`）。
+        指派同一个执行器是空操作 —— 重放同一条路线图不该报错。
+        """
+        task = await self.get(task_id)
+        if task.executor is not None and task.executor != executor:
+            raise AlreadyAssignedError(task_id, "执行器", task.executor, executor)
+        task.executor = executor
+        await self._session.flush()
+        return task
+
+    async def assign_workspace(self, task_id: uuid.UUID, *, branch: str, workspace_id: str) -> Task:
+        """记下任务的工作区与分支。
+
+        **"在哪儿干的"也是任务的一部分。** 工作区管理器给每个任务开一个
+        隔离工作区（分支 ``agent/<task_id>``）；这两栏不记，事后就只剩一句
+        "任务完成了"，没人说得清它的改动落在哪个分支上 —— 而分支正是回滚
+        与追责时要找的那条线。
+
+        **不覆盖已有的工作区。** 与执行器同理：工作区是一次性的，重开一个
+        说明流程乱了（见 :class:`AlreadyAssignedError` 的同一条道理）。
+        """
+        task = await self.get(task_id)
+        if task.workspace_id is not None and task.workspace_id != workspace_id:
+            raise AlreadyAssignedError(task_id, "工作区", task.workspace_id, workspace_id)
+        task.branch = branch
+        task.workspace_id = workspace_id
+        await self._session.flush()
+        return task
 
     async def bind_acceptance_contract(
         self, task_id: uuid.UUID, contract: Mapping[str, object]
