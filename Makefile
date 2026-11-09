@@ -58,8 +58,23 @@ demo-approval: ## 人工审批门演示（验证通过 → 审批 → 合并到 
 # 而不是让它无限等 —— "卡住"和"就绪"必须能区分开。
 COMPOSE_WAIT_TIMEOUT ?= 120
 
+# 重建应用镜像。
+#
+# **为什么单独有一个 build：`up` 不会重建。**
+# `docker compose up -d` 用的是**上一次构建出来的镜像** —— 源码改了、
+# 镜像没重建，容器里跑的就是旧代码，而且看起来一切正常（容器是 healthy 的）。
+#
+# 这个坑踩过：改完 S3 客户端复用的代码、提交了、推了，容器里跑的还是
+# 旧实现 —— 修复等于没上。`make build` 之后 `make up` 才算数。
+#
+# 依赖层是缓的（Dockerfile 先拷依赖清单再拷源码），所以改一行业务代码
+# 的重建只要十几秒。
+.PHONY: build
+build: ## 重建应用镜像（**改过源码之后必须先跑这个**）
+	$(COMPOSE) build
+
 .PHONY: up
-up: ## 启动本地全栈（PG + MinIO + API + worker）
+up: ## 启动本地全栈（PG + MinIO + API + worker）—— 不重建镜像，源码改过先 make build
 	$(COMPOSE) up -d --wait --wait-timeout $(COMPOSE_WAIT_TIMEOUT)
 
 .PHONY: up-observability
