@@ -29,11 +29,30 @@ HTTP 请求而把 urllib 那一串模块拖进来**。所以规则是"不许 imp
 **但检查的东西已经没了**。这类 bug 极难查：命令照跑、退出码也像是对的，
 只是判据没了。所以门禁把 Compose 的替换规矩实现了一份，把命令**渲染一遍**
 再检查渲染之后还剩下什么。
+
+**最后两条是后来加的，起因是一次真实的翻车。** 优化完 api 之后，本想把
+同样的写法推广到 minio 和 worker，结果 minio 那个镜像里**根本没有 grep** ——
+``head | grep`` 写出来的检查在那边 30 次全部失败，而命令看起来"在跑"。
+于是多了两条门禁：
+
+- **不许起解释器或重型二进制。** 健康检查一天跑几千次，每一次起进程都是
+  固定开销。实测（同一容器内连跑 30 次取 cgroup 的 ``usage_usec`` 差值，
+  新旧用同一把尺子）：``python -c`` 是 6.59 ms、``mc`` 是 10.71 ms，而纯 bash
+  的 ``/dev/tcp`` 是 0.265 ms、纯 shell 的 ``stat``/``date`` 是 0.808 ms。
+- **不许依赖基础镜像里不一定有的文本工具。** 读状态行用 bash 内建的
+  ``read`` + ``case`` 就够，一个外部进程都不用起，也就不存在"这个镜像有没有
+  grep"的问题。
+
+外加一条**语法门禁**：健康检查现在是多行 bash 脚本了，一个括号打错就是
+"容器永远不健康"，而症状（在 compose 文件里）离现场很远。所以用 ``bash -n``
+把渲染之后的脚本过一遍 —— CI 上是 ubuntu，bash 一定有。
 """
 
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +68,25 @@ COMPOSE_FILE = REPO_ROOT / "docker-compose.yml"
 #: ``email``，实测就是 81% 的开销在这儿。只列 ``urllib`` 一个就够：它是
 #: 这条路上唯一"必须"的名字，其余的都是被它拖进来的。
 EXPENSIVE_IMPORTS: tuple[str, ...] = ("urllib",)
+
+#: 健康检查里不许起的**解释器和重型二进制**。
+#:
+#: 每个外部程序都是一次进程启动，而健康检查一天要跑几千次。实测：
+#:
+#: - ``python -c`` —— 解释器冷启动 **6.59 ms**。worker 那版只为了读一个
+#:   文件的 mtime，却要起一次解释器；纯 shell 的 ``stat``/``date`` 只要
+#:   **0.808 ms**，快 8 倍。
+#: - ``mc`` —— Go 二进制冷启动 **10.71 ms**。minio 那版起一次 ``mc`` 就为了
+#:   问一句"准备好了吗"；bash 的 ``/dev/tcp`` 只要 **0.265 ms**，快 40 倍。
+INTERPRETERS_AND_HEAVY: tuple[str, ...] = ("python", "python3", "mc")
+
+#: 健康检查里不许依赖的**文本处理工具**。
+#:
+#: 理由不是慢，是**基础镜像里有什么不能假设**：minio 那个镜像里没有 grep，
+#: ``head | grep`` 写出来的检查在那边会静悄悄地全部失败 —— 命令在跑、
+#: 退出码非 0、容器永远不健康，而从外面看不出哪儿错了。
+#: 读状态行用 bash 内建的 ``read`` + ``case`` 就够，一个外部进程都不用起。
+TEXT_TOOLS: tuple[str, ...] = ("grep", "head")
 
 #: Compose 的变量引用 —— ``$VAR`` 和 ``${VAR}`` 两种写法。
 #:
@@ -178,3 +216,120 @@ def test_the_api_healthcheck_does_not_reach_out_to_the_network() -> None:
     command = _healthchecks()["api"]
 
     assert "127.0.0.1" in command
+
+
+def _word_present(command: str, word: str) -> bool:
+    """命令里有没有出现过这个词。
+
+    **按 shell 的词边界匹配**，不把 ``-`` 和 ``.`` 当分隔符 —— 否则
+    ``localhost`` 会被当成含有 ``mc``，``pg_isready`` 会被当成含有 ``python``。
+    """
+    return re.search(rf"(?<![\w.-]){re.escape(word)}(?![\w.-])", command) is not None
+
+
+@pytest.mark.parametrize("name", sorted(_healthchecks()))
+def test_no_healthcheck_starts_an_interpreter_or_a_heavy_binary(name: str) -> None:
+    """健康检查不许起解释器或重型二进制。
+
+    **为什么。** 健康检查一天要跑几千次，每一次起进程都是一笔固定开销 ——
+    这笔钱不换来任何判断力，只是让"你还活着吗"这句话变得更贵。
+    实测（从容器自己的 cgroup 里读的，新旧用同一把尺子）：
+
+    ====================  ==========  ==========================
+    实现                   CPU/次       换算成常驻占用
+    ====================  ==========  ==========================
+    ``python -c``           6.59 ms    每 10 秒一次 = 0.07% 的一个核
+    ``mc ready local``     10.71 ms    每 5 秒一次 = 0.21% 的一个核
+    纯 shell（stat/date）    0.808 ms   每 10 秒一次 = 0.009%
+    bash ``/dev/tcp``        0.265 ms   每 5 秒一次 = 0.005%
+    ====================  ==========  ==========================
+
+    这些检查要做的事只有两件：发一个 HTTP GET、读一个文件的 mtime。
+    **两件都不需要解释器，也不需要一个 100 MB 的 Go 二进制。**
+    """
+    command = _healthchecks()[name]
+
+    for program in INTERPRETERS_AND_HEAVY:
+        assert not _word_present(command, program), (
+            f"{name} 的健康检查起了 {program} —— "
+            "解释器冷启动 6 ms、`mc` 是 Go 二进制冷启动 9 ms，"
+            "一天几千次就是常驻占用；纯 bash 就能做同样的事"
+        )
+
+
+@pytest.mark.parametrize("name", sorted(_healthchecks()))
+def test_no_healthcheck_depends_on_a_text_tool_the_image_may_not_have(name: str) -> None:
+    """健康检查不许依赖 ``grep`` / ``head`` 这类文本处理工具。
+
+    **理由不是慢，是"基础镜像里有什么不能假设"。** minio 那个镜像里
+    **没有 grep** —— ``head | grep`` 写出来的检查在那边 30 次全部失败，
+    而命令看起来在跑、退出码非 0、容器永远不健康，从外面完全看不出
+    哪儿错了（实测踩过）。
+
+    读状态行用 bash 内建的 ``read`` + ``case`` 就够：一个外部进程都不用起，
+    也就不存在"这个镜像有没有 grep"的问题。
+    """
+    command = _healthchecks()[name]
+
+    for tool in TEXT_TOOLS:
+        assert not _word_present(command, tool), (
+            f"{name} 的健康检查用了 {tool} —— "
+            "基础镜像里不一定有（minio 那个镜像就没有 grep），"
+            "缺了会静悄悄地失败；用 bash 内建的 read + case 代替"
+        )
+
+
+def _scripts() -> dict[str, str]:
+    """每个健康检查里那段**真正会被 shell 执行**的脚本。
+
+    只有两种形态带脚本：
+
+    - ``["CMD", "bash", "-c", "<脚本>"]`` —— 脚本在 ``-c`` 后面；
+    - ``["CMD-SHELL", "<脚本>"]`` —— 脚本就是第二个元素。
+
+    ``["CMD", "redis-cli", ...]`` 这种直接跑一个二进制的形态没有脚本，
+    不参与语法检查（上面那几条规则照样查它的命令本身）。
+    """
+    scripts: dict[str, str] = {}
+    for name, service in _compose().get("services", {}).items():
+        if not isinstance(service, dict):
+            continue
+        healthcheck = service.get("healthcheck")
+        if not isinstance(healthcheck, dict):
+            continue
+        test = healthcheck.get("test")
+        if not isinstance(test, list) or not test:
+            continue
+        parts = [str(part) for part in test]
+        if parts[0] == "CMD-SHELL" and len(parts) >= 2:
+            scripts[str(name)] = parts[1]
+        elif parts[0] == "CMD" and "bash" in parts:
+            index = parts.index("bash")
+            if index + 2 < len(parts) and parts[index + 1] == "-c":
+                scripts[str(name)] = parts[index + 2]
+    return scripts
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="这台机器上没有 bash")
+@pytest.mark.parametrize("name", sorted(_scripts()))
+def test_every_healthcheck_script_is_valid_bash(name: str) -> None:
+    """健康检查的脚本必须是合法的 bash。
+
+    **查的是渲染之后的样子** —— `$$` 要变成 `$`，`${...}` 要变成它的值，
+    否则量的不是容器里真正跑的那段东西。
+
+    **为什么值得单独一条门禁。** 健康检查现在是多行 bash 脚本了，一个括号
+    打错的后果是"容器永远不健康" —— 而症状（在 compose 文件里）离现场很远，
+    排查起来比写这条门禁贵得多。
+    """
+    script = _rendered(_scripts()[name])
+
+    done = subprocess.run(
+        ["bash", "-n"],
+        input=script,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert done.returncode == 0, f"{name} 的健康检查脚本语法不对：\n{script}\n{done.stderr}"
