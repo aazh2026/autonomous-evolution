@@ -45,6 +45,7 @@ from core.entities.base import utcnow
 from core.metrics import cycle as cycle_domain
 from core.metrics.cycle import CycleCounts, CycleStatus
 from core.planning.roadmap import EvolutionRoadmap
+from core.task.admission import is_bound_to
 from core.task.state_machine import TaskAction, TaskState, TransitionContext, apply_action
 
 #: 决策三态（tasks.md TASK-P1-054）。
@@ -427,11 +428,16 @@ class TaskRepository:
         """按状态机推进任务状态。
 
         非法迁移由状态机抛错（不静默吞掉）；幂等重投是空操作。
+
+        **准入看的是"契约存在且绑的是这个任务"**，不只是"有契约"（R-051）。
+        绑错的契约放在这儿一样能开工 —— 而事后没人说得清"它当时验的是谁
+        的标准"。编排层的闸门（:mod:`orchestration.gates`）做的是完整校验
+        （契约本身读不读得出来），这一层做的是**引擎级**的那一条：绑定。
         """
         task = await self.get(task_id)
         context = TransitionContext(
             task_id=str(task.id),
-            acceptance_contract_bound=task.acceptance_contract is not None,
+            acceptance_contract_bound=is_bound_to(task.acceptance_contract, str(task.id)),
             repair_count=task.repair_count,
             max_repairs=self._max_repairs,
         )
@@ -446,6 +452,44 @@ class TaskRepository:
             task.completed_at = now
         await self._session.flush()
         return task
+
+
+class TaskContractStore:
+    """验收契约的存取口（``core.task.admission.ContractStore`` 的实现）。
+
+    **为什么不直接把 ``Task`` 行交给闸门。** 闸门要的是"这个任务绑着哪份
+    契约"，而任务行上有一堆跟契约无关的东西（状态、修复次数、分支……）。
+    把整行递过去，闸门就有了改别的字段的本事 —— 而"只能改契约"正是这道门
+    该有的边界。
+
+    **任务不存在时抛错，不返回 ``None``。** "没有契约"与"没有这个任务"是两
+    件事：前者要补一份契约，后者要查任务是不是建错了。把前者当成后者，闸门
+    就会对着一不存在的任务说"补一份契约"。
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+        self._tasks = TaskRepository(session)
+
+    async def contract_of(self, task_id: str) -> Mapping[str, object] | None:
+        """取这个任务当前绑着的契约；没绑过就是 ``None``。"""
+        task = await self._tasks.get(uuid.UUID(task_id))
+        return task.acceptance_contract
+
+    async def bind_contract(self, task_id: str, document: Mapping[str, object]) -> None:
+        """把契约绑到这个任务上（覆盖已绑的那份）。"""
+        await self._tasks.bind_acceptance_contract(uuid.UUID(task_id), document)
+
+    async def unbind_contract(self, task_id: str) -> None:
+        """撤回契约。
+
+        **只对还没开工的任务有意义。** 数据库的 CHECK 约束（执行态必须有
+        契约）会挡住对执行中任务的撤回 —— 那正是它该做的事：一个正在跑的任务
+        被抽走了验收标准，它跑出来的结果就没有依据了。
+        """
+        task = await self._tasks.get(uuid.UUID(task_id))
+        task.acceptance_contract = None
+        await self._session.flush()
 
 
 class CycleRepository:
@@ -764,6 +808,7 @@ __all__ = [
     "NonExecutableDecisionError",
     "NotFoundError",
     "RepositoryError",
+    "TaskContractStore",
     "TaskDependencyRepository",
     "TaskRepository",
 ]

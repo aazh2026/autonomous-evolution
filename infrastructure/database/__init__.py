@@ -36,6 +36,7 @@ from infrastructure.database.repositories import (
     NonExecutableDecisionError,
     NotFoundError,
     RepositoryError,
+    TaskContractStore,
     TaskDependencyRepository,
     TaskRepository,
 )
@@ -55,6 +56,7 @@ __all__ = [
     "NotFoundError",
     "PostgresBudgetLedger",
     "RepositoryError",
+    "TaskContractStore",
     "TaskDependencyRepository",
     "TaskRepository",
     "build_engine",
