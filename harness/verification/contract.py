@@ -86,17 +86,26 @@ _ORDERING_OPERATORS: Final[frozenset[ComparisonOperator]] = frozenset(
 class RequiredCheck(StrEnum):
     """必须通过的检查（design.md §3.5B 的 ``required``）。
 
-    这四项是**阶段一**的最小集合。design.md §3.5B 把验证分了六层（功能 /
-    代码 / 架构 / 安全 / 性能 / 产品），阶段一只做功能、代码与架构三层；
-    安全层由 :mod:`harness.security.gate` 独立把关（它是 ``forbidden`` 那一
-    组，不是 ``required`` 那一组），性能与产品层依赖基线，推迟到阶段二
-    （TASK-P2-014）。
+    **前四项是阶段一的最小集合**，后三项是阶段二（TASK-P2-014）补上的 ——
+    它们对应 design.md §3.5B 六层表里的后三层。
+
+    每一项**恰好归一层**（见
+    :data:`harness.verification.six_layer.CHECK_LAYERS`）：一个必检项归两层，
+    等于有两个层对它有发言权，而层与层之间并不知道对方判了什么。
+
+    安全层与 ``forbidden`` 那一组不冲突：``forbidden`` 是"命中即整体失败"
+    的一票否决项（阶段一就有），``required`` 里的 ``security_scans_pass``
+    是"这一层整体扫干净了才算过" —— 前者管具体某条规则，后者管这一层的
+    整体结论。
     """
 
     UNIT_TESTS_PASS = "unit_tests_pass"
     INTEGRATION_TESTS_PASS = "integration_tests_pass"
     LINT_PASS = "lint_pass"
     ARCHITECTURE_RULES_PASS = "architecture_rules_pass"
+    SECURITY_SCANS_PASS = "security_scans_pass"
+    PERFORMANCE_BASELINE_PASS = "performance_baseline_pass"
+    GOAL_ATTAINMENT_MET = "goal_attainment_met"
 
 
 class ForbiddenRule(StrEnum):

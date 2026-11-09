@@ -340,11 +340,19 @@ class TestTheDocumentRoundTrip:
 
     def test_the_document_is_readable(self) -> None:
         """这一列会被人直接查 —— 读不懂的形态等于没有。"""
-        document = _contract().to_document()
+        contract = _contract()
+        document = contract.to_document()
         thresholds = cast(dict[str, dict[str, str]], document["thresholds"])
 
         assert document["task_id"] == TASK_ID
-        assert document["required"] == [check.value for check in RequiredCheck]
+        # 落库形态里写的是**这份契约自己声明的**必检项。
+        #
+        # **不能拿整个枚举来比。** 枚举是这一层能表达的**全部**检查，而契约
+        # 声明的是**这次要查的**那些 —— 两者本来就不必相等。阶段一的契约只
+        # 要四项，而枚举里还有阶段二补上的三项（安全 / 性能 / 产品）：拿枚举
+        # 当期望值，等于逼每份契约把所有检查都写上，而那正是"要求不存在的
+        # 证据"的老毛病。
+        assert document["required"] == [check.value for check in contract.required]
         assert thresholds["test_coverage"]["operator"] == ">="
 
     def test_a_broken_document_is_rejected_rather_than_defaulted(self) -> None:
