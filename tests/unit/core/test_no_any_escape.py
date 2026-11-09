@@ -70,6 +70,7 @@ ALLOWED_ANY_MODULES: dict[str, str] = {
     "core.evolution.candidate": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.evolution.decision": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.evolution.evidence": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "core.evolution.evolution_loop": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.evolution.priority": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.planning.roadmap": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.planning.stages": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",

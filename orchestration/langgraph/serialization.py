@@ -74,24 +74,38 @@ def collect_state_types(root: type[BaseModel]) -> frozenset[type[object]]:
     return frozenset(found)
 
 
-def state_allowlist(root: type[BaseModel] = PipelineState) -> tuple[tuple[str, str], ...]:
+def state_allowlist(
+    *roots: type[BaseModel],
+) -> tuple[tuple[str, str], ...]:
     """白名单：``(模块名, 类名)`` 二元组。
 
     **按模块+类名，而不是只按模块。** 只按模块放行的话，加进来一个模块就等于
     把整个模块都放了 —— 而模块里可能有不该被反序列化的东西。精确到类，放行的
     范围正好是状态里真正出现过的那些类型。
+
+    **可以给多个状态模式。** 同一个 checkpoint 存档要装得下几张图的状态 ——
+    决策图、循环 A、循环 B 各自的领域模型互不相同，只放行一张图的状态，
+    另一张图的 checkpoint 就读不回来。所以这里是**变参**：给几个模式，
+    白名单就是它们够得着的类型的并集。
+
+    一个都不给时用 :class:`core.planning.stages.PipelineState` —— 那是历史上
+    唯一的调用方式，别把它悄悄改掉。
     """
-    return tuple(sorted((item.__module__, item.__name__) for item in collect_state_types(root)))
+    selected = roots or (PipelineState,)
+    found: set[type[object]] = set()
+    for root in selected:
+        found |= collect_state_types(root)
+    return tuple(sorted((item.__module__, item.__name__) for item in found))
 
 
-def state_serializer(root: type[BaseModel] = PipelineState) -> JsonPlusSerializer:
+def state_serializer(*roots: type[BaseModel]) -> JsonPlusSerializer:
     """给状态用的序列化器。
 
     **不用 pickle。** pickle 能存任何东西，但读回来会执行任意代码 —— 而
     checkpoint 是"从库里读出来"的东西，库里那份字节如果被人改过，读它就等于
     执行了别人的代码。msgpack 只重建白名单里的类型。
     """
-    return JsonPlusSerializer(allowed_msgpack_modules=state_allowlist(root))
+    return JsonPlusSerializer(allowed_msgpack_modules=state_allowlist(*roots))
 
 
 __all__ = [

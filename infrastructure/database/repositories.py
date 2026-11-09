@@ -37,6 +37,7 @@ from core.entities import (
     EvolutionCycle,
     EvolutionDecision,
     ExecutionEvent,
+    ProjectSnapshot,
     Task,
     TaskDependency,
 )
@@ -585,6 +586,57 @@ class CycleRepository:
         row.ended_at = stored.ended_at
         await self._session.flush()
         return row
+
+
+class SnapshotRepository:
+    """项目状态快照的仓储。
+
+    **版本号在项目内单调递增**（``(project_id, version)`` 唯一约束）。
+    **版本号必须由调用方给** —— 仓储层自己去查"当前最大版本 + 1"，
+    两次并发落库就会拿到同一个版本号，然后其中一个被唯一约束挡下来：
+    错误信息是"违反唯一约束"，而不是"版本号重复" —— 看不出是哪两件事撞了。
+
+    **快照要能复现。** 给定一个快照能还原到当时的 commit 与当时的指标，
+    三者缺一，快照就只是一张无用的表。
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def create(
+        self,
+        *,
+        project_id: str,
+        version: int,
+        commit: str,
+        branch: str | None = None,
+        metrics: Mapping[str, object] | None = None,
+    ) -> ProjectSnapshot:
+        """落一份快照。"""
+        snapshot = ProjectSnapshot(
+            project_id=project_id,
+            version=version,
+            commit=commit,
+            branch=branch,
+            metrics=dict(metrics or {}),
+        )
+        self._session.add(snapshot)
+        await self._session.flush()
+        return snapshot
+
+    async def latest(self, project_id: str) -> ProjectSnapshot | None:
+        """这个项目最新的一份快照 —— 没有就返回 ``None``。
+
+            **"没有快照"与"有一份空快照"是两回事。** 达成度要拿上一份快照来比，
+        拿不到就是**没有可比对的基线**（那不是"没变"）。
+        """
+        result = await self._session.scalars(
+            select(ProjectSnapshot)
+            .where(ProjectSnapshot.project_id == project_id)
+            .order_by(ProjectSnapshot.version.desc())
+            .limit(1)
+        )
+        return result.first()
 
 
 class TaskDependencyRepository:

@@ -179,6 +179,11 @@ ignore = [
 # 意义。``collect_result`` 的 ``session_id`` 同理：它返回的是打桩产物，
 # 不按会话取。参数不用不是疏忽，是这些替身的全部含义。
 "tests/support/execution_loop.py" = ["ARG002"]
+# 循环 B 的测试构造器：``StubJournal`` 实现循环 B 的落库口协议，六个方法的
+# 方法签名都由协议定死 —— 而这个替身**要的就是**产出预置的行 id：``cycle_ref``
+# 对它没有意义（行 id 是自己编的），``decision_rows`` 对它也没有意义（任务行
+# id 也是自己编的）。参数不用不是疏忽，是这个替身的全部含义。
+"tests/support/evolution_loop.py" = ["ARG002"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
@@ -224,6 +229,7 @@ module = [
     "core.evolution.candidate",
     "core.evolution.decision",
     "core.evolution.evidence",
+    "core.evolution.evolution_loop",
     "core.evolution.priority",
     "core.planning.roadmap",
     "core.planning.stages",
