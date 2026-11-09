@@ -1,4 +1,4 @@
-# 数据模型 —— 十二个核心实体 + 预算账本 + 审批请求 + 编排状态
+# 数据模型 —— 十二个核心实体 + 预算账本 + 审批请求 + 编排状态 + 事件 outbox
 
 设计依据：`docs/design.md` §3.6（核心数据模型、四类存储职责分离）、
 `docs/tasks.md` TASK-P1-020（schema 与迁移）、TASK-P1-022（三表分离约束）、
@@ -26,7 +26,7 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 ## 1. 实体总览
 
 十二个核心实体，四组归属；外加两张**预算账本**表（第五组）、一张**审批请求**
-表（第六组）与两张**编排状态**表（第七组）：
+表（第六组）、两张**编排状态**表（第七组）与两张**事件**表（第八组）：
 
 | 组 | 实体 | 表名 | 作用 |
 | --- | --- | --- | --- |
@@ -47,6 +47,8 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 | 审批 | `ApprovalRequest` | `approval_request` | 人工审批请求（谁在什么时候批了什么） |
 | 编排 | `GraphCheckpoint` | `graph_checkpoint` | 决策图的一个 checkpoint（某个时刻的完整状态） |
 | 编排 | `GraphCheckpointWrite` | `graph_checkpoint_write` | checkpoint 期间写下的中间结果 |
+| 事件 | `OutboxEvent` | `outbox_event` | 待发布的事件（状态写入与事件发布同事务） |
+| 事件 | `ConsumedEvent` | `consumed_event` | 某个消费者已经占用过的消息（幂等消费） |
 
 > **预算那两张表不在 `docs/design.md` §3.6 的清单里** —— 那是设计文档的一处缺口，
 > 已在 `docs/tasks.md` 第 6 节列为待裁决项 8。补它们的理由很直接：TASK-P1-012
@@ -709,6 +711,64 @@ JSON，读回来再猜原来是什么类型：**猜错类型的那份 checkpoint
 **重复写要幂等。** 同一个节点失败后重跑会把同样的写再写一遍 —— 那是"重试"，
 不是"重复"。写入用 `ON CONFLICT DO NOTHING`：已有的不覆盖，新的补上。
 
+### 6.18 `outbox_event`
+
+| 列 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `id` | UUID | PK | **消费者的去重键**。不能变 —— 改了它，同一条事件会被当成两条处理两次 |
+| `aggregate_type` | VARCHAR(64) | NOT NULL | 主体是什么种类（`project` / `task` / `evolution_cycle` / …） |
+| `aggregate_id` | VARCHAR(128) | NOT NULL | 主体的标识。**不建外键** —— 见下文 |
+| `event_type` | VARCHAR(64) | NOT NULL | 事件类型。消费方按它决定怎么处理 |
+| `payload` | JSONB | NOT NULL | 事件载荷 |
+| `created_at` | TIMESTAMPTZ | NOT NULL | 写进库的时刻。**relay 按它排队** —— 先写的先发 |
+| `published_at` | TIMESTAMPTZ | | 发布成功的时刻。**为空就是还没发出去** |
+| `attempt_count` | INTEGER | NOT NULL | 已经尝试发布过几次。**重试的次数**，不是成功的次数 |
+| `last_error` | TEXT | | 最近一次发布失败的原因 |
+
+索引：`ix_outbox_event_unpublished`（**部分索引** `WHERE published_at IS NULL` ——
+relay 的热查询只关心没发出去的那些，已发布的那一堆不该占着索引的空间）、
+`ix_outbox_event_aggregate`（按主体查：这个项目有哪些事件）。
+
+**为什么不建外键。** `aggregate_id` 指向的东西是**多态的** —— 它可能是项目、
+任务、演进周期、审批请求，每种事件的主体不一样。建一个外键就得挑一个父表，
+而那个选择对另外一半事件是错的。更实际的理由是：**事件活得比它的主体久** ——
+主体被删了，那条"它发生过"的事实仍然成立。
+
+**`published_at` 为空就是"还没发出去"**，不是一个需要单独一列的布尔。少一列就
+少一处能说错的地方 —— "标记了已发布但其实没发"这种事只有一个字段可写。
+
+**`last_error` 留着它，坏消息才不会变成一句"没发出去"。** 重试到头的事件留在
+表里、原因记着 —— 那是死信，运维看得见，而不是被悄悄丢掉。
+
+### 6.19 `consumed_event`
+
+| 列 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `id` | UUID | PK | |
+| `consumer` | VARCHAR(128) | NOT NULL | 谁消费的。**不能为空** —— 没有消费者的去重是假的去重 |
+| `event_id` | UUID | NOT NULL | 被消费的事件。与 `outbox_event.id` 对应 |
+| `consumed_at` | TIMESTAMPTZ | NOT NULL | 占用的时刻。租约从这里算起 |
+
+唯一约束：`uq_consumed_event_consumer_event_id`（consumer + event_id）。
+索引：`ix_consumed_event_event_id`（反查"这条事件被谁消费过"）。
+
+**去重的粒度是 (消费者, 事件)。** 同一个消费者对同一条事件只处理一次；不同
+消费者各处理一次 —— 两个订阅方都得收到那条消息。
+
+**这张表记的是一次"占用"，不是"发生过的事实"。** 消费者先占住、处理完就留着；
+处理到一半崩了，占用要能还回去（`release`），否则那条事件永远不会被重投 ——
+而它**还没被处理过**。所以这张表**不是 append-only**：证据表（`verification_run` /
+`artifact`）才是 append-only 的，那是另一种东西。
+
+**唯一约束是幂等消费的执行者。** 没有它，"查有没有占着"加"写一行"就分成两步了
+—— 两个并发的消费者会各自看到"没人占着"然后各自占上，同一条消息被处理两次，
+而**没有任何一个会报错**。占用用 `ON CONFLICT` 一次做完：插入成功、或者把过期的
+占用抢过来，都算抢到。
+
+**`consumed_at` 有第二个用处：租约。** 占用了却一直不处理（进程被 kill 了），那一行
+会永远挡着这条事件 —— 所以判定"这个占用是不是过期了"要看时间：过期了就可以被别人
+抢走。**没有租约，一次崩溃就等于永久丢一条消息。**
+
 ## 7. 命名的三条约定
 
 1. **表名复数、单数混乱** —— 一律单数下划线（`evolution_candidate`）。
@@ -731,6 +791,7 @@ JSON，读回来再猜原来是什么类型：**猜错类型的那份 checkpoint
 | `0004` | `evolution_cycle` 一分为二：`status`（怎么结束）+ `outcome`（有没有变好） |
 | `0005` | 审批请求表 + 状态 CHECK 约束 + 查询索引 |
 | `0006` | 决策图 checkpoint 两表（`graph_checkpoint` + `graph_checkpoint_write`） |
+| `0007` | outbox 事件表 + 消费标记表（`outbox_event` + `consumed_event`） |
 
 迁移工具链的验证见 `tests/integration/test_migrations.py`：
 `upgrade head` → `downgrade base` → `upgrade head` 可逆；空库从零迁移 < 30s；
@@ -754,3 +815,5 @@ JSON，读回来再猜原来是什么类型：**猜错类型的那份 checkpoint
 - `core/entities/checkpoint.py` —— 编排状态实体（checkpoint 本体与中间写）
 - `infrastructure/database/checkpointer.py` —— checkpoint 的数据库实现（恢复语义）
 - `docs/architecture/decision-stages.md` —— 五阶段图的节点契约与持久化
+- `core/events/outbox.py` —— outbox 的领域契约（至少一次投递 + 幂等消费）
+- `infrastructure/database/outbox.py` —— outbox 的落库口与 relay

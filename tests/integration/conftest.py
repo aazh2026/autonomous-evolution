@@ -81,6 +81,8 @@ ALL_TABLES = (
     "budget_account",
     "graph_checkpoint_write",
     "graph_checkpoint",
+    "consumed_event",
+    "outbox_event",
 )
 
 #: append-only 表。清理时需要临时关掉 TRUNCATE 守卫 —— 守卫存在的目的

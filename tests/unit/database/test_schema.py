@@ -6,12 +6,14 @@
 之所以两层都要：元数据断言跑得快、每次都跑，能第一时间发现"有人改了
 模型但忘了改迁移"；集成断言连真库，确认约束在 PostgreSQL 里真的生效。
 
-表的数量是**十七个**而不是十二个：十二个核心实体之外还有两张预算账本表
-（TASK-P1-012）、一张审批请求表（TASK-P1-046）与两张编排状态表（TASK-P1-050）。
-后五张都不在 design.md §3.6 的清单里 —— 预算那两张是设计文档的一处缺口，
+表的数量是**十九个**而不是十二个：十二个核心实体之外还有两张预算账本表
+（TASK-P1-012）、一张审批请求表（TASK-P1-046）、两张编排状态表（TASK-P1-050）
+与两张事件表（TASK-P1-025）。
+后七张都不在 design.md §3.6 的清单里 —— 预算那两张是设计文档的一处缺口，
 已在 docs/tasks.md 第 6 节列为待裁决项 8；审批那张是 §7「代码合并 = L2 需要人工
 审批」必须落到的地方；checkpoint 那两张记的是**编排器自己的运行状态**，不是
-项目的业务事实。
+项目的业务事实；outbox 那两张是「状态写入与事件发布同事务」（I-06）必须落到
+的地方 —— 没有自己的表，那条要求就只能靠调用方自觉。
 """
 
 from __future__ import annotations
@@ -39,6 +41,8 @@ EXPECTED_TABLES = {
     "approval_request",
     "graph_checkpoint",
     "graph_checkpoint_write",
+    "outbox_event",
+    "consumed_event",
 }
 
 
@@ -58,10 +62,10 @@ def _constraint_texts(table_name: str) -> list[str]:
 class TestEntitySet:
     """实体与表。"""
 
-    def test_twelve_core_entities_plus_the_budget_approval_and_checkpoint_tables_are_defined(
+    def test_twelve_core_entities_plus_the_budget_approval_checkpoint_and_event_tables_are_defined(
         self,
     ) -> None:
-        assert len(ALL_ENTITIES) == 17
+        assert len(ALL_ENTITIES) == 19
 
     def test_all_tables_are_mapped(self) -> None:
         tables = set(Base.metadata.tables) - {"alembic_version"}

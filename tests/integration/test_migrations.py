@@ -106,7 +106,7 @@ class TestMigratedDatabase:
         的意思是：每加一个迁移，都要有人回来改这一行，因而不得不看一眼新
         迁移到底做了什么。自动读出来的话，这行永远是对的，也就永远没人看。
         """
-        assert await self._alembic_version(engine) == "0006"
+        assert await self._alembic_version(engine) == "0007"
 
     async def test_entity_tables_exist(self, engine: AsyncEngine) -> None:
         """十二个核心表 + 两张预算账本表 + 一张审批请求表 + 两张编排状态表。
@@ -118,16 +118,21 @@ class TestMigratedDatabase:
         审批那张同理 —— design.md §7 写着"代码合并 = L2 需要人工审批"，
         审批必须落到某张表上，否则那条权限只是一句文档。
 
-        最后两张是决策图的 checkpoint（TASK-P1-050）—— 记的是编排器自己的
+        再后面两张是决策图的 checkpoint（TASK-P1-050）—— 记的是编排器自己的
         运行状态。它们**一张外键都没有**：挂的是一次编排，不是一个项目。
+
+        最后两张是 outbox 与消费标记（TASK-P1-025）—— 同样是**一张外键都没有**：
+        事件的主体是多态的，而且事件活得比它的主体久。
         """
         tables = await self._tables(engine)
-        assert len(tables) == 17, f"应有 17 张表，实际 {len(tables)}：{tables}"
+        assert len(tables) == 19, f"应有 19 张表，实际 {len(tables)}：{tables}"
         assert "budget_account" in tables
         assert "budget_entry" in tables
         assert "approval_request" in tables
         assert "graph_checkpoint" in tables
         assert "graph_checkpoint_write" in tables
+        assert "outbox_event" in tables
+        assert "consumed_event" in tables
 
     async def test_append_only_triggers_exist(self, engine: AsyncEngine) -> None:
         """append-only 守卫覆盖全部证据表与预算表。
