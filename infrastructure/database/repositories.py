@@ -36,6 +36,7 @@ from core.entities import (
     EvolutionCandidate,
     EvolutionCycle,
     EvolutionDecision,
+    ExecutionEvent,
     Task,
     TaskDependency,
 )
@@ -650,6 +651,51 @@ class AgentSessionRepository:
         return record
 
 
+class ExecutionEventRepository:
+    """执行事件的仓储。
+
+    **事件是只追加的。** 这里只有 ``append``，没有 ``update`` 也没有
+    ``delete`` —— 一条事件写下去之后就不该再改：改了，"当时发生了什么"
+    就再也答不出来了。
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def append(
+        self,
+        *,
+        event_type: str,
+        payload: Mapping[str, object],
+        task_id: uuid.UUID | None = None,
+        project_id: str | None = None,
+        agent_id: str | None = None,
+        session_id: uuid.UUID | None = None,
+        causation_id: str | None = None,
+        correlation_id: str | None = None,
+        sequence: int | None = None,
+    ) -> ExecutionEvent:
+        """追加一条执行事件。
+
+        ``session_id`` 是**会话行**的 id（外键），不是执行器侧的会话标识 ——
+        两样东西混起来，事后就没法回答"这条事件属于哪一次执行"。
+        """
+        record = ExecutionEvent(
+            session_id=session_id,
+            task_id=task_id,
+            project_id=project_id,
+            agent_id=agent_id,
+            event_type=event_type,
+            payload=dict(payload),
+            causation_id=causation_id,
+            correlation_id=correlation_id,
+            sequence=sequence,
+        )
+        self._session.add(record)
+        await self._session.flush()
+        return record
+
+
 __all__ = [
     "DECISION_DEFER",
     "DECISION_RECORD",
@@ -661,6 +707,7 @@ __all__ = [
     "CycleRepository",
     "DecisionRepository",
     "DuplicateCycleError",
+    "ExecutionEventRepository",
     "InvalidDecisionError",
     "NonExecutableDecisionError",
     "NotFoundError",

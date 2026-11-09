@@ -95,6 +95,11 @@ ignore = [
 # 重写 Pydantic 的 `model_validate` 时把六个关键字参数逐字列出，是类型安全的
 # 做法 —— 用 `**kwargs` 会把参数类型整个吞掉。参数多是被迫的，不是疏忽。
 "core/project/models.py" = ["PLR0913"]
+# 循环 A 的留痕函数：``_record`` 的参数就是这一步要写下的东西 ——
+# 经过的任务状态、这一步的载荷、这一步属于哪一次执行。逐个列出，参数名
+# 本身就是"这一步留下了什么"的说明；收成一个 dict 只会把这份契约藏进
+# 调用点的字典字面量里。
+"orchestration/loop_a.py" = ["PLR0913"]
 # 同理：`EvolutionCycle.build` 是周期记录的**唯一**构造入口，它把"结局"从
 # 外部输入变成判定结果。所以字段必须逐个列全 —— 少传一个达成度快照，
 # 没人会注意到，可它恰好是"这轮到底变没变好"的唯一依据。全部关键字参数，
@@ -168,6 +173,12 @@ ignore = [
 # 而这个替身**要的就是**产出预置的领域对象，输入对它没有意义。参数不用不是
 # 疏忽，是这个替身的全部含义。
 "tests/support/decision_stages.py" = ["ARG002"]
+# 循环 A 的测试构造器：``StubHandlers`` 实现循环 A 的八个端口协议，
+# ``StubExecutor`` 实现执行器端口的四个方法 —— 方法签名都由协议定死，而替身
+# **要的就是**产出预置的领域对象（计划、工作区、验证结论），输入对它没有
+# 意义。``collect_result`` 的 ``session_id`` 同理：它返回的是打桩产物，
+# 不按会话取。参数不用不是疏忽，是这些替身的全部含义。
+"tests/support/execution_loop.py" = ["ARG002"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
@@ -216,6 +227,7 @@ module = [
     "core.evolution.priority",
     "core.planning.roadmap",
     "core.planning.stages",
+    "core.task.execution_loop",
     "agents.critic.checks",
     "agents.critic.report",
     "agents.critic.tools",
