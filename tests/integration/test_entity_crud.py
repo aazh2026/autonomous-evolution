@@ -574,16 +574,17 @@ class TestArchitectureDecision:
 class TestEntityCount:
     """实体总数与 design.md §3.6 的表格一致。
 
-    十二个核心实体之外还有两张预算账本表（TASK-P1-012）与一张审批请求表
-    （TASK-P1-046）—— 它们都不在 design.md 的清单里：预算那两张是设计文档
-    的一处缺口，已在 docs/tasks.md 第 6 节列为待裁决项 8；审批那张是 §7
-    「代码合并 = L2 需要人工审批」必须落到的地方。
+    十二个核心实体之外还有两张预算账本表（TASK-P1-012）、一张审批请求表
+    （TASK-P1-046）与两张编排状态表（TASK-P1-050）—— 它们都不在 design.md
+    的清单里：预算那两张是设计文档的一处缺口，已在 docs/tasks.md 第 6 节列为
+    待裁决项 8；审批那张是 §7「代码合并 = L2 需要人工审批」必须落到的地方；
+    checkpoint 那两张记的是编排器自己的运行状态，不是项目的业务事实。
     """
 
-    def test_twelve_core_entities_plus_two_budget_tables_and_the_approval_table_are_mapped(
+    def test_twelve_core_entities_plus_the_budget_approval_and_checkpoint_tables_are_mapped(
         self,
     ) -> None:
-        assert len(ALL_ENTITIES) == 15
+        assert len(ALL_ENTITIES) == 17
 
     async def test_every_entity_has_a_table(self, session: AsyncSession) -> None:
         tables = await session.execute(
@@ -609,6 +610,8 @@ class TestEntityCount:
             "budget_account",
             "budget_entry",
             "approval_request",
+            "graph_checkpoint",
+            "graph_checkpoint_write",
         }
 
 

@@ -79,6 +79,8 @@ ALL_TABLES = (
     "approval_request",
     "budget_entry",
     "budget_account",
+    "graph_checkpoint_write",
+    "graph_checkpoint",
 )
 
 #: append-only 表。清理时需要临时关掉 TRUNCATE 守卫 —— 守卫存在的目的

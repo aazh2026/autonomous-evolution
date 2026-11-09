@@ -31,6 +31,15 @@
 它同样不在 design.md §3.6 的清单里，但 §7 的初始自主权限里明确写着"代码合并
 = L2 需要人工审批" —— 人工审批必须落到某张表上，否则那条权限只是一句文档。
 
+还有两张**编排状态**表：
+
+    GraphCheckpoint      决策图的一个 checkpoint（某个时刻的完整状态）
+    GraphCheckpointWrite checkpoint 期间写下的中间结果
+
+它们记的是**编排器自己的运行状态**，不是项目的业务事实 —— 决策图跑到哪一步
+了、中间写下了什么。放在这儿是因为 Alembic 的 autogenerate 与 ``create_all``
+只看 ``Base.metadata``：实体散落在别处，迁移就会悄悄漏掉那几张表。
+
 导入本模块会把全部实体注册到同一个 ``Base.metadata`` —— Alembic 的
 autogenerate 与 ``create_all`` 都依赖这一点。少导入一个实体，迁移就会
 悄悄漏掉那张表。
@@ -42,16 +51,18 @@ from core.entities.approval import ApprovalRequest
 from core.entities.architecture import ArchitectureDecision
 from core.entities.base import Base, JSONDocument, TimestampMixin, UUIDPrimaryKeyMixin
 from core.entities.budget import BudgetAccount, BudgetEntry
+from core.entities.checkpoint import GraphCheckpoint, GraphCheckpointWrite
 from core.entities.evidence import Artifact, VerificationRun
 from core.entities.evolution import EvolutionCandidate, EvolutionCycle, EvolutionDecision
 from core.entities.execution import AgentSession, ExecutionEvent
 from core.entities.project import Project, ProjectSnapshot
 from core.entities.task import Task, TaskDependency
 
-#: 十二个核心实体 + 两张预算账本表 + 一张审批请求表。
+#: 十二个核心实体 + 两张预算账本表 + 一张审批请求表 + 两张编排状态表。
 #:
 #: 前十二个的顺序与 design.md §3.6 的表格一致，便于逐条核对；后面三个是
-#: 预算账本（见模块文档与 tasks.md 第 6 节待裁决项 8）与审批请求。
+#: 预算账本（见模块文档与 tasks.md 第 6 节待裁决项 8）与审批请求；最后两个是
+#: 决策图的 checkpoint。
 ALL_ENTITIES = (
     Project,
     ProjectSnapshot,
@@ -68,6 +79,8 @@ ALL_ENTITIES = (
     BudgetAccount,
     BudgetEntry,
     ApprovalRequest,
+    GraphCheckpoint,
+    GraphCheckpointWrite,
 )
 
 __all__ = [
@@ -83,6 +96,8 @@ __all__ = [
     "EvolutionCycle",
     "EvolutionDecision",
     "ExecutionEvent",
+    "GraphCheckpoint",
+    "GraphCheckpointWrite",
     "JSONDocument",
     "Project",
     "ProjectSnapshot",

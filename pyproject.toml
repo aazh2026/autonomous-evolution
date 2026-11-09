@@ -20,6 +20,7 @@ dependencies = [
     "fastapi>=0.111",
     "uvicorn[standard]>=0.30",
     "pyyaml>=6.0",
+    "langgraph>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -162,6 +163,11 @@ ignore = [
 # 条产物登记过没有"：``get_by_uri`` 与 ``record_archive`` 用到的参数对它没
 # 有意义。参数不用不是疏忽，是这个替身的全部含义。
 "tests/unit/agents/critic/test_tools.py" = ["ARG002"]
+# 五阶段链的测试替身：``_Stub`` 实现 ``Understander`` / ``Diagnoser`` /
+# ``Explorer`` / ``Decider`` / ``Planner`` 五个协议，方法签名由协议定死 ——
+# 而这个替身**要的就是**产出预置的领域对象，输入对它没有意义。参数不用不是
+# 疏忽，是这个替身的全部含义。
+"tests/support/decision_stages.py" = ["ARG002"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
@@ -209,6 +215,7 @@ module = [
     "core.evolution.evidence",
     "core.evolution.priority",
     "core.planning.roadmap",
+    "core.planning.stages",
     "agents.critic.checks",
     "agents.critic.report",
     "agents.critic.tools",
@@ -250,12 +257,21 @@ minversion = "8.0"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-addopts = "-q --strict-markers --strict-config"
+# ``-p no:langsmith_plugin``：langsmith 自带的 pytest 插件在导入时会碰
+# ``asyncio.iscoroutinefunction``，而 Python 3.14 把它的弃用警告升级成了错误 ——
+# 于是**插件还没加载，pytest 就退出了**。这个插件只做 trace 上报，本项目
+# 不用它（追踪走的是自己的 ``infrastructure/observability``）。
+addopts = "-q --strict-markers --strict-config -p no:langsmith_plugin"
 markers = [
     "integration: 需要外部服务（PostgreSQL / MinIO / Docker）的集成测试",
     "slow: 执行耗时较长的测试",
 ]
-filterwarnings = ["error", "ignore::DeprecationWarning:httpx.*"]
+# ``ignore::DeprecationWarning:langsmith.*``：langsmith 在装饰器里调用了
+# ``asyncio.iscoroutinefunction``，而 Python 3.14 把它的弃用警告升级成了错误
+# —— 于是**只要 import 一下 langchain_core，整个测试会话就死在收集阶段**。
+# 与上面禁用 langsmith 插件是同一个原因、同一个第三方包：警告来自那个包
+# 自己的代码，不是我们的。
+filterwarnings = ["error", "ignore::DeprecationWarning:httpx.*", "ignore::DeprecationWarning:langsmith.*"]
 
 [tool.coverage.run]
 source = ["apps", "core", "agents", "orchestration", "executors", "harness", "knowledge", "evaluation", "infrastructure"]

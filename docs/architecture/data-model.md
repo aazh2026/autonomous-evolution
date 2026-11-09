@@ -1,8 +1,9 @@
-# 数据模型 —— 十二个核心实体 + 预算账本 + 审批请求
+# 数据模型 —— 十二个核心实体 + 预算账本 + 审批请求 + 编排状态
 
 设计依据：`docs/design.md` §3.6（核心数据模型、四类存储职责分离）、
 `docs/tasks.md` TASK-P1-020（schema 与迁移）、TASK-P1-022（三表分离约束）、
-TASK-P1-024（证据 append-only）、TASK-P1-012（预算账本）。
+TASK-P1-024（证据 append-only）、TASK-P1-012（预算账本）、
+TASK-P1-050（决策图 checkpoint）。
 
 这份文档是**从代码生成后手工整理**的，权威来源是 `core/entities/` 下的 ORM
 模型与 `migrations/versions/` 下的迁移脚本。`tests/unit/database/test_data_model_doc.py`
@@ -24,8 +25,8 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 
 ## 1. 实体总览
 
-十二个核心实体，四组归属；外加两张**预算账本**表（第五组）与一张**审批请求**
-表（第六组）：
+十二个核心实体，四组归属；外加两张**预算账本**表（第五组）、一张**审批请求**
+表（第六组）与两张**编排状态**表（第七组）：
 
 | 组 | 实体 | 表名 | 作用 |
 | --- | --- | --- | --- |
@@ -44,6 +45,8 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 | 预算 | `BudgetAccount` | `budget_account` | 预算累计额（归属 / 维度 / 周期 → 已花） |
 | 预算 | `BudgetEntry` | `budget_entry` | 预算流水（append-only，每次扣减一条） |
 | 审批 | `ApprovalRequest` | `approval_request` | 人工审批请求（谁在什么时候批了什么） |
+| 编排 | `GraphCheckpoint` | `graph_checkpoint` | 决策图的一个 checkpoint（某个时刻的完整状态） |
+| 编排 | `GraphCheckpointWrite` | `graph_checkpoint_write` | checkpoint 期间写下的中间结果 |
 
 > **预算那两张表不在 `docs/design.md` §3.6 的清单里** —— 那是设计文档的一处缺口，
 > 已在 `docs/tasks.md` 第 6 节列为待裁决项 8。补它们的理由很直接：TASK-P1-012
@@ -53,6 +56,12 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 > L2 需要人工审批"。人工审批必须落到某张表上，否则那条权限只是一句文档：编排器
 > 等审批、API 让人批、CLI 让人批，三者看到的必须是**同一条记录**。补它的理由与
 > 预算那两张一样具体 —— 没有这张表，"等审批"就只能是编排器内存里的一个布尔值。
+
+> **最后两张记的不是业务事实。** §3.6 的十二张表装的是"项目发生了什么"，
+> 而 checkpoint 装的是"编排器跑到哪一步了"。两者的区别不是"不重要"，而是
+> **生命周期不同**：checkpoint 跟着一次编排走，项目还在不在它都无所谓；
+> 业务事实则要跟着项目一直活着。分开放的理由与分表放的理由一样 —— 混在一处，
+> "这个项目现在怎么样"这个问题就得先滤掉所有编排噪音。
 
 > `core.entities.Project`（ORM 实体）与 `core.project.models.Project`（纯领域模型）
 > 是两个同名但不同层的对象。前者负责落库，后者负责校验。两者之间用
@@ -109,6 +118,14 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 审批管的是"这次操作能不能做" —— 审批是**放行的条件**，不是任务的**来源**。
 把审批挂成任务的外键，等于说"没有任务的审批不合法"，而策略检查恰恰发生在
 任务落库之前。
+
+**`graph_checkpoint` 与 `graph_checkpoint_write` 也不在上表里 —— 它们一张外键都没有。**
+理由与审批那张不同：审批至少还挂在某个任务上，而 checkpoint 挂的是**一次编排**
+（一个 thread id），编排不是项目的一部分。硬要挂外键，就得给 checkpoint 建一个
+"编排"实体 —— 而那恰恰是把编排器的运行状态混进业务事实，正是要避免的事。
+两张表之间靠 `thread_id` + `checkpoint_ns` + `checkpoint_id` 复合键自洽，
+一致性由 `SqlAlchemyCheckpointSaver` 保证（写 checkpoint 与写它的 writes 在
+同一个事务里）。
 
 ### 2.2 图版
 
@@ -207,6 +224,30 @@ erDiagram
         numeric amount
         string currency
         string status
+    }
+    graph_checkpoint {
+        uuid id PK
+        string thread_id
+        string checkpoint_ns
+        string checkpoint_id
+        string parent_checkpoint_id
+        bigint step
+        string source
+        bytes checkpoint
+        string serde_type
+        json metadata
+    }
+    graph_checkpoint_write {
+        uuid id PK
+        string thread_id
+        string checkpoint_ns
+        string checkpoint_id
+        string task_id
+        string task_path
+        bigint idx
+        string channel
+        bytes value
+        string serde_type
     }
 ```
 
@@ -607,6 +648,67 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 **状态不是自由文本。** CHECK 约束是最后一道防线：脚本、手工 SQL 直插也要过它。
 否则"这条审批到底处于什么状态"这个问题就没有唯一答案。
 
+### 6.16 `graph_checkpoint`
+
+| 列 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `id` | UUID | PK | |
+| `thread_id` | VARCHAR(128) | NOT NULL | 一次编排的标识。**没有它就不知道这次编排的状态存在哪** |
+| `checkpoint_ns` | VARCHAR(128) | NOT NULL | 命名空间。子图用；顶层图恒为空串 |
+| `checkpoint_id` | VARCHAR(64) | NOT NULL | LangGraph 的 checkpoint id（uuid6，**按时间递增**） |
+| `parent_checkpoint_id` | VARCHAR(64) | | 父 checkpoint。恢复时沿这条链往回走 |
+| `step` | BIGINT | NOT NULL | 第几步。给人看的 |
+| `source` | VARCHAR(32) | NOT NULL | 这一步的来源（`input` / `loop` / `update` / `fork`） |
+| `checkpoint` | BYTEA | NOT NULL | 序列化后的 checkpoint 本体 |
+| `serde_type` | VARCHAR(32) | NOT NULL | 序列化器的类型标签（`msgpack`） |
+| `metadata` | JSONB | NOT NULL | 这一步的元数据（来源、步数、父链、写入者……） |
+| `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+唯一约束：`uq_graph_checkpoint_thread_ns_checkpoint`（thread + ns + checkpoint_id）。
+索引：`ix_graph_checkpoint_thread`（同三列，按时间倒序取最新）。
+
+**`checkpoint` 存 BYTEA，不存 JSONB。** checkpoint 里装的是 Pydantic 模型、
+`Decimal`、元组 —— 都不是 JSON 原生类型。存 JSONB 就得在存之前把它们降级成
+JSON，读回来再猜原来是什么类型：**猜错类型的那份 checkpoint 比没有 checkpoint
+更糟** —— 它看起来完整，却让恢复后的流水线带着一份错形状的状态继续跑。
+
+**`serde_type` 必须单独存一列。** 序列化器给的是 `(类型, 字节)` 二元组，而字节
+本身不带"自己是怎么编码的"这个信息 —— 丢掉标签，恢复时就得靠猜。
+
+**排序靠 `checkpoint_id`，不靠时间戳。** uuid6 的高位是毫秒级时间戳，所以它的
+**字符串序就是时间序** —— 这让"取最新一个 checkpoint"是一条干净的
+`ORDER BY checkpoint_id DESC LIMIT 1`，而不用在两个时间戳相等时猜。
+
+### 6.17 `graph_checkpoint_write`
+
+| 列 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `id` | UUID | PK | |
+| `thread_id` | VARCHAR(128) | NOT NULL | 同上 |
+| `checkpoint_ns` | VARCHAR(128) | NOT NULL | 同上 |
+| `checkpoint_id` | VARCHAR(64) | NOT NULL | 属于哪个 checkpoint |
+| `task_id` | VARCHAR(128) | NOT NULL | 写来自哪个任务（节点） |
+| `task_path` | VARCHAR(256) | NOT NULL | 任务在图里的路径 |
+| `idx` | BIGINT | NOT NULL | 同一任务里的第几笔写。**顺序不是细节** |
+| `channel` | VARCHAR(128) | NOT NULL | 写到了哪个通道（状态字段） |
+| `value` | BYTEA | NOT NULL | 写进去的值（序列化后的字节） |
+| `serde_type` | VARCHAR(32) | NOT NULL | 值的序列化类型标签。理由同 `graph_checkpoint.serde_type` |
+| `created_at` / `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+唯一约束：`uq_graph_checkpoint_write_thread_ns_checkpoint_task_idx`。
+索引：`ix_graph_checkpoint_write_thread`。
+
+**为什么单独一张表。** 一个节点算完了、结果还没并进整体状态 —— 这中间的写必须
+留着：节点中途失败时，已经算完的那部分不能白算。恢复时编排器读这些写，知道
+哪些活已经干完了。
+
+**`idx` 决定重放出来的状态对不对。** 一个 super-step 里的多个任务会往同一个
+通道写，reducer 按顺序把它们合起来 —— 存的顺序与活的顺序不一致，重放出来的
+状态就与当初跑出来的不一样，而那看起来完全正常。
+
+**重复写要幂等。** 同一个节点失败后重跑会把同样的写再写一遍 —— 那是"重试"，
+不是"重复"。写入用 `ON CONFLICT DO NOTHING`：已有的不覆盖，新的补上。
+
 ## 7. 命名的三条约定
 
 1. **表名复数、单数混乱** —— 一律单数下划线（`evolution_candidate`）。
@@ -628,6 +730,7 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 | `0003` | 预算账本两表 + 累计额单调守卫 + 预算流水 append-only 触发器 |
 | `0004` | `evolution_cycle` 一分为二：`status`（怎么结束）+ `outcome`（有没有变好） |
 | `0005` | 审批请求表 + 状态 CHECK 约束 + 查询索引 |
+| `0006` | 决策图 checkpoint 两表（`graph_checkpoint` + `graph_checkpoint_write`） |
 
 迁移工具链的验证见 `tests/integration/test_migrations.py`：
 `upgrade head` → `downgrade base` → `upgrade head` 可逆；空库从零迁移 < 30s；
@@ -648,3 +751,6 @@ Python 侧的状态机（`core/task/state_machine.py`）是 14 态的唯一真�
 - `infrastructure/database/budget.py` —— 数据库预算账本（行级锁）
 - `core/policy/approval.py` —— 审批领域模型（结论怎么算、过期怎么算）
 - `infrastructure/database/approval.py` —— 数据库审批存储（`FOR UPDATE` 独占表态）
+- `core/entities/checkpoint.py` —— 编排状态实体（checkpoint 本体与中间写）
+- `infrastructure/database/checkpointer.py` —— checkpoint 的数据库实现（恢复语义）
+- `docs/architecture/decision-stages.md` —— 五阶段图的节点契约与持久化
