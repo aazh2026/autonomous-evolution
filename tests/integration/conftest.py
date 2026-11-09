@@ -259,12 +259,17 @@ def scratch_database(request: pytest.FixtureRequest) -> Iterator[str]:
 
 
 @pytest.fixture
-def s3_backend() -> Iterator[S3ObjectStore]:
+async def s3_backend() -> AsyncIterator[S3ObjectStore]:
     """一个指向 MinIO 的 S3 后端，桶是**每个测试一个**的。
 
     内容寻址的 key 是内容哈希，同一份内容在哪个桶里都指向同一个 key。
     共享一个桶的话，"库里只有一个对象"这条断言会被上一个测试留下的
     对象破坏 —— 所以桶必须是函数级的。
+
+    **这个 fixture 必须是异步的。** S3 客户端的连接池绑在创建它的
+    事件循环上 —— 用 ``asyncio.run`` 建、用例在另一个 loop 里用的话，
+    那个客户端就废了（实测：aiohttp 报 "Unclosed connector"）。
+    改成异步 fixture 之后，建桶、用例、清理都在**同一个** loop 里。
 
     清理用 aioboto3 直接做，不走 ``S3ObjectStore`` —— 生产类里不留
     "删对象"的口子（证据是 append-only 的）。
@@ -285,7 +290,7 @@ def s3_backend() -> Iterator[S3ObjectStore]:
     )
     backend = S3ObjectStore(settings)
     try:
-        asyncio.run(backend.ensure_bucket())
+        await backend.ensure_bucket()
     except Exception as exc:
         pytest.skip(f"MinIO 不可用（{exc}）；跳过对象存储集成测试")
 
@@ -293,7 +298,10 @@ def s3_backend() -> Iterator[S3ObjectStore]:
         yield backend
     finally:
         with contextlib.suppress(Exception):
-            asyncio.run(_delete_bucket(bucket))
+            await _delete_bucket(bucket)
+        # 连接池要还回去 —— 不还，aiohttp 会在用例结束时喊
+        # "Unclosed connector"。
+        await backend.close()
 
 
 async def _delete_bucket(bucket: str) -> None:
@@ -327,9 +335,9 @@ async def _delete_bucket(bucket: str) -> None:
 
 
 @pytest.fixture
-def s3_store(s3_backend: S3ObjectStore) -> ContentAddressedStore:
+async def s3_store(s3_backend: S3ObjectStore) -> AsyncIterator[ContentAddressedStore]:
     """内容寻址的 S3 存储。"""
-    return ContentAddressedStore(s3_backend)
+    yield ContentAddressedStore(s3_backend)
 
 
 # --------------------------------------------------------------------------

@@ -93,6 +93,9 @@ def create_app(
         nonlocal resolved_store
         if resolved_store is None:
             resolved_store = build_object_store(settings)
+            # **自己建的后端自己负责关。** 注入进来的（测试用的假后端）
+            # 不归这个应用管 —— 应用不替别人关东西。
+            app.state.owned_store = resolved_store
         return resolved_store
 
     @app.get("/healthz")
@@ -122,7 +125,7 @@ def create_app(
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001 - FastAPI 规定的签名
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """启动与关闭。
 
     启动时配置日志 —— 日志配置放在这里而不是模块导入时，
@@ -139,6 +142,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001 - FastA
         yield
     finally:
         await dispose_engine()
+        # S3 后端持着一个 aiohttp 连接池 —— 不还回去，进程退出时
+        # aiohttp 会喊 "Unclosed client session"。
+        owned: ObjectStore | None = getattr(app.state, "owned_store", None)
+        if owned is not None:
+            await owned.close()
         logger.info("api_stopped", service=SERVICE_NAME)
 
 

@@ -23,13 +23,15 @@ URI 就变了，旧记录指向的仍是旧内容；读的时候再算一次 has
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import hashlib
 import os
 import shutil
 import tempfile
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import IO, Any
 
@@ -132,6 +134,19 @@ class ObjectStore(ABC):
 
         幂等：已就绪时不报错、不重复创建。
         """
+
+    async def close(self) -> None:
+        """释放后端持有的资源。
+
+        默认什么都不做 —— 本地文件系统后端没有长连接要还。
+
+        需要长连接的后端（S3 的 aiohttp 连接池）要在这里关掉，
+        否则进程退出时 aiohttp 会报 "Unclosed client session"。
+
+        **谁该调用：建了它的人。** 应用启动时建的后端，由应用在关闭时
+        关掉；测试里注入的后端归注入者管 —— 应用不该替别人关东西。
+        """
+        return None
 
 
 # --------------------------------------------------------------------------
@@ -275,7 +290,7 @@ class S3ObjectStore(ObjectStore):
         self._secret_key = (
             cfg.s3_secret_key.get_secret_value() if cfg.s3_secret_key is not None else None
         )
-        self._client = client
+        self._injected_client = client
         self._session: Any = None
         if client is None:
             try:
@@ -288,18 +303,78 @@ class S3ObjectStore(ObjectStore):
                 ) from exc
             self._session = aioboto3.Session()
 
+        # 复用的客户端 —— 见 :meth:`_ensure_client`。
+        self._client: Any = None
+        self._client_cm: Any = None
+        self._client_loop: asyncio.AbstractEventLoop | None = None
+        self._client_lock: asyncio.Lock | None = None
+        self._client_lock_loop: asyncio.AbstractEventLoop | None = None
+
     @property
     def bucket(self) -> str:
         return self._bucket
 
-    def _client_context(self) -> Any:
-        """构造一个 S3 客户端上下文。
+    @asynccontextmanager
+    async def _client_context(self) -> AsyncIterator[Any]:
+        """拿到一个 S3 客户端。
 
-        注入 ``client`` 时直接返回它 —— 测试用假客户端，不碰网络。
+        注入 ``client`` 时直接用它 —— 测试用假客户端，不碰网络。
+
+        否则拿的是**复用的**那个客户端，不是每次现造的（理由见
+        :meth:`_ensure_client`）。
         """
-        if self._client is not None:
-            return _InjectedClient(self._client)
-        return self._session.client(
+        if self._injected_client is not None:
+            yield self._injected_client
+            return
+        yield await self._ensure_client()
+
+    async def _ensure_client(self) -> Any:
+        """拿到可用的 S3 客户端，必要时建一个。
+
+        **为什么值得缓存。** botocore 每建一个客户端，都要把 S3 的服务模型
+        展开成上百个操作方法。实测（api 容器内跑 ``time.process_time``，
+        新旧同一把尺子）：
+
+        ==============================  ==========
+        做什么                            CPU
+        ==============================  ==========
+        只建客户端、不发请求               12.55 ms
+        复用客户端发一次 ``head_bucket``     0.35 ms
+        ==============================  ==========
+
+        **97% 的开销花在"造客户端"上，而不是"问一句 MinIO 在不在"。**
+        原先每次操作都现造一个 —— 健康的 api 每 5 秒问一次，一天
+        17280 次，每次白烧 12.55 ms ≈ **217 CPU-秒/天**，一个核的 0.25%
+        常年挂着，什么活都不干。
+
+        **跨事件循环要重建。** aiohttp 的连接池绑在创建它的事件循环上。
+        同一个 store 在两个 loop 里用（测试里 ``asyncio.run`` 和用例自己的
+        loop 不是同一个），旧客户端就废了 —— 所以记下建它的 loop，变了就重建。
+
+        **并发首次调用只造一个。** 造客户端要 await，中途会让出控制权，
+        两个协程可能同时看到"还没有客户端"而各造一个。所以用一把锁，
+        第二个进来时第一个已经造好了，直接拿。
+        """
+        loop = asyncio.get_running_loop()
+        if self._client is not None and self._client_loop is loop:
+            return self._client
+
+        # 锁也绑在事件循环上 —— 换了 loop 就换一把（否则 3.10+ 会报
+        # "is bound to a different event loop"）。
+        if self._client_lock is None or self._client_lock_loop is not loop:
+            self._client_lock = asyncio.Lock()
+            self._client_lock_loop = loop
+
+        async with self._client_lock:
+            # 等锁期间可能已经有别人造好了。
+            if self._client is not None and self._client_loop is loop:
+                return self._client
+            return await self._build_client()
+
+    async def _build_client(self) -> Any:
+        """真的造一个客户端，并记下它是在哪个 loop 上造的。"""
+        await self._close_client()
+        cm = self._session.client(
             "s3",
             endpoint_url=self._endpoint_url,
             region_name=self._region,
@@ -307,6 +382,34 @@ class S3ObjectStore(ObjectStore):
             aws_secret_access_key=self._secret_key,
             config=_botocore_config(),
         )
+        client = await cm.__aenter__()
+        self._client_cm = cm
+        self._client = client
+        self._client_loop = asyncio.get_running_loop()
+        return client
+
+    async def _close_client(self) -> None:
+        """关掉当前缓存的客户端（没有就什么都不做）。
+
+        **关旧客户端可能失败**：它可能绑在另一个（甚至已经关掉的）
+        事件循环上。那种情况下连接池已经随 loop 一起没了，关不关都一样 ——
+        所以异常吞掉，但状态照样清空，不能让一个废客户端继续占着位置。
+        """
+        cm, self._client_cm = self._client_cm, None
+        self._client = None
+        self._client_loop = None
+        if cm is None:
+            return
+        with contextlib.suppress(Exception):
+            await cm.__aexit__(None, None, None)
+
+    async def close(self) -> None:
+        """关掉缓存的客户端。
+
+        进程要退出了就把连接池还回去 —— 不然 aiohttp 会在退出时喊
+        "Unclosed client session"。
+        """
+        await self._close_client()
 
     async def put_bytes(self, key: str, data: bytes, *, content_type: str | None = None) -> int:
         async with self._client_context() as client:
@@ -444,23 +547,6 @@ class S3ObjectStore(ObjectStore):
                 await client.create_bucket(Bucket=self._bucket)
                 return True
         return False
-
-
-class _InjectedClient:
-    """把注入的客户端包装成异步上下文管理器。
-
-    测试传入的是自己写的假客户端，它不是 ``async with`` 上下文管理器；
-    这里补上，让生产代码与测试代码走同一条路径。
-    """
-
-    def __init__(self, client: Any) -> None:
-        self._client = client
-
-    async def __aenter__(self) -> Any:
-        return self._client
-
-    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
-        return None
 
 
 def _botocore_config() -> object:
@@ -641,6 +727,14 @@ class ContentAddressedStore:
     async def ping(self) -> bool:
         """后端是否可达。"""
         return await self._store.ping()
+
+    async def close(self) -> None:
+        """把关闭转发给底层后端。
+
+        内容寻址层自己不持有资源 —— 但它包着那个持有资源的后端，
+        不转发就等于没人关。
+        """
+        await self._store.close()
 
 
 # --------------------------------------------------------------------------

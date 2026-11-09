@@ -14,10 +14,12 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+import pytest
 from fastapi import FastAPI
 
 from apps.api.health import CheckResult, check_database, check_object_store
-from apps.api.main import create_app
+from apps.api.main import create_app, lifespan
+from infrastructure.config.settings import Environment, Settings
 from infrastructure.storage.object_store import ObjectStore
 
 #: 一段"绝不能出现在响应里"的敏感串。
@@ -59,6 +61,7 @@ class _FakeStore(ObjectStore):
     def __init__(self, *, reachable: bool = True, error: Exception | None = None) -> None:
         self._reachable = reachable
         self._error = error
+        self.closed = False
 
     async def put_bytes(self, key: str, data: bytes, *, content_type: str | None = None) -> int:
         return len(data)
@@ -88,6 +91,9 @@ class _FakeStore(ObjectStore):
 
     async def ensure_ready(self) -> bool:
         return False
+
+    async def close(self) -> None:
+        self.closed = True
 
 
 class TestCheckDatabase:
@@ -198,9 +204,70 @@ class TestHealthEndpoint:
         assert response.json()["status"] == "ok"
 
 
+class TestStoreLifecycle:
+    """应用自己建的后端，应用自己关。
+
+    S3 后端持着一个 aiohttp 连接池 —— 进程退出时不还回去，
+    aiohttp 会喊 "Unclosed client session"。
+    """
+
+    async def test_the_app_closes_the_store_it_created(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        store = _FakeStore()
+        monkeypatch.setattr("apps.api.main.build_object_store", lambda _settings: store)
+        await _quiet_lifespan(monkeypatch)
+
+        engine: Any = _FakeEngine()
+        app = create_app(Settings(environment=Environment.TEST), engine=engine)
+        async with lifespan(app):
+            await _get(app, "/healthz")
+
+        assert store.closed is True
+
+    async def test_an_injected_store_is_not_closed_by_the_app(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """注入的后端归注入者管 —— 应用不替别人关东西。
+
+        测试里注入的后端可能还要在应用关掉之后继续用；
+        谁建的谁关，这条界线不能糊。
+        """
+        store = _FakeStore()
+        await _quiet_lifespan(monkeypatch)
+
+        engine: Any = _FakeEngine()
+        app = create_app(
+            Settings(environment=Environment.TEST),
+            engine=engine,
+            store=store,
+        )
+        async with lifespan(app):
+            await _get(app, "/healthz")
+
+        assert store.closed is False
+
+
+async def _quiet_lifespan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """把 lifespan 里两个有全局副作用的东西换成空实现。
+
+    - ``configure_logging`` 调 ``logging.basicConfig(force=True)``，
+      会**掀掉 pytest 装在 root 上的日志捕获器** —— 别的用例的
+      日志断言会跟着遭殃。
+    - ``dispose_engine`` 会去建一个真的数据库引擎，跟这条测试无关。
+    """
+
+    async def _noop() -> None:
+        return None
+
+    monkeypatch.setattr("apps.api.main.configure_logging", lambda _settings: None)
+    monkeypatch.setattr("apps.api.main.dispose_engine", _noop)
+
+
 __all__ = [
     "TestCheckDatabase",
     "TestCheckObjectStore",
     "TestCheckResultShape",
     "TestHealthEndpoint",
+    "TestStoreLifecycle",
 ]
