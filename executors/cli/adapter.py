@@ -41,6 +41,13 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Final
 
+from core.metrics.cost import (
+    CostAmount,
+    CostConverter,
+    TokenUsage,
+    UnknownRateError,
+    reconcile_costs,
+)
 from core.task.cancellation import StopReport
 from core.task.outcome import ExecutionStatus
 from executors.base import (
@@ -107,6 +114,10 @@ class RunSummary:
 
     "没结论"与"结论是成功"走的是不同的分支：前者不能当成成功 —— 把"没出
     错"当"做成了"，那正是"进程正常退出但什么都没产出"这种假成功的来源。
+
+    :attr:`usage` 与 :attr:`model` 是**核对成本用的两件事实**：实际用了多少
+    token、跑的是哪个模型。有了它们，才能拿"按单价表算出来的钱"去对"执行器
+    报上来的钱" —— 两条独立的路径互相对账，才算核对（T2）。
     """
 
     is_error: bool | None = None
@@ -115,6 +126,8 @@ class RunSummary:
     tool_calls: int = 0
     duration_ms: int | None = None
     text: str | None = None
+    usage: TokenUsage | None = None
+    model: str | None = None
 
 
 @dataclass
@@ -156,6 +169,10 @@ class CliAdapter(CodingAgentAdapter, ABC):
     credential_env_name: str = ""
 
     #: 币种 —— 成本必须带币种才能和预算比（R-039 要求三处成本同源同币种）。
+    #:
+    #: **这是 CLI 计价用的币种，不是记账币种。** 两者的差由
+    #: :class:`core.metrics.cost.CostConverter` 换算 —— 换算在
+    #: :meth:`_accounted_cost` 里做一次，报告、账本与观测共用那一个结果。
     currency: str = "USD"
 
     #: CLI 报会话 ID 时用的字段名。
@@ -169,12 +186,14 @@ class CliAdapter(CodingAgentAdapter, ABC):
         credential_provider: CredentialProvider | None = None,
         env_provider: EnvProvider | None = None,
         inspector: WorkspaceInspector | None = None,
+        cost_converter: CostConverter | None = None,
     ) -> None:
         self._name = name
         self._binary = binary
         self._credential_provider = credential_provider
         self._env_provider = env_provider
         self._inspector: WorkspaceInspector = inspector or GitWorkspaceInspector()
+        self._cost_converter = cost_converter
         self._sessions: dict[str, _CliSession] = {}
 
     # ------------------------------------------------------------------
@@ -674,14 +693,62 @@ class CliAdapter(CodingAgentAdapter, ABC):
 
     def _build_metrics(self, session: _CliSession, summary: RunSummary | None) -> ExecutionMetrics:
         duration = self._duration_seconds(session, summary)
-        cost = summary.cost if summary is not None and summary.cost is not None else Decimal(0)
+        amount = self._accounted_cost(summary)
         tool_calls = summary.tool_calls if summary is not None else 0
         return ExecutionMetrics(
             duration=duration,
             tool_calls=tool_calls,
-            cost=cost,
-            currency=self.currency,
+            cost=amount.amount,
+            currency=amount.currency,
+            cost_deviation=self._cost_deviation(amount, summary),
         )
+
+    def _cost_deviation(self, booked: CostAmount, summary: RunSummary | None) -> Decimal | None:
+        """记账的数与"实际调用量推算的数"差多少 —— **核对不了就返回 None**。
+
+        **两个数来自两条独立的路径。** ``booked`` 是执行器报上来的实际花费
+        （换算到记账币种），``expected`` 是按单价表对**实际发生的 token 数**
+        算出来的钱。拿同一条路径的两个数互相比，比出来的永远是 0 —— 那是自证。
+
+        **缺任何一件就核对不了**：没配单价表、没读到用量、没读到模型、单价表
+        里没有这个模型 —— 都返回 ``None``。**``None`` 的意思是"没核对"，不是
+        "核对过、差 0"**：这两件事必须分得开，否则"单价表过期了"这件事就再也
+        没人会发现。
+
+        单价表里没有这个模型时不报错 —— 那是**核对**失败，不是**记账**失败：
+        执行已经做完了，账也记了，为一个核对失败把整次执行掀翻是本末倒置。
+        """
+        if self._cost_converter is None or summary is None:
+            return None
+        usage = summary.usage
+        model = summary.model
+        if usage is None or model is None or summary.cost is None:
+            return None
+        try:
+            expected = self._cost_converter.price(usage, model=model)
+        except UnknownRateError:
+            return None
+        return reconcile_costs(recorded=booked, expected=expected).deviation
+
+    def _accounted_cost(self, summary: RunSummary | None) -> CostAmount:
+        """这次执行花了多少钱 —— **换算在这里做，而且只在这里做**。
+
+        **为什么换算落在适配器。** 只有这里知道"CLI 报来的这个数是哪个币种
+        的"。账本与观测都只看得见已经换算好的金额 —— 让它们各自再算一遍，
+        等于把一条口径复制三份，而**改价时漏掉的那一份不会报错**，它只会
+        安静地记下另一个数。
+
+        **没配单价表就原样保留。** 不猜价，也不按内置默认价换算 —— 那两种
+        做法的共同点是"算出来的数看着正常"，而算错的是钱。
+
+        :param summary: CLI 事件流读出来的摘要。``None`` 表示这次执行没读到
+            结论事件 —— 那就按 0 记，而不是猜一个。
+        """
+        raw = summary.cost if summary is not None and summary.cost is not None else Decimal(0)
+        amount = CostAmount(raw, self.currency)
+        if self._cost_converter is None:
+            return amount
+        return self._cost_converter.convert(amount)
 
     def _duration_seconds(self, session: _CliSession, summary: RunSummary | None) -> Decimal:
         if summary is not None and summary.duration_ms is not None:

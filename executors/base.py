@@ -61,6 +61,7 @@ from typing import Final
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from core.metrics.cost import CostAmount
 from core.task.outcome import ExecutionStatus
 
 #: 空的、只读的环境变量表。共享同一个实例是安全的 —— 它不可变。
@@ -308,17 +309,43 @@ class ExecutionMetrics(ResultSchema):
     成本同源同币种）。``core.policy.budget.Budget.currency`` 上的默认值是
     **记账侧**的默认值，不是执行器实际计价的币种；两者混用会让成本被换算
     两次。
+
+    :attr:`cost_deviation` 是**记账金额与"实际调用量按单价表推算的金额"之间的
+    相对偏差**（``0.02`` = 差 2%）。它是 T2 那条"偏差 < 2%"量出来的数 ——
+    **两个数来自两条独立的路径**：一边是执行器报上来的实际花费，另一边是按
+    单价表对实际 token 数算出来的钱。拿同一条路径的两个数互相比，永远比出 0。
+
+    ``None`` 表示**没核对**（缺用量、缺单价、没配单价表），而不是"核对过、
+    差 0" —— 这两件事必须分得开。
     """
 
     duration: Decimal = Field(ge=0)
     tool_calls: int = Field(ge=0)
     cost: Decimal = Field(ge=0)
     currency: str = Field(min_length=1, max_length=16)
+    cost_deviation: Decimal | None = Field(default=None, ge=0)
 
-    @field_validator("duration", "cost", mode="before")
+    @field_validator("duration", "cost", "cost_deviation", mode="before")
     @classmethod
     def _decimal_from_text(cls, value: object) -> object:
+        if value is None:
+            return None
         return _to_decimal(value)
+
+    def amount(self) -> CostAmount:
+        """这次执行花了多少钱 —— **金额与币种捆在一起**。
+
+        **为什么有这个方法。** 成本要同时出现在三个地方（适配器报告、预算
+        账本、观测），而"三个地方的值相等"这条要求只有在它们**由同一个
+        对象派生**时才靠得住。分成两个散着的字段传，就有机会只传一半 ——
+        而只传一半的那一半没人会发现。
+
+        这里做的是**派生，不是换算**：换算已经在适配器那边做完了
+        （:class:`core.metrics.cost.CostConverter`），这个方法只是把已经
+        算好的金额与币种重新捆成一个不可变的对象。量化在构造时做，重复
+        构造是幂等的 —— 所以这里的值与适配器算出来的那一个**逐位相同**。
+        """
+        return CostAmount(self.cost, self.currency)
 
 
 class SelfAssessment(ResultSchema):

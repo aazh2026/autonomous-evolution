@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from core.metrics.cost import CostConverter
 from executors.base import ExecutionTask, SessionConfig
 from executors.cli.adapter import (
     CliAdapter,
@@ -53,6 +54,7 @@ class CodexAdapter(CliAdapter):
         credential_provider: CredentialProvider | None = None,
         env_provider: EnvProvider | None = None,
         inspector: WorkspaceInspector | None = None,
+        cost_converter: CostConverter | None = None,
     ) -> None:
         super().__init__(
             name="codex",
@@ -60,6 +62,7 @@ class CodexAdapter(CliAdapter):
             credential_provider=credential_provider,
             env_provider=env_provider,
             inspector=inspector,
+            cost_converter=cost_converter,
         )
         self._invocation = invocation or CodexInvocation()
 

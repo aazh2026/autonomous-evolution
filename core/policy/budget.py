@@ -38,6 +38,8 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from core.metrics.cost import CostAmount, CurrencyMismatchError
+
 
 class BudgetMetric(StrEnum):
     """预算计量维度。
@@ -322,6 +324,39 @@ class BudgetManager:
             metric=metric,
             amount=amount,
             currency=self._budget.currency,
+            limit=self._budget.limit_for(metric),
+            moment=self._now(),
+        )
+        return await self._ledger.consume(request)
+
+    async def consume_cost(
+        self,
+        metric: BudgetMetric,
+        cost: CostAmount,
+        *,
+        scope: str | None = None,
+    ) -> SpendRecord:
+        """记一笔**已经换算好的**成本。
+
+        **不替调用方换算币种。** 换算得由换算器做（``core/metrics/cost.py``）
+        —— 那样三处记的才是同一个数字；这里偷偷换算一次，账本上的数就与
+        适配器报告的数不一样了，而"不一样"这件事没有任何地方会报错。
+
+        **币种对不上就报错。** 把 CNY 的钱记进 USD 的账户，比记错数字更坏 ——
+        数字错了能对账，币种错了对出来的是"另一个项目的钱"。
+
+        :param scope: 记在哪个名下。**默认是账本自己的作用域**。
+        """
+        if cost.currency != self._budget.currency:
+            raise CurrencyMismatchError(
+                f"预算币种是 {self._budget.currency}，这一笔是 {cost.currency}"
+                f" —— 换算请在记账之前做（core/metrics/cost.py）"
+            )
+        request = SpendRequest(
+            scope=scope or self._scope,
+            metric=metric,
+            amount=cost.amount,
+            currency=cost.currency,
             limit=self._budget.limit_for(metric),
             moment=self._now(),
         )

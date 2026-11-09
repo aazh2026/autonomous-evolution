@@ -95,6 +95,13 @@ ignore = [
 # （name/traceId/sessionId/input/output/metadata）。收成一个 payload dict
 # 只会把这份契约藏进调用点的字典字面量里。
 "infrastructure/observability/langfuse.py" = ["PLR0913"]
+# 执行器适配器的构造参数就是它的**全部注入点**：跑哪个二进制、凭证从哪来、
+# 环境怎么造、工作区怎么看、成本怎么换算。逐个列出，参数名本身就是"这个
+# 执行器接了什么"的说明；收成一个 dict 只会把这份契约藏进调用点的字典
+# 字面量里，也会让"少传一个换算器"变成一件看不出来的事。
+"executors/cli/adapter.py" = ["PLR0913"]
+"executors/claude_code/adapter.py" = ["PLR0913"]
+"executors/codex/adapter.py" = ["PLR0913"]
 # Alembic 迁移是机器生成的：手写折行会与 `alembic revision` 的输出不一致，
 # 下次 autogenerate 又会打回原形。迁移文件按生成物对待。
 "migrations/versions/*.py" = ["E501"]

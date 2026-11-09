@@ -86,6 +86,7 @@ from executors.base import (
     ExecutionTask,
     SessionConfig,
 )
+from orchestration.cost_accounting import ExecutionCostAccountant
 from orchestration.repair import RepairCoordinator, RepairRequest
 
 #: 一轮修复要走过的节点数 —— 用来算 LangGraph 的递归上限。
@@ -211,6 +212,11 @@ class LoopAHandlers:
     :attr:`repair_coordinator` 是**修复额度的账**（TASK-P1-063）。它是必填的 ——
     "可不带"意味着有人会不带，而不带就等于没有全局上限。它**按项目共用一个**
     ：两个任务各修 3 次，看着都没超，合起来 6 次，而上限说的是 5 次。
+
+    :attr:`cost_accountant` 是**成本记账与观测的那一头**（TASK-P1-035）。它可以
+    是 ``None`` —— 没有预算、没有观测配置时不记。**但它不换算**：换算在适配器
+    那边做完了，这里拿到的是**已经换算好的那一个金额**，原样记进账本与观测，
+    于是"三处相等"是结构上的，不是碰巧的。
     """
 
     planner: TaskPlannerPort
@@ -224,6 +230,7 @@ class LoopAHandlers:
     journal: SessionJournal
     executors: Mapping[str, ExecutorPort]
     repair_coordinator: RepairCoordinator
+    cost_accountant: ExecutionCostAccountant | None = None
 
 
 # --------------------------------------------------------------------------
@@ -440,6 +447,14 @@ async def _collect_diff_and_artifacts(
     update["artifacts"] = artifacts
     # 这一轮花了多少钱 —— **下一轮修复的预算按它估**（TASK-P1-063）。
     update["execution_cost"] = result.execution.cost
+    # 记进账本与观测（TASK-P1-035）。**记的是同一个金额** —— 适配器报告的
+    # 那个数，换算已经在适配器那边做完了，这里不重算。
+    if handlers.cost_accountant is not None:
+        await handlers.cost_accountant.record(
+            result.execution.amount(),
+            task_id=state.task_id,
+            session_id=state.session_id,
+        )
     return update
 
 

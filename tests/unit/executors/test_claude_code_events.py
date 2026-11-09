@@ -315,3 +315,126 @@ class TestTheSummary:
 
         assert summary.is_error is True
         assert summary.api_error_status == 500
+
+
+class TestTheModel:
+    """**跑的是哪个模型** —— 核对成本时要用它去找单价。"""
+
+    def test_it_comes_from_the_init_event(self) -> None:
+        summary = summarize(
+            [_event({"type": "system", "subtype": "init", "model": "claude-sonnet-4-6"})]
+        )
+
+        assert summary.model == "claude-sonnet-4-6"
+
+    def test_without_an_init_event_there_is_no_model(self) -> None:
+        summary = summarize([_event({"type": "assistant", "message": {"content": []}})])
+
+        assert summary.model is None
+
+    def test_a_non_init_system_event_is_not_a_model(self) -> None:
+        """不是 init 的系统事件不报模型 —— 那里报的是别的东西。"""
+        summary = summarize([_event({"type": "system", "subtype": "other", "model": "x"})])
+
+        assert summary.model is None
+
+
+class TestTheUsage:
+    """**实际用了多少 token** —— 核对成本的那条第二条路径靠它。
+
+    **缓存 token 单独记。** 缓存读与缓存写各有各的价 —— 并进 ``input_tokens``
+    的话，这笔账就按错的价算，而多算出来的钱不会有人喊。
+    """
+
+    def test_it_comes_from_the_result_event(self) -> None:
+        summary = summarize(
+            [
+                _event(
+                    {
+                        "type": "result",
+                        "is_error": False,
+                        "usage": {
+                            "input_tokens": 12_000,
+                            "output_tokens": 3_500,
+                            "cache_read_input_tokens": 20_000,
+                            "cache_creation_input_tokens": 1_200,
+                        },
+                    }
+                )
+            ]
+        )
+
+        assert summary.usage is not None
+        assert summary.usage.input_tokens == 12_000
+        assert summary.usage.output_tokens == 3_500
+        assert summary.usage.cache_read_tokens == 20_000
+        assert summary.usage.cache_write_tokens == 1_200
+
+    def test_the_assistant_usage_is_summed_when_the_result_has_none(self) -> None:
+        """助手消息一条对应一次 API 调用 —— 加起来就是总量。"""
+        summary = summarize(
+            [
+                _event(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [{"type": "text", "text": "x"}],
+                            "usage": {"input_tokens": 100, "output_tokens": 10},
+                        },
+                    }
+                ),
+                _event(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [{"type": "text", "text": "y"}],
+                            "usage": {"input_tokens": 200, "output_tokens": 20},
+                        },
+                    }
+                ),
+            ]
+        )
+
+        assert summary.usage is not None
+        assert summary.usage.input_tokens == 300
+        assert summary.usage.output_tokens == 30
+
+    def test_the_result_usage_wins_over_the_summed_one(self) -> None:
+        """汇总优先 —— 那是执行器自己算的数。"""
+        summary = summarize(
+            [
+                _event(
+                    {
+                        "type": "assistant",
+                        "message": {
+                            "content": [{"type": "text", "text": "x"}],
+                            "usage": {"input_tokens": 100, "output_tokens": 10},
+                        },
+                    }
+                ),
+                _event(
+                    {
+                        "type": "result",
+                        "is_error": False,
+                        "usage": {"input_tokens": 999, "output_tokens": 99},
+                    }
+                ),
+            ]
+        )
+
+        assert summary.usage is not None
+        assert summary.usage.input_tokens == 999
+
+    def test_without_any_usage_there_is_none(self) -> None:
+        """**"没读到用量"与"这次没用 token"是两件事** —— 分得开。"""
+        summary = summarize([_event({"type": "result", "is_error": False})])
+
+        assert summary.usage is None
+
+    def test_a_usage_object_without_token_fields_is_not_a_usage(self) -> None:
+        """认不出来的字段不能当成"这次用了 0 个 token"。"""
+        summary = summarize(
+            [_event({"type": "result", "is_error": False, "usage": {"service_tier": "standard"}})]
+        )
+
+        assert summary.usage is None

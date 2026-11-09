@@ -20,6 +20,7 @@ from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
+from core.metrics.cost import CostAmount
 from infrastructure.config.settings import Settings, get_settings
 from infrastructure.observability.logging import get_logger
 
@@ -111,7 +112,41 @@ def current_span_attributes() -> dict[str, object]:
     return {"trace_id": f"{context.trace_id:032x}", "span_id": f"{context.span_id:016x}"}
 
 
+#: 成本相关的 span 属性名。**一个成本要占两个属性位** ——
+#: 金额与币种分开记，因为"多少钱"这个问题没有币种就没有答案。
+COST_AMOUNT_ATTRIBUTE = "execution.cost.amount"
+COST_CURRENCY_ATTRIBUTE = "execution.cost.currency"
+
+
+class SpanCostObserver:
+    """把一次执行的成本写进 span 属性。
+
+    **实现 :class:`core.metrics.cost.CostObserver` 端口** —— 端口在领域层，
+    实现在这里，与 ``BudgetLedger`` 同一套做法。
+
+    **金额写成字符串。** OTel 的属性类型里没有十进制 —— 传浮点数会丢掉精度
+    （``0.1`` 变成 ``0.1000000000000000055511151231257827``），而金额差最后
+    几位就是差钱。字符串保精度，也保住了"账本上的数与观测里的数一样"这件事。
+    """
+
+    __slots__ = ("_span",)
+
+    def __init__(self, span: trace.Span) -> None:
+        self._span = span
+
+    async def observe(self, cost: CostAmount, *, task_id: str, session_id: str) -> bool:
+        """把金额、币种与两个标识写进 span。"""
+        self._span.set_attribute(COST_AMOUNT_ATTRIBUTE, str(cost.amount))
+        self._span.set_attribute(COST_CURRENCY_ATTRIBUTE, cost.currency)
+        self._span.set_attribute("task_id", task_id)
+        self._span.set_attribute("agent_session_id", session_id)
+        return True
+
+
 __all__ = [
+    "COST_AMOUNT_ATTRIBUTE",
+    "COST_CURRENCY_ATTRIBUTE",
+    "SpanCostObserver",
     "configure_tracing",
     "current_span_attributes",
     "get_tracer",

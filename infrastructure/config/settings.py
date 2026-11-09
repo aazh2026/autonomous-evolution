@@ -137,6 +137,9 @@ class Settings(BaseSettings):
     policy_file: Path | None = None
     acceptance_rules_file: Path | None = None
     budget_file: Path | None = None
+    #: 单价表 —— 模型单价与汇率。**没配就不换算**（原样保留适配器报出来的
+    #: 金额与币种），不按内置的默认价记账（TASK-P1-035）。
+    cost_rate_table_file: Path | None = None
 
     @field_validator("log_level", mode="before")
     @classmethod

@@ -165,6 +165,8 @@ def claude_events(
     duration_ms: int = 120,
     tool_calls: int = 1,
     session_id: str = SESSION_PLACEHOLDER,
+    model: str = "test-model",
+    usage: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """一份形状与真实 Claude Code 一致的 NDJSON 事件流。
 
@@ -172,6 +174,11 @@ def claude_events(
     ``assistant``（文字 + 工具调用）→ ``result``。改动这里的字段名要连带
     改 :mod:`executors.claude_code.events` 的映射表 —— 两边一起改，才不会
     出现"测试与实现一起错"的情况。
+
+    :param usage: 结果事件里的 token 用量（``input_tokens`` /
+        ``output_tokens`` / ``cache_read_input_tokens`` /
+        ``cache_creation_input_tokens``）。**不给就没有用量** —— 那正是
+        "没核对过成本"的那种执行。
     """
     assistant_blocks: list[dict[str, Any]] = [{"type": "text", "text": "好的"}]
     for index in range(tool_calls):
@@ -189,7 +196,7 @@ def claude_events(
             "subtype": "init",
             "session_id": session_id,
             "cwd": "/tmp",
-            "model": "test-model",
+            "model": model,
             "permissionMode": "default",
             "claude_code_version": "0.0.0-stub",
         },
@@ -211,6 +218,8 @@ def claude_events(
             "total_cost_usd": cost_usd,
         },
     ]
+    if usage is not None:
+        events[-1]["usage"] = dict(usage)
     return events
 
 

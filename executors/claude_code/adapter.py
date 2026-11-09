@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from core.metrics.cost import CostConverter
 from executors.base import ExecutionTask, SessionConfig
 from executors.claude_code.command import build_command
 from executors.claude_code.events import map_event, summarize
@@ -52,6 +53,7 @@ class ClaudeCodeAdapter(CliAdapter):
         credential_provider: CredentialProvider | None = None,
         env_provider: EnvProvider | None = None,
         inspector: WorkspaceInspector | None = None,
+        cost_converter: CostConverter | None = None,
     ) -> None:
         super().__init__(
             name="claude-code",
@@ -59,6 +61,7 @@ class ClaudeCodeAdapter(CliAdapter):
             credential_provider=credential_provider,
             env_provider=env_provider,
             inspector=inspector,
+            cost_converter=cost_converter,
         )
         self._permission_mode = permission_mode
 

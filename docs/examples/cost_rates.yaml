@@ -1,0 +1,47 @@
+# ASES 单价表示例
+#
+# 对应 docs/tasks.md TASK-P1-035（"币种与单价表外部可配"）。
+#
+# 三条使用约定：
+#   1. 金额一律写成**字符串**。YAML 里裸写的 0.1 是浮点数，读进来是
+#      0.1000000000000000055511151231257827… —— 而金额差最后几位就是差钱。
+#   2. base_currency 是**记账币种**（换算的目标）；各模型单价里的 currency
+#      是**计价币种**（那个价格表的原币）。两者不同时，换算由
+#      core/metrics/cost.py 的 CostConverter 负责，且只做一次。
+#   3. exchange_rates 的含义是"1 单位该币种 = N 单位记账币种"。
+#      记账币种自己的汇率必须是 1 —— 不是 1 的话这张表自相矛盾。
+#   4. 缓存读写各自计价。示例里按"缓存写 = 输入价 × 1.25、缓存读 = 输入价
+#      × 0.1"填，**各家不一样** —— 以各家当期价格表为准，不写就是 0，
+#      也就是"这类 token 不计价"，那时按用量推算的钱会偏小，偏差核对会
+#      把它喊出来。
+#
+# 换价不改代码：改这个文件，重启即可。
+
+base_currency: USD
+
+model_rates:
+  claude-sonnet-4-6:
+    currency: USD
+    input_price_per_million: "3.00"
+    output_price_per_million: "15.00"
+    cache_read_price_per_million: "0.30"
+    cache_write_price_per_million: "3.75"
+
+  claude-opus-4-8:
+    currency: USD
+    input_price_per_million: "15.00"
+    output_price_per_million: "75.00"
+    cache_read_price_per_million: "1.50"
+    cache_write_price_per_million: "18.75"
+
+  gpt-5:
+    currency: USD
+    input_price_per_million: "1.25"
+    output_price_per_million: "10.00"
+    cache_read_price_per_million: "0.125"
+    cache_write_price_per_million: "1.5625"
+
+exchange_rates:
+  USD: "1"
+  CNY: "0.14"
+  EUR: "1.08"

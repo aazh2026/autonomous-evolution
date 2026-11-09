@@ -47,6 +47,7 @@ from executors.base import (
     SessionConfig,
     build_idempotency_key,
 )
+from orchestration.cost_accounting import ExecutionCostAccountant
 from orchestration.loop_a import LoopAHandlers
 from orchestration.repair import RepairCoordinator
 
@@ -189,6 +190,9 @@ class StubHandlers:
     #: 额度账本。**默认新建一本** —— 每个打桩件自己一本账，断言"两个任务共用
     #: 一本"时要显式把那本传进来。
     repair_ledger: InMemoryRepairLedger = field(default_factory=InMemoryRepairLedger)
+    #: 成本记账与观测的那一头（TASK-P1-035）。**默认没有** —— 没配预算、
+    #: 没配观测时不记成本。要验"成本记进了账本"时显式传进来。
+    cost_accountant: ExecutionCostAccountant | None = None
 
     def _count(self, name: str) -> int:
         self.calls[name] = self.calls.get(name, 0) + 1
@@ -211,6 +215,7 @@ class StubHandlers:
                 self.repair_ledger,
                 limits=self.repair_limits,
             ),
+            cost_accountant=self.cost_accountant,
         )
 
     # -- 各步 ---------------------------------------------------------------

@@ -12,11 +12,15 @@ TASK-P1-031。
 ``system``           ``subtype="init"``，带 ``session_id`` / ``cwd`` / ``model`` /
                      ``permissionMode`` / ``claude_code_version``
 ``assistant``        ``message.content`` 里是内容块：``text`` / ``thinking`` /
-                     ``tool_use``
+                     ``tool_use``；``message.usage`` 里是这次调用的 token 用量
 ``user``             ``message.content`` 里是 ``tool_result``（工具的返回值）
 ``result``           ``is_error`` / ``api_error_status`` / ``duration_ms`` /
-                     ``total_cost_usd`` / ``result``（最终文本）
+                     ``total_cost_usd`` / ``usage`` / ``result``（最终文本）
 ===================  ==========================================================
+
+**用量是**"实际调用量"那一侧的事实。** 没有它，就只能拿执行器报上来的钱跟
+自己比 —— 那比出来的永远是 0**，也就是自证（TASK-P1-035 的 T2 要求记账与
+实际调用量的偏差 < 2%）。
 
 **为什么内容块要拆成多条统一事件。** 一条 ``assistant`` 事件里可能同时有
 文字和三个工具调用。合成一条就丢了"调用了几次工具"这个事实 —— 而工具调用
@@ -34,6 +38,7 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
 from typing import cast
 
+from core.metrics.cost import TokenUsage
 from executors.cli.adapter import EventFragment, RunSummary
 from executors.cli.events import RawEvent
 
@@ -113,6 +118,47 @@ def _content_blocks(raw: RawEvent) -> list[Mapping[str, object]]:
     return collected
 
 
+def _usage_of(raw: RawEvent) -> TokenUsage | None:
+    """从一条事件里读 token 用量 —— **读不到就是 None，不猜**。
+
+    **两个位置都读**：结果事件顶层的 ``usage``（那是整次执行的汇总）与助手
+    消息里的 ``message.usage``（那是单次 API 调用的用量）。
+
+    **缓存 token 分开记。** ``cache_read_input_tokens`` 与
+    ``cache_creation_input_tokens`` 各自计价 —— 并进 ``input_tokens`` 的话，
+    这笔账就按错的价算，而**多算出来的钱不会有人喊**。
+
+    **一个字段都认不出来就返回 None**（而不是"四个 0"）—— 那两件事必须分得
+    开："这次没用 token"与"我们没读到用量"。
+    """
+    usage = _object(raw.get("usage"))
+    if usage is None:
+        message = _object(raw.get("message"))
+        if message is None:
+            return None
+        usage = _object(message.get("usage"))
+    if usage is None:
+        return None
+
+    input_tokens = _integer(usage.get("input_tokens"))
+    output_tokens = _integer(usage.get("output_tokens"))
+    cache_read = _integer(usage.get("cache_read_input_tokens"))
+    cache_write = _integer(usage.get("cache_creation_input_tokens"))
+    if (
+        input_tokens is None
+        and output_tokens is None
+        and cache_read is None
+        and cache_write is None
+    ):
+        return None
+    return TokenUsage(
+        input_tokens=input_tokens or 0,
+        output_tokens=output_tokens or 0,
+        cache_read_tokens=cache_read or 0,
+        cache_write_tokens=cache_write or 0,
+    )
+
+
 def _map_system(raw: RawEvent) -> Sequence[EventFragment]:
     if raw.get("subtype") != "init":
         return ((KIND_UNHANDLED, {"raw_type": raw.type, "subtype": raw.get("subtype")}),)
@@ -188,6 +234,7 @@ def _map_result(raw: RawEvent) -> Sequence[EventFragment]:
                 "num_turns": raw.get("num_turns"),
                 "stop_reason": raw.get("stop_reason"),
                 "total_cost_usd": raw.get("total_cost_usd"),
+                "usage": raw.get("usage"),
                 "duration_ms": raw.get("duration_ms"),
                 "result": raw.get("result"),
             },
@@ -218,6 +265,10 @@ def summarize(raws: Sequence[RawEvent]) -> RunSummary:
 
     工具调用次数数的是 ``tool_use`` 内容块 —— Claude Code 的结果事件里没有
     这个字段。数内容块是能拿到的**事实**，而不是"轮数"这种间接指标。
+
+    **用量取结果事件的汇总；结果事件没带就用助手消息的加起来。** 助手消息
+    一条对应一次 API 调用，所以加起来就是总量 —— 而结果事件的汇总就是那么
+    算出来的，两条路殊途同归。**汇总优先**，因为它是执行器自己算的。
     """
     is_error: bool | None = None
     api_error_status: int | None = None
@@ -225,12 +276,27 @@ def summarize(raws: Sequence[RawEvent]) -> RunSummary:
     duration_ms: int | None = None
     text: str | None = None
     tool_calls = 0
+    model: str | None = None
+    usage: TokenUsage | None = None
+    totals = [0, 0, 0, 0]
+    saw_usage = False
 
     for raw in raws:
+        if raw.type == "system":
+            if raw.get("subtype") == "init":
+                model = _text(raw.get("model")) or model
+            continue
         if raw.type == "assistant":
             tool_calls += sum(
                 1 for block in _content_blocks(raw) if block.get("type") == "tool_use"
             )
+            one = _usage_of(raw)
+            if one is not None:
+                saw_usage = True
+                totals[0] += one.input_tokens
+                totals[1] += one.output_tokens
+                totals[2] += one.cache_read_tokens
+                totals[3] += one.cache_write_tokens
             continue
         if raw.type != "result":
             continue
@@ -242,6 +308,15 @@ def summarize(raws: Sequence[RawEvent]) -> RunSummary:
         cost = _decimal(raw.get("total_cost_usd"))
         duration_ms = _integer(raw.get("duration_ms"))
         text = _text(raw.get("result"))
+        usage = _usage_of(raw) or usage
+
+    if usage is None and saw_usage:
+        usage = TokenUsage(
+            input_tokens=totals[0],
+            output_tokens=totals[1],
+            cache_read_tokens=totals[2],
+            cache_write_tokens=totals[3],
+        )
 
     return RunSummary(
         is_error=is_error,
@@ -250,6 +325,8 @@ def summarize(raws: Sequence[RawEvent]) -> RunSummary:
         tool_calls=tool_calls,
         duration_ms=duration_ms,
         text=text,
+        usage=usage,
+        model=model,
     )
 
 

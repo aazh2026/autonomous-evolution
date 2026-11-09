@@ -23,6 +23,7 @@ from enum import StrEnum
 
 import httpx
 
+from core.metrics.cost import CostAmount
 from infrastructure.config.settings import Settings, get_settings
 from infrastructure.observability.logging import get_logger
 
@@ -145,7 +146,6 @@ class LangfuseClient:
             await aclose()
 
     # ---------- 内部 ----------
-
     def _degrade(self, exc: Exception) -> None:
         """转入降级状态，并在日志里留下可见标记。"""
         already_degraded = self._state is LangfuseState.DEGRADED
@@ -212,10 +212,44 @@ async def _unconfigured_transport(_name: str, _body: Mapping[str, object]) -> No
     raise RuntimeError("Langfuse 未配置凭证（ASES_LANGFUSE_PUBLIC_KEY / ASES_LANGFUSE_SECRET_KEY）")
 
 
+class LangfuseCostObserver:
+    """把一次执行的成本记成一条 Langfuse trace。
+
+    **实现 :class:`core.metrics.cost.CostObserver` 端口** —— 与
+    :class:`infrastructure.observability.tracing.SpanCostObserver` 同一个端口的
+    两个实现，换观测后端不用改调用方。
+
+    **金额写成字符串。** 浮点数会把 ``0.1`` 变成 ``0.1000000000000000055…`` ——
+    而金额差最后几位就是差钱。
+
+    **记不进去就记不进去，不抛异常。** 观测是旁路；主流程该跑的照跑
+    （Langfuse 客户端自己会降级并留下告警）。
+    """
+
+    __slots__ = ("_client",)
+
+    def __init__(self, client: LangfuseClient) -> None:
+        self._client = client
+
+    async def observe(self, cost: CostAmount, *, task_id: str, session_id: str) -> bool:
+        """记下一次执行的成本。返回是否真的送出去了。"""
+        return await self._client.record_trace(
+            "execution.cost",
+            trace_id=task_id,
+            session_id=session_id,
+            metadata={
+                "cost.amount": str(cost.amount),
+                "cost.currency": cost.currency,
+                "task_id": task_id,
+            },
+        )
+
+
 __all__ = [
     "REQUEST_TIMEOUT_SECONDS",
     "TRACES_PATH",
     "LangfuseClient",
+    "LangfuseCostObserver",
     "LangfuseState",
     "Transport",
 ]

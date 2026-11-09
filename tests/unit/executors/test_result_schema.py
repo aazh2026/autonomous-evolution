@@ -70,7 +70,13 @@ class TestTheFieldsAreAllThere:
         assert set(ExecutionArtifacts.model_fields) == {"branch", "commit", "changed_files"}
 
     def test_the_metrics_have_exactly_the_contract_fields(self) -> None:
-        assert set(ExecutionMetrics.model_fields) == {"duration", "tool_calls", "cost", "currency"}
+        assert set(ExecutionMetrics.model_fields) == {
+            "duration",
+            "tool_calls",
+            "cost",
+            "currency",
+            "cost_deviation",
+        }
 
     def test_the_self_assessment_has_exactly_the_contract_fields(self) -> None:
         assert set(SelfAssessment.model_fields) == {"completed", "limitations"}
