@@ -1,0 +1,77 @@
+# 演练脚本 —— Critic 否决。
+#
+# **决策 record ≠ 任务会被创建。** 决策说"值得做"，但放行凭据说"不放行"，
+# 任务就不进路线图 —— 它连 ``APPROVED`` 都到不了（core/planning/roadmap.py
+# 的 :func:`_why_not_planned`）。
+#
+# 否决的那一项必须是**可否决的检查**（agents/critic/checks.py 的
+# ``VETOING_CHECKS``）—— 四问拿不出硬事实，用它们否决等于让否决理由经不起
+# 复核。
+project_id: proj-replay
+cycle_id: cycle-0003
+trigger: external
+
+observation:
+  commit: "6666666666666666666666666666666666666666"
+  branch: main
+  goal: 让演练能跑通
+  tech_stack: [python, postgresql]
+  metrics:
+    coverage: 0.82
+  attainment: "0.40"
+  previous_attainment: "0.40"
+  latest_snapshot_version: 5
+
+snapshot: snap-replay-0003
+
+gaps:
+  - id: gap-replay-3
+    description: 有人提议给整个测试套件加一层快照
+    severity: low
+    evidence:
+      - kind: issue
+        ref: "issue://replay/snapshot-idea"
+        note: 提议在群里提过，没有落地
+
+candidates:
+  - id: cand-replay-3
+    category: engineering
+    title: 给测试套件加一层快照对比
+    hypothesis: 快照对比也许更快
+    expected_outcome:
+      - 测试跑得更快
+    risk: medium
+    confidence: "0.55"
+    estimated_effort: 3d
+    evidence:
+      - kind: issue
+        ref: "issue://replay/snapshot-idea"
+        note: 只有一条来源，且没有基准数据
+
+scores:
+  - candidate_id: cand-replay-3
+    value: "0.35"
+    impact: "0.30"
+    urgency: "0.20"
+    cost: "0.70"
+
+drafts:
+  - key: task-replay-3
+    candidate_id: cand-replay-3
+    task_type: refactoring
+    title: 给测试套件加一层快照对比
+    description: 换成快照对比
+    depends_on: []
+
+critic:
+  veto: true
+  check: evidence_sufficient
+  summary: 只有一条来源且没有基准数据，不足以支撑换掉整套测试
+  evidence_ref: "report://replay/critic"
+
+attempts: []
+
+verifications: []
+
+failure_category: auto_repairable
+repair_budget: 2

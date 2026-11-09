@@ -1,0 +1,92 @@
+# 演练脚本 —— Agent 报成功，独立验证判失败。
+#
+# **打桩执行器报"做完了"，打桩验证报"没通过"。** 两者是分开的两个对象 ——
+# 合在一起就等于没有独立验证（design.md §3.4）。
+#
+# 这一份要演出来的是：自我报告不参与判定，任务照样走失败路径；失败归类
+# 说"能自己修"，于是进有界修复；修复次数用完就停，不无限重试。
+project_id: proj-replay
+cycle_id: cycle-0002
+trigger: quality
+
+observation:
+  commit: "3333333333333333333333333333333333333333"
+  branch: main
+  goal: 让演练能跑通
+  tech_stack: [python, postgresql]
+  metrics:
+    coverage: 0.82
+  attainment: "0.40"
+  previous_attainment: "0.35"
+  latest_snapshot_version: 4
+
+snapshot: snap-replay-0002
+
+gaps:
+  - id: gap-replay-2
+    description: 有一个用例一直红着
+    severity: high
+    evidence:
+      - kind: test_report
+        ref: "artifact://report-replay-failing"
+        note: 用例 test_replay_never_goes_green 一直失败
+
+candidates:
+  - id: cand-replay-2
+    category: quality
+    title: 修掉那个一直红的用例
+    hypothesis: 用例红了说明这一轮没做完
+    expected_outcome:
+      - 验证通过
+    risk: low
+    confidence: "0.75"
+    estimated_effort: 2h
+    evidence:
+      - kind: test_report
+        ref: "artifact://report-replay-failing"
+        note: 失败输出每次都一样
+
+scores:
+  - candidate_id: cand-replay-2
+    value: "0.60"
+    impact: "0.70"
+    urgency: "0.80"
+    cost: "0.20"
+
+drafts:
+  - key: task-replay-2
+    candidate_id: cand-replay-2
+    task_type: bugfix
+    title: 修掉 test_replay_never_goes_green
+    description: 失败输出指向断言写反了
+    depends_on: []
+
+critic:
+  veto: false
+  check: evidence_sufficient
+  summary: 九项检查全部通过
+
+attempts:
+  # 第 1 次：Agent 报做完了，但验证会判失败 → 触发返修。
+  - status: completed
+    changed_files: 1
+    branch: feature/replay
+    commit: "4444444444444444444444444444444444444444"
+    cost: "0.50"
+  # 第 2 次：返修。验证仍然失败。
+  - status: completed
+    changed_files: 1
+    branch: feature/replay
+    commit: "5555555555555555555555555555555555555555"
+    cost: "0.40"
+
+verifications:
+  - verdict: failed
+    reasons:
+      - 用例 test_replay_never_goes_green 失败
+  - verdict: failed
+    reasons:
+      - 用例 test_replay_never_goes_green 仍然失败
+
+failure_category: auto_repairable
+repair_budget: 2

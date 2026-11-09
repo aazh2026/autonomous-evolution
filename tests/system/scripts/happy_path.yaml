@@ -1,0 +1,81 @@
+# 演练脚本 —— 一条顺利的路。
+#
+# 这是**输入**，不是答案：它说"世界是什么样、Agent 会做什么、验证会怎么判"，
+# 不说"这一轮应该是什么结果"。结果由系统算出来。
+#
+# 这一份演的是最普通的一轮：证据够、价值够、风险低 → 决策 record → 审查通过 →
+# 任务进路线图 → Agent 做完 → 独立验证通过 → 合入 → 完成。
+project_id: proj-replay
+cycle_id: cycle-0001
+trigger: schedule
+
+observation:
+  commit: "1111111111111111111111111111111111111111"
+  branch: main
+  goal: 让演练能跑通
+  tech_stack: [python, postgresql]
+  metrics:
+    coverage: 0.82
+  attainment: "0.40"
+  previous_attainment: "0.30"
+  latest_snapshot_version: 3
+
+snapshot: snap-replay-0001
+
+gaps:
+  - id: gap-replay-1
+    description: 还没有演练 runner，回归靠手工
+    severity: medium
+    evidence:
+      - kind: issue
+        ref: "issue://replay/1"
+        note: 每次改动都要手工跑一遍全量测试
+
+candidates:
+  - id: cand-replay-1
+    category: engineering
+    title: 加一个确定性演练 runner
+    hypothesis: 能按脚本回放的演练才能让编排层的变化被反复验证
+    expected_outcome:
+      - 同一脚本回放两次得到同一份留痕
+    risk: low
+    confidence: "0.80"
+    estimated_effort: 1d
+    evidence:
+      - kind: issue
+        ref: "issue://replay/1"
+        note: 缺口就在那儿
+
+scores:
+  - candidate_id: cand-replay-1
+    value: "0.70"
+    impact: "0.60"
+    urgency: "0.50"
+    cost: "0.30"
+
+drafts:
+  - key: task-replay-1
+    candidate_id: cand-replay-1
+    task_type: feature
+    title: 实现确定性演练 runner
+    description: 按脚本回放整条编排链路，不依赖 LLM
+    depends_on: []
+
+critic:
+  veto: false
+  check: evidence_sufficient
+  summary: 九项检查全部通过
+
+attempts:
+  - status: completed
+    changed_files: 3
+    branch: feature/replay
+    commit: "2222222222222222222222222222222222222222"
+    cost: "0.50"
+
+verifications:
+  - verdict: passed
+    reasons: []
+
+failure_category: auto_repairable
+repair_budget: 2

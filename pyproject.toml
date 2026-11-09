@@ -81,6 +81,12 @@ ignore = [
 # 它们压根不关心写的是哪份内容、摘要对不对得上。参数不用不是疏忽，是这些
 # 替身的全部含义。
 "tests/unit/knowledge/artifacts/doubles.py" = ["ARG002"]
+# 演练 runner 里的打桩件实现的是编排层的端口协议（``ExecutorPort`` /
+# ``VerificationPort`` / ``TaskPlannerPort`` / ``DiagnoserPort`` …）——
+# 方法签名由协议定死，签名不一样 mypy 就判成"这个类没有实现那个协议"。
+# 打桩件要的就是"按脚本给结论"：它不关心传进来的 ``state`` 与
+# ``session_id``，也不该去关心 —— 关心了就等于在编排层之外另起一套判定。
+"tests/system/**" = ["ARG002"]
 "**/__init__.py" = ["F401"]
 # 仓储层的写方法把实体的字段一一对应成关键字参数 —— 参数多是有意的，
 # 参数名本身就是文档。刻意逐列列出，比收成一个 dict 更难写错。
