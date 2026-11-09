@@ -768,7 +768,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 
 ### 2.9 里程碑与验收（MS）
 
-### [ ] TASK-P1-080 M0：骨架可运行
+### [x] TASK-P1-080 M0：骨架可运行
 
 - **工作流**：MS
 - **设计要求**：R-007, R-106（§8 技术栈落地）
@@ -778,6 +778,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证（T2）**：从零到全栈就绪 < 90s
 - **自主权**：L2
 - **预估**：0.25d
+- **验证结果**：**四件交付物逐条实测，不是"应该能行"。** ① **`make up` 一键起全栈** —— `make reset`（`docker compose down -v`，**数据卷整个删掉**，这是"全新环境"而不是"重开一遍"）之后 `make up` 一次成功：五个容器各归其位（`ases-migrate` 跑完正常退出、`ases-postgres` / `ases-minio` / `ases-worker` / `ases-api` 全部 healthy）。**"能起来"不等于"起对了"**：光看容器在跑，看不出迁移有没有真的建表 —— 所以查了库，`public` 底下 **21 张表**，从零建出来的；`alembic_version` 表里是 **`0008`**。② **迁移可跑** —— `make migrate`（`alembic upgrade head`）在这套从零建出来的库上跑通。③ **`/healthz` 通过** —— `make health` 返回 `{"status":"ok","checks":{"database":{"ok":true},"object_store":{"ok":true}}}`。**只断言 200 是不够的** —— 那个端点会做依赖连通性检查，逐项看了 `database.ok` 与 `object_store.ok` 都是 `true`，而不是只看到"没有报错"。④ **CI 绿** —— run **42615680511**（`ebd3485`）四个 job 全 success：`静态检查` / `单元测试` / `集成测试` / **`本地全栈`**。**最后这个 job 才是真的"CI 绿"** —— 前三个绿了只说明代码没问题，"镜像能构建 + 全栈能起 + `/healthz` 通过"这条链只在第四个 job 里跑。**T1** —— `make up && make test` 在**全新环境**上一次通过：`make test`（`pytest -m "not integration"`）**2973 passed, 1 skipped, 285 deselected**（74s），零失败零重跑。**"全新环境"要挑最硬的那个口径**：不是"重开一遍容器"（数据还在库里，表还是旧的，迁移其实没被验到），而是**把卷删干净让数据库从零长出来** —— 只有这样，`alembic upgrade head` 才真的在跑全量 DDL，而不是"表都在、无事可做"。**`alembic upgrade head` 幂等** —— 在同一套库上**连跑三遍**（`make migrate` 之后又手工跑两遍），三遍全是 **no-op**（一次 `Running upgrade` 都没有），`alembic current` 始终是 **`0008 (head)`**。**幂等验的不是"跑第二遍不报错"，是"跑第二遍什么也不做"** —— 只会不报错的迁移，等于把"该建的那张表"漏掉也照样绿。**T2** —— **从零到全栈就绪 12.7s**，预算 90s（`STARTUP_BUDGET_SECONDS`）。**"从零"的口径写在测试的模块文档里**：容器全停、数据卷留着，**镜像构建不计入** —— 拉镜像量的是"网络有多快"，不是"ASES 有多重"；所以 `stack` 夹具先构建再计时，计时的只是**编排**的耗时。**12.7s 这个数是重复测出来的**，不是一次侥幸（冷启动 12.2s / 清空卷后 12.7s，两次都在预算的两成以内）。**这条断言本身是自动的**：`tests/integration/test_local_stack.py::test_stack_reaches_ready_within_budget` 每次 CI 都会跑，**超了就是红的** —— 交付的不是"我测过 12.7s"，是"以后每一次都会量"。**修了一处 CI 的红** —— 上一轮 CI（run 42593616030）挂在 `tests/unit/executors/test_cli_events.py` 的一条用例上，而那条用例**连子进程都不碰** —— 真正漏资源的是前一个文件里一条"杀进程"的用例（`SIGKILL` 之后**只杀了没回收**：asyncio 不知道进程退了，传输层不关，垃圾回收时喊 `ResourceWarning`，而 pytest 把那句警告算在**下一条**用例头上，**别人替它背锅**）。修法是杀掉之后**再等它被回收**（`await process.wait()`），另加一条回归用例盯着 `process.returncode is not None`，外加一个 `conftest` 钩子**点名是谁漏的**而不是让下一条用例替它背锅（`ebd3485`）。**顺带修了第二处"今天绿、明天红"** —— `tests/unit/core/test_outbox.py` 的租约判定拿**墙上的钟**去比假标记记下的固定时刻，占用一过期，重复投递就不再被跳过；改成一个假钟注入两侧，判定不再取决于跑测试那天是几号。**这类缺陷 CI 显示不出来**：它在 CI 上是绿的，**到第二天就红**，而任务书要的是"CI 绿"能一直绿下去。
 
 ### [ ] TASK-P1-081 M1：单轮闭环
 
