@@ -31,8 +31,15 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.architecture.decisions import (
+    DECISION_STATUSES,
+    STATUS_ACCEPTED,
+    ArchitectureDecisionError,
+    DecisionRecord,
+)
 from core.entities import (
     AgentSession,
+    ArchitectureDecision,
     EvolutionCandidate,
     EvolutionCycle,
     EvolutionDecision,
@@ -847,6 +854,96 @@ class ExecutionEventRepository:
         return record
 
 
+class ArchitectureDecisionRepository:
+    """架构决策的仓储 —— 十二个核心实体里 ``architecture_decision`` 的那一半。
+
+    **这张表以前是空的。** 实体在 ``core/entities/architecture.py`` 里定义
+    着，迁移也建好了，但没有任何仓储、没有任何服务去写它 —— 也就是说
+    "架构决策"这件事在本系统里**从来没有被记下来过**。这里补上那一半。
+
+    **这是决策的"结构化事实"那一份。** 人读的那一份在
+    :class:`knowledge.architecture.decisions.FileDecisionStore`（Git +
+    Markdown/YAML）。两份的语义必须一致 —— 否则"Git 里写的决策"与"库里
+    那条决策"会各说各话，而**各说各话的事实比没有事实更坏**。
+
+    **决策只追加，不改写。** 这里没有 ``update`` 与 ``delete`` —— 要推翻
+    一条决策，就再记一条、让它的 ``supersedes_id`` 指向旧的那条。历史
+    不能被抹掉，因为"当初为什么这么定"恰恰是后来人最需要知道的东西。
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def record(
+        self,
+        *,
+        project_id: str,
+        context: str,
+        decision: str,
+        tradeoff: str | None = None,
+        status: str = STATUS_ACCEPTED,
+        supersedes_id: str | None = None,
+    ) -> DecisionRecord:
+        """记一条架构决策。
+
+        **取代关系必须指向真存在的决策。** ``supersedes_id`` 是外键 ——
+        指一个不存在的决策，数据库会挡下来；而"应用层先查一下"这种检查
+        在并发下有窗口期，所以这里交给数据库。
+        """
+        if status not in DECISION_STATUSES:
+            raise ArchitectureDecisionError(f"未知决策状态 {status!r}")
+        parent: uuid.UUID | None = None
+        if supersedes_id is not None:
+            parent = _as_uuid(supersedes_id)
+        row = ArchitectureDecision(
+            project_id=project_id,
+            context=context,
+            decision=decision,
+            tradeoff=tradeoff,
+            status=status,
+            supersedes_id=parent,
+        )
+        self._session.add(row)
+        await self._session.flush()
+        return _as_record(row)
+
+    async def recall(self, project_id: str) -> tuple[DecisionRecord, ...]:
+        """把这个项目的决策全取出来（按时间排序）。"""
+        result = await self._session.scalars(
+            select(ArchitectureDecision)
+            .where(ArchitectureDecision.project_id == project_id)
+            .order_by(ArchitectureDecision.created_at, ArchitectureDecision.id)
+        )
+        return tuple(_as_record(row) for row in result)
+
+    async def get(self, decision_id: str) -> DecisionRecord | None:
+        """按 id 取一条决策。取不到返回 ``None``。"""
+        row = await self._session.get(ArchitectureDecision, _as_uuid(decision_id))
+        return _as_record(row) if row is not None else None
+
+
+def _as_uuid(identifier: str) -> uuid.UUID:
+    """把字符串 id 变成 UUID —— 不是 UUID 就报错，不猜。"""
+    try:
+        return uuid.UUID(identifier)
+    except ValueError as error:
+        raise ArchitectureDecisionError(f"不是合法的决策 id：{identifier!r}") from error
+
+
+def _as_record(row: ArchitectureDecision) -> DecisionRecord:
+    """把实体行变成领域层的 :class:`DecisionRecord`。"""
+    return DecisionRecord(
+        id=str(row.id),
+        project_id=row.project_id,
+        context=row.context,
+        decision=row.decision,
+        tradeoff=row.tradeoff,
+        status=row.status,
+        supersedes_id=str(row.supersedes_id) if row.supersedes_id is not None else None,
+        created_at=row.created_at,
+    )
+
+
 __all__ = [
     "DECISION_DEFER",
     "DECISION_RECORD",
@@ -854,6 +951,7 @@ __all__ = [
     "DECISION_STATES",
     "AcceptanceContractError",
     "AgentSessionRepository",
+    "ArchitectureDecisionRepository",
     "CandidateRepository",
     "CycleRepository",
     "DecisionRepository",
