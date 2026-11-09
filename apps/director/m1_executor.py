@@ -23,13 +23,12 @@
 
 from __future__ import annotations
 
-import subprocess
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Final
 
+from apps.director.patching import Patch, run_git
 from core.task.outcome import ExecutionStatus
 from executors.base import (
     AgentSession,
@@ -51,42 +50,6 @@ NOMINAL_COST: Final[Decimal] = Decimal("0.631445")
 
 #: 名义币种。
 NOMINAL_CURRENCY: Final[str] = "USD"
-
-
-@dataclass(frozen=True, slots=True)
-class Patch:
-    """一处改动 —— 改哪个文件、把哪一段换成哪一段。
-
-    **用"整段替换"而不是"行号编辑"。** 行号会漂：文件一改，后面的行号
-    就不对了，而一个"改错了行号"的补丁会安静地把别的地方改坏。这里记的是
-    **原文片段**与**替换后的片段** —— 原文不在就报错，绝不"改个大概"。
-
-    **``old`` 为空表示"新建这个文件"。** 新文件没有原文可匹配，所以
-    "原文为空"就是"这个文件还不存在"的约定 —— 而文件真的存在却要新建时，
-    那份补丁会被拒掉（见 :meth:`apply`）：一个说不清是"新建"还是"清空
-    内容"的补丁，不该被默默执行。
-    """
-
-    path: str
-    old: str
-    new: str
-
-    def apply(self, root: Path) -> bool:
-        """把这一处改动落到 ``root`` 下。**原文不在就抛错。**"""
-        target = root / self.path
-        if not target.exists():
-            if self.old:
-                raise LookupError(f"{self.path} 不存在 —— 补丁对不上")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(self.new, encoding="utf-8")
-            return True
-        if not self.old:
-            raise LookupError(f"{self.path} 已经存在 —— 这份补丁却要新建它")
-        text = target.read_text(encoding="utf-8")
-        if self.old not in text:
-            raise LookupError(f"{self.path} 里找不到要替换的那一段 —— 补丁对不上")
-        target.write_text(text.replace(self.old, self.new, 1), encoding="utf-8")
-        return True
 
 
 #: PILOT-001 的修复 —— 三处改动。
@@ -195,8 +158,8 @@ class M1PatchExecutor:
         for patch in self._patches:
             patch.apply(root)
         idempotency_key = build_idempotency_key(task.task_id, task.attempt)
-        _git(root, "add", "-A")
-        _git(root, "commit", "-m", f"{task.title}\n\n幂等键：{idempotency_key}")
+        run_git(root, "add", "-A")
+        run_git(root, "commit", "-m", f"{task.title}\n\n幂等键：{idempotency_key}")
         self._tasks[task.session_id] = task.task_id
         return ExecutionHandle(
             session_id=task.session_id,
@@ -212,8 +175,8 @@ class M1PatchExecutor:
         root = Path(workspace)
         started = self._started_at.get(session_id, datetime.now(UTC))
         duration = Decimal(str((datetime.now(UTC) - started).total_seconds()))
-        commit = _git(root, "rev-parse", "HEAD").strip()
-        changed = _git(root, "show", "--name-only", "--pretty=format:", "HEAD")
+        commit = run_git(root, "rev-parse", "HEAD").strip()
+        changed = run_git(root, "show", "--name-only", "--pretty=format:", "HEAD")
         changed_files = len([line for line in changed.splitlines() if line.strip()])
         task_id = self._tasks.get(session_id, "")
         return ExecutionResult(
@@ -230,20 +193,6 @@ class M1PatchExecutor:
             self_assessment=SelfAssessment(completed=True),
             idempotency_key=build_idempotency_key(task_id, 1) if task_id else "",
         )
-
-
-def _git(root: Path, *args: str) -> str:
-    """跑一条 git 命令。**不开 shell** —— 参数是外部输入。"""
-    completed = subprocess.run(
-        ["git", *args],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(f"git {' '.join(args)} 失败：{completed.stderr.strip()}")
-    return completed.stdout
 
 
 __all__ = ["EXECUTOR_NAME", "NOMINAL_COST", "PATCHES", "M1PatchExecutor", "Patch"]

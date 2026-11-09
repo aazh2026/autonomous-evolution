@@ -50,18 +50,18 @@ uv run python -m scripts.demo_m1_cycle
 | 环节 | 真 / 假 | 落在哪里 |
 | --- | --- | --- |
 | 观察 → 快照 | **真** | `orchestration/loop_b.py` |
-| 差距分析 | **真**（差距内容来自手工注入的候选） | `apps/director/m1_cycle.py:584` |
+| 差距分析 | **真**（差距内容来自手工注入的候选） | `apps/director/m1_cycle.py:165` |
 | 候选登记 | **真** | `orchestration/loop_b.py:291` |
-| 价值/风险/成本评分 | **真** | `apps/director/m1_cycle.py:622` |
+| 价值/风险/成本评分 | **真** | `apps/director/m1_cycle.py:203` |
 | 决策（做 / 推迟 / 拒绝） | **真** | `PolicyDecisionMaker(DecisionPolicy())` |
 | Critic 九问 | **真** | `agents/critic/` |
 | 拆解成任务 | **真** | `core.planning.roadmap.TaskDecomposer` |
 | 验收契约闸门（R-051） | **真** | `infrastructure/database/repositories.py:482` |
 | **写代码** | **假** —— 按写死的补丁清单改文件 | `apps/director/m1_executor.py:104` |
-| 独立验证 | **真** —— 真跑 pytest + 真跑 lint | `apps/director/m1_cycle.py:877` |
+| 独立验证 | **真** —— 真跑 pytest + 真跑 lint | `apps/director/cycle.py:860` |
 | 验收判定 | **真** | `core/acceptance/` |
 | 人工审批 | **真**（"人"被模拟：批准人 `m1-approver`） | `core/approval/` + `PostgresApprovalStore` |
-| 合并 | **真** —— 真的 `git merge` | `apps/director/m1_cycle.py:974` |
+| 合并 | **真** —— 真的 `git merge` | `apps/director/cycle.py:964` |
 | 落库 | **真** —— 真的 PostgreSQL | `infrastructure/database/` |
 
 **为什么只换执行器。** 链路上真正需要判断的地方（Critic 审查、契约判定、合并
@@ -113,7 +113,7 @@ uv run python -m scripts.demo_m1_cycle
 | 10 | `update_project_state` | —— |
 | 11 | `execution_complete` | `COMPLETED` |
 
-**任务行在库里的完整路径**（`apps/director/m1_cycle.py:1090` 的 `_MAIN_PATH`）：
+**任务行在库里的完整路径**（`apps/director/cycle.py:1088` 的 `_MAIN_PATH`）：
 
 ```
 APPROVED → PLANNED → READY → RUNNING → VERIFYING → PASSED → INTEGRATING → MERGED → COMPLETED
@@ -126,7 +126,7 @@ APPROVED → PLANNED → READY → RUNNING → VERIFYING → PASSED → INTEGRAT
 ### 4.0 准备：把试点仓库复制一份
 
 演示**不碰 `samples/pilot_repo` 原目录**。`materialize_pilot_repo`
-（`apps/director/m1_cycle.py:1336`）把源码复制到临时工作根目录，在副本里
+（`apps/director/cycle.py:1320`）把源码复制到临时工作根目录，在副本里
 `git init`、建 `main` 分支。**为什么必须复制**：这一轮会真的提交、真的合并 ——
 在原目录上做这些事，等于让演示把仓库的 git 历史搅了。
 
@@ -153,7 +153,7 @@ APPROVED → PLANNED → READY → RUNNING → VERIFYING → PASSED → INTEGRAT
 ### 4.3 差距 → 候选 → 证据
 
 `analyze_goal_gap` 与 `discover_candidates` 用的都是手工注入的那一条候选
-（`m1_candidate()`，`apps/director/m1_cycle.py:171`）：
+（`m1_candidate()`，`apps/director/m1_cycle.py:86`）：
 
 ```
 候选    ：CLI 在空输入时抛未捕获的 ValueError
@@ -170,7 +170,7 @@ APPROVED → PLANNED → READY → RUNNING → VERIFYING → PASSED → INTEGRAT
 
 ### 4.4 评分 → 决策
 
-评分由 `_Evaluator`（`apps/director/m1_cycle.py:622`）算，决策由
+评分由 `_Evaluator`（`apps/director/m1_cycle.py:203`）算，决策由
 `PolicyDecisionMaker(DecisionPolicy())` 作 —— **决策是算出来的，不是填报的**：
 
 | 价值 | 影响 | 紧急度 | 成本 | 风险 | 置信度 |
@@ -255,13 +255,13 @@ Critic 就成了一台会点头的机器**。
 —— **没有绑定契约的任务不许开工**。没绑就抛 `AcceptanceContractRequiredError`。
 
 **这一道闸门在 M1 里是真过的。** 任务行落库那一刻契约还是空的，是 `_BindingJournal`
-（`apps/director/m1_cycle.py:394`）在 `land_tasks` 之后**立刻**把契约绑上去的 ——
+（`apps/director/cycle.py:515`）在 `land_tasks` 之后**立刻**把契约绑上去的 ——
 契约里的 `task_id` 必须等于任务行 id，而那个 id 在落库那一刻才确定，所以绑定只能
 发生在落库之后。绕过去的话，任务就是"没有验收标准也开工"。
 
 ### 4.9 独立验证
 
-验证器（`apps/director/m1_cycle.py:877`）用真的 `VerificationEngine`，在**副本
+验证器（`apps/director/cycle.py:860`）用真的 `VerificationEngine`，在**副本
 工作区**里跑：
 
 | 检查 | 结论 |
@@ -667,7 +667,9 @@ ASES M1 单轮闭环演示（TASK-P1-081 · T3）
 
 | 文件 | 作用 |
 | --- | --- |
-| `apps/director/m1_cycle.py` | M1 的驱动 —— 组装循环 B / 循环 A 的 handlers，跑一整轮 |
+| `apps/director/cycle.py` | **通用驱动器** —— 组装循环 B / 循环 A 的 handlers，跑一整轮（M1 与 M2 共用） |
+| `apps/director/m1_cycle.py` | M1 的**脑子** —— 手工注入的那一个候选 + 那一轮的配方 |
+| `apps/director/patching.py` | 补丁与 git 的最小工具（M1 与 M2 共用） |
 | `apps/director/m1_executor.py` | 本地补丁执行器（写死的补丁清单 + 名义成本） |
 | `apps/director/m1_budget.py` | T2 的账 —— 读基线，判 2 倍上限 |
 | `infrastructure/database/repositories.py` | `assign_executor` / `assign_workspace` —— "谁来做""在哪儿干"记在**任务行**上 |

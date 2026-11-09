@@ -433,15 +433,34 @@ async def _execute_engineering_cycle(
 
 async def _evaluate_actual_outcome(
     state: LoopBState,
-    _handlers: LoopBHandlers,
+    handlers: LoopBHandlers,
 ) -> dict[str, object]:
     """评估实际结果 —— 当初的判断准不准。
 
     **结局是判定出来的，不是填报的**（:func:`core.evolution.evolution_loop.
     evaluate_outcome`）。落库时仓储层会按库里实际的行数再判一次，以那一份为准。
+
+    **这里再观察一次项目。** 开工前那次观察给出的是"开工前是什么样"，
+    而达成度的差值要说明"**这一轮**推进了多少" —— 拿开工前的数去比，
+    比出来的是上一轮的账。所以干完活之后再观察一次：收尾观察的
+    ``attainment`` 是这一轮之后的达成度，它的 ``previous_attainment``
+    是上一次观察到的那个数 —— 也就是这一轮开工前的数。差值因此落在
+    这一轮身上。
+
+    **观察失败不许把这一轮判成"没变好"。** 观察拿不到数时，收尾观察就没有
+    达成度，结局判定退回"上一份快照 vs 开工观察"那套口径（见
+    :func:`core.evolution.evolution_loop._attainment_pair`）—— 而不是把
+    缺的那一半当成 0。
     """
-    report: CycleOutcomeReport = evaluate_outcome(state)
-    return {"outcome": report, **_visited(state, LoopBNode.EVALUATE_ACTUAL_OUTCOME)}
+    post = await handlers.observer.observe(state)
+    report: CycleOutcomeReport = evaluate_outcome(
+        state.model_copy(update={"post_observation": post})
+    )
+    return {
+        "outcome": report,
+        "post_observation": post,
+        **_visited(state, LoopBNode.EVALUATE_ACTUAL_OUTCOME),
+    }
 
 
 async def _update_project_knowledge(

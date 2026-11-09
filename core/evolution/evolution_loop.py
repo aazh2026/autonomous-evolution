@@ -455,6 +455,16 @@ class LoopBState(BaseModel):
     status: CycleStatus = CycleStatus.COMPLETED
 
     observation: ProjectObservation | None = None
+    #: **收尾时再观察一次**得到的观察结果 —— 这一轮干完活之后项目长什么样。
+    #:
+    #: **为什么要有第二次观察。** 达成度的差值要能说明"**这一轮**变好多少"，
+    #: 而开工前的那次观察只给出"开工前是什么样" —— 拿它跟上一轮的快照比，
+    #: 比出来的是**上一轮**的改善，不是这一轮的。差值晚一轮，等于每一轮都在
+    #: 替上一轮记账。
+    #:
+    #: **它是可选的。** 没有第二次观察时，结局判定退回"上一次观察 vs 快照"
+    #: 那套口径 —— 与这个字段出现之前完全一样。
+    post_observation: ProjectObservation | None = None
     snapshot: SnapshotView | None = None
     gaps: GapAnalysis | None = None
     discovery: DiscoveryResult | None = None
@@ -543,8 +553,10 @@ def evaluate_outcome(state: LoopBState) -> CycleOutcomeReport:
     **任务标识要换算成候选 id 才对得上。** 执行结果按路线图里的任务标识排，
     而实际收益是**按候选**记的 —— 中间隔着"一个候选派生出几个任务"这一步。
 
-    **前值取上一份快照，后值取这一轮观察到的。** 没有可比的前值时前值就是
-    ``None``，于是结局是"没有可验证的改善"而不是"达成度没变" ——
+    **前值与后值怎么取，看有没有收尾观察**（见 :func:`_attainment_pair`）：
+    有收尾观察时，差值是**这一轮**推进出来的；没有时，退回"上一份快照 vs
+    这一轮观察"那套晚一轮的口径。没有可比的前值时前值就是 ``None``，于是
+    结局是"没有可验证的改善"而不是"达成度没变" ——
     缺数据不是零（:func:`core.metrics.cycle.classify_cycle` 的第四条）。
     """
     decisions = state.decisions
@@ -575,8 +587,9 @@ def evaluate_outcome(state: LoopBState) -> CycleOutcomeReport:
             )
         )
 
-    attainment_before = state.observation.previous_attainment if state.observation else None
-    attainment_after = state.snapshot.attainment if state.snapshot else None
+    before, after = _attainment_pair(state)
+    attainment_before = before
+    attainment_after = after
     counts = _execution_counts(decisions, execution)
     verdict = classify_cycle(
         state.status,
@@ -632,8 +645,9 @@ def empty_cycle_outcome(state: LoopBState) -> CycleOutcomeReport:
         tasks=0,
         completed_tasks=0,
     )
-    attainment_before = state.observation.previous_attainment if state.observation else None
-    attainment_after = state.snapshot.attainment if state.snapshot else None
+    before, after = _attainment_pair(state)
+    attainment_before = before
+    attainment_after = after
     verdict = classify_cycle(
         state.status,
         counts,
@@ -646,6 +660,29 @@ def empty_cycle_outcome(state: LoopBState) -> CycleOutcomeReport:
         attainment_after=attainment_after,
         verdict=verdict,
     )
+
+
+def _attainment_pair(state: LoopBState) -> tuple[Decimal | None, Decimal | None]:
+    """这一轮的前后达成度 —— **(前值, 后值)**。
+
+    **有收尾观察时，用收尾观察。** 收尾观察给出的是"这一轮干完活之后的
+    达成度"，而它的 ``previous_attainment`` 是"上一次观察到的达成度"——
+    也就是**这一轮开工前**的那个数。差值因此是**这一轮**推进出来的，
+    而不是上一轮的。
+
+    **没有收尾观察时，用开工前那次观察与快照。** 那正是这个字段出现之前的
+    口径 —— 快照是开工时的定格，所以后值是"开工时的达成度"。这套口径下
+    差值晚一轮（比的是这一轮与上一轮的开工时刻），但它至少有值可比，
+    而"有值可比"比"差值晚一轮"更要紧。
+    """
+    post = state.post_observation
+    if post is not None:
+        return post.previous_attainment, post.attainment
+    observation = state.observation
+    snapshot = state.snapshot
+    before = observation.previous_attainment if observation is not None else None
+    after = snapshot.attainment if snapshot is not None else None
+    return before, after
 
 
 @runtime_checkable
