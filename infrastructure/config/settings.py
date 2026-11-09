@@ -83,6 +83,23 @@ class Settings(BaseSettings):
     #: 没配 S3 时本地文件系统后端的根目录。相对路径按进程 CWD 解析。
     local_store_root: Path = Path("/tmp/ases-artifacts")
 
+    # ---------- 模型 ----------
+
+    #: 角色化 Prompt 用的模型名。
+    #:
+    #: **换模型是运维的事，不是改代码的事。** 这一栏在这儿，是因为
+    #: design.md §3.5D 把"模型名、超时、并发数、日志级别"列为**运行时配置**
+    #: —— 可以有安全的默认值，但不该写死在调用点上。写死了的话，换一次模型
+    #: 要改六处 Prompt 集，而漏掉一处就意味着"只有一部分角色换了"。
+    model_name: str = "claude-sonnet-4-6"
+    #: 采样温度，0~2。
+    #:
+    #: **默认低。** 这套系统的输出要能被下游独立核验，而"发散"正是核验的
+    #: 对立面 —— 一份每次跑出来不一样的结论，没法被拿去跟别的结论比。
+    model_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    #: 单次输出的 token 上限。
+    model_max_tokens: int = Field(default=4096, ge=1)
+
     # ---------- 观测 ----------
 
     otel_enabled: bool = False

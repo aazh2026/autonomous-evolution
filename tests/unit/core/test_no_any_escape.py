@@ -46,7 +46,12 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 #:   ``core.planning.roadmap`` / ``core.planning.stages`` /
 #:   ``agents.critic.checks`` /
 #:   ``agents.critic.report`` /
-#:   ``agents.critic.tools`` / ``executors.base`` /
+#:   ``agents.critic.tools`` /
+#:   ``agents.prompts.base`` / ``agents.prompts.analyst`` /
+#:   ``agents.prompts.architect`` / ``agents.prompts.candidates`` /
+#:   ``agents.prompts.critic`` / ``agents.prompts.director`` /
+#:   ``agents.prompts.quality`` / ``agents.prompts.strategist`` /
+#:   ``executors.base`` /
 #:   ``harness.verification.contract``：
 #:   定义 Pydantic 模型 —— mypy 把继承自
 #:   ``BaseModel.__init__`` 的 ``Any`` 记在子类定义行上。
@@ -70,6 +75,14 @@ ALLOWED_ANY_MODULES: dict[str, str] = {
     "agents.critic.checks": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "agents.critic.report": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "agents.critic.tools": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "agents.prompts.base": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "agents.prompts.analyst": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "agents.prompts.architect": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "agents.prompts.candidates": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "agents.prompts.critic": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "agents.prompts.director": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "agents.prompts.quality": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "agents.prompts.strategist": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "executors.base": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "harness.verification.contract": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "infrastructure.config.settings": "Pydantic BaseSettings —— 继承自 BaseModel.__init__ 的 Any",
