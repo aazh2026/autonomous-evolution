@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from core.task.execution_loop import (
+    DEFAULT_MAX_REPAIRS,
     CollectedArtifacts,
     EventRecord,
     ExecutionPlan,
@@ -33,6 +34,7 @@ from core.task.execution_loop import (
     WorkspaceInfo,
 )
 from core.task.outcome import ExecutionStatus, VerificationReport, VerificationVerdict
+from core.task.repair import InMemoryRepairLedger, RepairLimits
 from core.task.state_machine import TaskState
 from executors.base import (
     AgentSession,
@@ -46,6 +48,7 @@ from executors.base import (
     build_idempotency_key,
 )
 from orchestration.loop_a import LoopAHandlers
+from orchestration.repair import RepairCoordinator
 
 #: 固定的时间戳 —— 打桩件里不取墙钟时间。
 #:
@@ -178,6 +181,14 @@ class StubHandlers:
     repair_hint: str = "修好那个失败的用例"
     merged: bool = True
     calls: dict[str, int] = field(default_factory=dict)
+    #: 修复额度的账（TASK-P1-063）。**默认给一份宽裕的** —— 打桩件要能跑完
+    #: 整条返修链，而"全局上限挡住了"这种断言要自己把上限调小。
+    repair_limits: RepairLimits = field(
+        default_factory=lambda: RepairLimits(max_attempts=DEFAULT_MAX_REPAIRS)
+    )
+    #: 额度账本。**默认新建一本** —— 每个打桩件自己一本账，断言"两个任务共用
+    #: 一本"时要显式把那本传进来。
+    repair_ledger: InMemoryRepairLedger = field(default_factory=InMemoryRepairLedger)
 
     def _count(self, name: str) -> int:
         self.calls[name] = self.calls.get(name, 0) + 1
@@ -196,6 +207,10 @@ class StubHandlers:
             project_state=self,
             journal=self.journal,
             executors={self.executor.name: self.executor},
+            repair_coordinator=RepairCoordinator(
+                self.repair_ledger,
+                limits=self.repair_limits,
+            ),
         )
 
     # -- 各步 ---------------------------------------------------------------

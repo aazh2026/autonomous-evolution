@@ -35,6 +35,7 @@ from infrastructure.database.repositories import (
     TaskRepository,
 )
 from orchestration.loop_a import LoopAHandlers, build_loop_a_graph, run_loop_a
+from orchestration.repair import RepairCoordinator
 from tests.support.execution_loop import StubHandlers, ready_state
 
 pytestmark = pytest.mark.integration
@@ -112,6 +113,10 @@ def _handlers(stubs: StubHandlers, journal: SessionJournal) -> LoopAHandlers:
         project_state=stubs,
         journal=journal,
         executors={stubs.executor.name: stubs.executor},
+        repair_coordinator=RepairCoordinator(
+            stubs.repair_ledger,
+            limits=stubs.repair_limits,
+        ),
     )
 
 

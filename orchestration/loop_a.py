@@ -32,10 +32,12 @@ Integration & Merge     合上了 → 回写项目状态；没合上 → 失败�
 Can Auto Repair?        能修 → 造修复任务；不能 → 升级挂起
 ======================  ======================================================
 
-**修复次数上限由状态机守，不由这里数。** 造修复任务要走 ``VERIFYING →
-REPAIRING`` 这条迁移，而那条迁移上挂着闸门（``RepairBudgetExhaustedError``）。
-闸门响 → 不再自动重试，转入升级挂起（``Escalate/Block``）。计数只有一处，
-两处各数一次早晚会对不上。
+**修复上限有两条，缺一不可。** 每任务那条由状态机守（``VERIFYING → REPAIRING``
+那条迁移上挂着 ``RepairBudgetExhaustedError`` 闸门）—— 计数只有一处，两处各数
+一次早晚会对不上。全局那条由 :class:`orchestration.repair.RepairCoordinator` 守
+—— **按项目共享的次数 + 成本 + 时限**（TASK-P1-063）。每任务独立的上限不是
+上限，是配额：两个任务各修 3 次，看着都没超，合起来就是 6 次，而上限说的是 5
+次。任一条响了 → 不再自动重试，转入升级挂起（``Escalate/Block``）。
 
 **为什么每一步都写事件。** design.md §3.5D 要求审计写入 fail-closed，而
 "每一步都留痕"是事后能回答"它到底走到哪一步、为什么停在这"的前提。事件按
@@ -64,7 +66,6 @@ from core.task.execution_loop import (
     LoopANode,
     LoopAState,
     MergeOutcome,
-    RepairTask,
     SessionJournal,
     SessionRecord,
     VerificationOutcome,
@@ -75,7 +76,6 @@ from core.task.execution_loop import (
 from core.task.outcome import ExecutionStatus, TaskOutcome, VerificationReport, resolve_outcome
 from core.task.state_machine import (
     AcceptanceContractRequiredError,
-    RepairBudgetExhaustedError,
     TaskAction,
     TaskState,
 )
@@ -86,6 +86,7 @@ from executors.base import (
     ExecutionTask,
     SessionConfig,
 )
+from orchestration.repair import RepairCoordinator, RepairRequest
 
 #: 一轮修复要走过的节点数 —— 用来算 LangGraph 的递归上限。
 #:
@@ -206,6 +207,10 @@ class LoopAHandlers:
     对象里，图本身不该知道。
 
     :attr:`executors` 是**候选表**（标识 → 执行器）。选择器只能在这张表里挑。
+
+    :attr:`repair_coordinator` 是**修复额度的账**（TASK-P1-063）。它是必填的 ——
+    "可不带"意味着有人会不带，而不带就等于没有全局上限。它**按项目共用一个**
+    ：两个任务各修 3 次，看着都没超，合起来 6 次，而上限说的是 5 次。
     """
 
     planner: TaskPlannerPort
@@ -218,6 +223,7 @@ class LoopAHandlers:
     project_state: ProjectStatePort
     journal: SessionJournal
     executors: Mapping[str, ExecutorPort]
+    repair_coordinator: RepairCoordinator
 
 
 # --------------------------------------------------------------------------
@@ -432,6 +438,8 @@ async def _collect_diff_and_artifacts(
     )
     update["execution_status"] = result.status
     update["artifacts"] = artifacts
+    # 这一轮花了多少钱 —— **下一轮修复的预算按它估**（TASK-P1-063）。
+    update["execution_cost"] = result.execution.cost
     return update
 
 
@@ -530,48 +538,71 @@ async def _can_auto_repair(state: LoopAState, handlers: LoopAHandlers) -> dict[s
 
 
 async def _create_repair_task(state: LoopAState, handlers: LoopAHandlers) -> dict[str, object]:
-    """真的修一次 —— 次数上限由状态机的闸门守。
+    """真的修一次 —— **两道闸门一起守**：每任务那条在状态机里，全局那条在
+    :class:`orchestration.repair.RepairCoordinator` 里。
 
-    **闸门响了就停。** ``VERIFYING → REPAIRING`` 那条迁移上挂着修复次数闸门；
-    闸门响说明次数用尽，于是这一步不造修复任务，转入升级挂起 —— **不再自动
+    **任一条响了就停。** 每任务那条是"这个任务自己修了几次"，全局那条是"这个
+    项目的所有任务一共修了多少次" —— 只看前者的挡不住并行的情况：两个任务各
+    修 3 次，看着都没超，合起来就是 6 次，而上限说的是 5 次。
+
+    **闸门响了就停。** 于是这一步不造修复任务，转入升级挂起 —— **不再自动
     重试**（T1 ③）。
+
+    **成本按上一轮的实际开销估。** 预算要在动手之前判，而动手之前没人知道这
+    次要花多少（:attr:`LoopAState.execution_cost` 是上一轮那次的实际开销）。
     """
     if state.diagnosis is None:
         raise LoopAExecutionError("没有诊断就修不了")
 
-    try:
-        repairing = advance_task_state(state, TaskAction.REPAIR)
-    except RepairBudgetExhaustedError as error:
+    outcome = await handlers.repair_coordinator.plan_diagnosed(
+        RepairRequest(
+            task_id=state.task_id,
+            project_id=state.project_id,
+            current_state=state.task_state,
+            cost=state.execution_cost,
+            repair_count=state.repair_count,
+            max_repairs=state.max_repairs,
+        ),
+        diagnosis=state.diagnosis,
+    )
+
+    if not outcome.allowed:
         update = await _record(
             state,
             handlers,
             LoopANode.CREATE_REPAIR_TASK,
-            payload={"exhausted": True, "reason": str(error)},
+            payload={
+                "exhausted": True,
+                "reason": outcome.reason,
+                "limit": outcome.limit.value if outcome.limit is not None else "",
+            },
         )
         update["repair_exhausted"] = True
-        update["blocked_reason"] = str(error)
+        update["blocked_reason"] = outcome.reason
         update["repair_allowed"] = False
         return update
 
-    attempt = state.repair_count + 1
-    instruction = state.diagnosis.repair_hint.strip() or (
-        f"修复上一轮的失败：{state.diagnosis.reason}"
-    )
-    repair = RepairTask(
-        task_id=state.task_id,
-        attempt=attempt,
-        instruction=instruction,
-        diagnosis=state.diagnosis,
-    )
+    if outcome.repair_task is None:
+        # 重投：任务已经在修复中。**不重复造任务**，也不重复触发副作用。
+        update = await _record(
+            state,
+            handlers,
+            LoopANode.CREATE_REPAIR_TASK,
+            payload={"redelivered": True, "reason": outcome.reason},
+        )
+        update["repair_allowed"] = False
+        return update
+
+    repair = outcome.repair_task
     update = await _record(
         state,
         handlers,
         LoopANode.CREATE_REPAIR_TASK,
-        task_states=(repairing.task_state,),
-        payload={"attempt": attempt, "instruction": instruction},
+        task_states=(outcome.transition.current,),
+        payload={"attempt": repair.attempt, "instruction": repair.instruction},
     )
     update["repair_task"] = repair
-    update["repair_count"] = attempt
+    update["repair_count"] = repair.attempt
     update["repair_allowed"] = False
     return update
 

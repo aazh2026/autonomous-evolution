@@ -41,6 +41,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import StrEnum
 from typing import Final, Protocol, runtime_checkable
 
@@ -367,6 +368,12 @@ class LoopAState(BaseModel):
     contract_bound: bool = False
     #: 修复次数上限。成本与时间上限由编排层负责（§6 三重上限，TASK-P1-063）。
     max_repairs: int = Field(default=DEFAULT_MAX_REPAIRS, ge=0)
+    #: 上一轮执行花了多少钱。**修复预算按它估** —— 下一轮大约也是这个数。
+    #:
+    #: **是估计，不是账单。** 预算要在动手之前判，而动手之前没人知道这次要花
+    #: 多少（等花完了再判就晚了）。账本记的是预计成本，已记的量只会往上走 ——
+    #: 估低了是低估，不会把已经花掉的抹掉。
+    execution_cost: Decimal = Field(default=Decimal(0), ge=0)
 
     plan: ExecutionPlan | None = None
     #: 选中的执行器标识。
