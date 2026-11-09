@@ -18,14 +18,21 @@
 "实际兑现的价值"可比，而实际价值依赖达成度之外的归因 —— 一个候选被
 reject 时，究竟是选错了还是当时信息不足？这在没有额外标注的情况下无法
 判定。硬算出来的是噪声。
+
+**分母从标注集来，不从决策记录来。** 一条决策记录自己带着的
+``candidate_label`` 是调用方塞进去的 —— 让被评价的一方决定分母，那分母就
+不可信了。:func:`false_positive_rate_from_labels` 强制从标注集
+（TASK-P1-083）取分母：标注集里没有的候选一律不进分母，标注集不在则报
+**基线未建立**。
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from evaluation.common import MetricResult, MetricState, Verdict, rate
+from evaluation.labels.pilot import LabelSet, LabelSetError, LabelSetMissingError, LabelSetStore
 
 #: 决策采纳率的指标 id。
 DECISION_ADOPTION_RATE = "decision_adoption_rate"
@@ -116,10 +123,77 @@ def false_positive_rate(decisions: Sequence[DecisionRecord]) -> MetricResult:
     )
 
 
+def apply_labels(
+    decisions: Sequence[DecisionRecord],
+    label_set: LabelSet,
+) -> tuple[DecisionRecord, ...]:
+    """按标注集给决策打标注 —— **分母只从标注集来**。
+
+    标注集里没有的候选，标注一律清成 ``None`` —— 调用方自己带的那份标注
+    在这里会被丢掉。留着它就等于"分母可以来自任何地方"，而误报率最不能
+    容忍的就是分母由被评价的一方决定。
+
+    试点仓库里，**候选 id 就是问题编号**（``issue_ref``）—— 试点阶段"系统
+    提出的候选"与"人工审过的问题"是一一对应的，所以分母可以直接从标注集
+    取。
+    """
+    return tuple(
+        replace(item, candidate_label=label_set.verdict_of(item.candidate_id)) for item in decisions
+    )
+
+
+def false_positive_rate_from_labels(
+    decisions: Sequence[DecisionRecord],
+    store: LabelSetStore,
+) -> MetricResult:
+    """误报率 —— **分母取自标注集**。
+
+    标注集不在 → 报**基线未建立**（``baseline_missing``），**不报 0**。
+    "还没标"与"全是无效"是相反的两件事，报 0 会让看板显示"误报率 0%"，
+    读的人会以为系统很准。
+
+    标注集在但内容坏了 → 同样报**基线未建立**，并在 ``detail`` 里说清是
+    **文件坏了**（:class:`~evaluation.labels.pilot.LabelSetError`）而不是
+    **文件不在**（:class:`~evaluation.labels.pilot.LabelSetMissingError`）——
+    这两件事的处置方式不同：前者要修文件，后者要补标注。
+    """
+    try:
+        label_set = store.load()
+    except LabelSetMissingError as exc:
+        return _missing_baseline(f"缺少人工标注基线（TASK-P1-083）：{exc}")
+    except LabelSetError as exc:
+        return _missing_baseline(f"人工标注基线不可用（TASK-P1-083）：{exc}")
+
+    result = false_positive_rate(apply_labels(decisions, label_set))
+    return MetricResult(
+        metric_id=result.metric_id,
+        state=result.state,
+        value=result.value,
+        numerator=result.numerator,
+        denominator=result.denominator,
+        detail={**result.detail, "label_set_size": len(label_set)},
+    )
+
+
+def _missing_baseline(reason: str) -> MetricResult:
+    """基线未建立 —— **不是 0**。"""
+    empty = rate(FALSE_POSITIVE_RATE, 0, 0, empty_state=MetricState.BASELINE_MISSING)
+    return MetricResult(
+        metric_id=empty.metric_id,
+        state=empty.state,
+        value=empty.value,
+        numerator=empty.numerator,
+        denominator=empty.denominator,
+        detail={"reason": reason},
+    )
+
+
 __all__ = [
     "DECISION_ADOPTION_RATE",
     "FALSE_POSITIVE_RATE",
     "DecisionRecord",
+    "apply_labels",
     "decision_adoption_rate",
     "false_positive_rate",
+    "false_positive_rate_from_labels",
 ]

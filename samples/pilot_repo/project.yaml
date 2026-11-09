@@ -1,0 +1,183 @@
+# 试点仓库的项目目标 —— **六要素齐全，缺哪一项载入时就报错**。
+#
+# 对应 docs/design.md §3.1 的目标模型（core/project/models.py 的
+# ``ProjectGoal``）。这份文件是 TASK-P1-082（M2 自主闭环）的输入：
+# **只给目标，不给任务** —— 系统自己去找问题、自己排优先级。
+#
+# 三条使用约定（与 docs/examples/project.yaml 同源）：
+#   1. metric / unit / eval_method 是自由字符串，系统不硬编码任何指标名；
+#   2. target 必须是可比较表达式（">= 0.95" / "<= 250" / "== true"），
+#      解析不使用 eval()，配置里的表达式没有代码执行权；
+#   3. budget 的 currency 可配置 —— 这里用 USD，因为成本基线
+#      （docs/evaluation/baselines.yaml）也是 USD 记的。
+#
+# 基线数字来自 **2026-11-09 在本仓库上实测**（不是估的）：
+#   整行覆盖率 0.740385（154/208 行）
+#   测试数量 43
+#   cli 模块覆盖率 0.000000
+#   已确认缺陷 12 条（见 docs/issues.md）
+
+project:
+  id: pilot-tinylib
+  name: tinylib（试点仓库）
+
+  # ---------- 六要素之一：Objective ----------
+  objective:
+    - id: OBJ-001
+      description: 修掉已知缺陷清单里的全部有效发现，并补齐对应的回归用例
+    - id: OBJ-002
+      description: 把 cli 模块从零覆盖提到有意义的水平
+    - id: OBJ-003
+      description: 在不新增功能、不改公开 API 的前提下提高整体质量
+
+  # ---------- 六要素之二：Key Results ----------
+  key_results:
+    - id: KR-001
+      metric: line_coverage
+      target: ">= 0.90"
+      unit: ratio
+      metric_type: percentage
+      eval_method: ci_measurement
+      direction: higher_is_better
+      baseline: "0.740385"
+      description: 整仓行覆盖率 —— 由 pytest --cov 实测
+
+    - id: KR-002
+      metric: cli_module_coverage
+      target: ">= 0.80"
+      unit: ratio
+      metric_type: percentage
+      eval_method: ci_measurement
+      direction: higher_is_better
+      baseline: "0.000000"
+      description: cli 模块覆盖率 —— 唯一对外接口，现在是 0
+
+    - id: KR-003
+      metric: known_defects_fixed
+      target: ">= 12"
+      unit: count
+      metric_type: count
+      eval_method: automated_test
+      direction: higher_is_better
+      baseline: "0"
+      description: 已知缺陷清单里被修掉的有效发现条数 —— 分母是 12
+
+    - id: KR-004
+      metric: test_count
+      target: ">= 70"
+      unit: count
+      metric_type: count
+      eval_method: automated_test
+      direction: higher_is_better
+      baseline: "43"
+      description: 仓库自有测试套件的用例数 —— 复现用例不进这个数
+
+  # ---------- 六要素之三：Constraints ----------
+  constraints:
+    - id: C-001
+      description: 所有代码变更必须通过仓库自带的自动化测试
+      kind: all_changes_must_pass_tests
+      machine_checkable: true
+      expression: tests_passed == true
+
+    - id: C-002
+      description: 覆盖率不得低于当前基线 —— 修缺陷不能靠删用例
+      kind: custom
+      machine_checkable: true
+      expression: line_coverage >= 0.740385
+
+    - id: C-003
+      description: 不引入任何第三方运行时依赖
+      kind: custom
+      machine_checkable: true
+      expression: runtime_dependencies == 0
+
+    - id: C-004
+      description: 不改公开 API 的签名与语义
+      kind: custom
+      machine_checkable: true
+      expression: public_api_changed == false
+
+    - id: C-005
+      description: 不绕过权限和安全策略
+      kind: no_bypass_security_policy
+      machine_checkable: true
+      expression: policy_violations == 0
+
+  # ---------- 六要素之四：Non-goals ----------
+  non_goals:
+    - id: NG-001
+      description: 不新增功能 —— 这一轮只修缺陷、补用例
+    - id: NG-002
+      description: 不做与已知缺陷清单无关的重构
+    - id: NG-003
+      description: 不改动验收标准与权限策略本身
+
+  # ---------- 六要素之五：Autonomy Policy ----------
+  autonomy:
+    rules:
+      analyze_project:
+        level: L4
+        permission: autonomous
+      plan_tasks:
+        level: L4
+        permission: autonomous
+      code_changes:
+        level: L4
+        permission: autonomous
+      test_execution:
+        level: L4
+        permission: autonomous
+      branch_creation:
+        level: L4
+        permission: autonomous
+      merge_to_main:
+        level: L2
+        permission: approval_required
+      production_deployment:
+        level: L1
+        permission: advisory_only
+      modify_governance:
+        level: L1
+        permission: advisory_only
+
+  # ---------- 六要素之六：Stop Conditions ----------
+  stop_conditions:
+    - id: SC-001
+      description: 全部关键结果达成
+      kind: all_key_results_met
+
+    - id: SC-002
+      description: 预算耗尽
+      kind: budget_exhausted
+
+    - id: SC-003
+      description: 连续 3 轮演进没有产生新的可验证改善
+      kind: consecutive_failures_exceeded
+      threshold: "3"
+
+    - id: SC-004
+      description: 累计演进时长超过 1 天
+      kind: time_elapsed
+      threshold: "1440"
+
+  # ---------- 预算 ----------
+  # 上限按实测成本基线（docs/evaluation/baselines.yaml）留出余量：
+  # 单轮最贵的一次任务是 1.05 USD，一轮最多十几轮。
+  budget:
+    currency: USD
+    max_daily_cost: "30"
+    max_total_cost: "200"
+    max_model_calls: 2000
+    max_token_usage: 20000000
+    max_wall_clock_minutes: 1440
+    max_parallel_agents: 2
+
+  # ---------- 仓库与环境 ----------
+  repository:
+    url: file://samples/pilot_repo
+    default_branch: main
+    local_path: samples/pilot_repo
+
+  tech_stack:
+    - python

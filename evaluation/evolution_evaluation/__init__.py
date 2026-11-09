@@ -9,8 +9,10 @@ from evaluation.evolution_evaluation.decision import (
     DECISION_ADOPTION_RATE,
     FALSE_POSITIVE_RATE,
     DecisionRecord,
+    apply_labels,
     decision_adoption_rate,
     false_positive_rate,
+    false_positive_rate_from_labels,
 )
 from evaluation.evolution_evaluation.discovery import (
     DUPLICATE_DISCOVERY_RATE,
@@ -27,8 +29,10 @@ __all__ = [
     "VALID_DISCOVERY_RATE",
     "DecisionRecord",
     "Discovery",
+    "apply_labels",
     "decision_adoption_rate",
     "duplicate_discovery_rate",
     "false_positive_rate",
+    "false_positive_rate_from_labels",
     "valid_discovery_rate",
 ]
