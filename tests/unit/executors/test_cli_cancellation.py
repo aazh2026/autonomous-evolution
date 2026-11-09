@@ -66,6 +66,34 @@ async def _wait_until_the_process_is_running(adapter: ClaudeCodeAdapter, session
     await asyncio.wait_for(_first_event(), timeout=_STARTUP_TIMEOUT_SECONDS)
 
 
+async def _kill_and_reap(
+    adapter: ClaudeCodeAdapter,
+    session_id: str,
+    pid: int,
+) -> None:
+    """从操作系统那一侧杀掉进程，然后**让它被回收**。
+
+    **为什么"杀掉"之后还要"回收"。** 从操作系统那一侧杀掉进程，asyncio
+    **不知道**它死了 —— 它要等子进程监视线程把结果递回来才知道，而那个递送
+    是排进事件循环的**回调**：不 ``await`` 一下，回调就不会跑。于是那个
+    ``asyncio.subprocess.Process`` 对象在没人回收它的时候就被垃圾回收了，
+    而它还不知道进程已经退出，就喊一句
+    ``ResourceWarning: subprocess N is still running``；那两根管道也跟着漏。
+
+    **这个坑真的踩过。** 仓库把警告当错误（``filterwarnings = ["error"]``），
+    而 pytest 把"垃圾回收时冒出来的异常"算在**下一条**用例头上 —— 于是**别的**
+    用例替它背锅：CI 挂在 ``tests/unit/executors/test_cli_events.py`` 的
+    ``test_the_broken_line_is_kept`` 上，那条用例跟子进程一点关系都没有，
+    它只是恰好排在后面。
+
+    所以这里必须**等**回收完成：让适配器再问一次"进程停了吗"，它会
+    ``await process.wait()`` —— 那才是回收（进程表里不再有它）。
+    """
+    with contextlib.suppress(ProcessLookupError):
+        os.kill(pid, signal.SIGKILL)
+    await adapter.ensure_process_stopped(session_id)
+
+
 class TestTheProcessIsReallyGone:
     """进程层的核心断言：报"停了"之后，那个进程真的不在了。"""
 
@@ -190,8 +218,45 @@ class TestTheProcessLayerEdgeCases:
             assert "没有退出" in report.detail
         finally:
             # 那个进程还活着（正是这一条要证明的）—— 测试收尾时把它收掉。
-            with contextlib.suppress(ProcessLookupError):
-                os.kill(pid, signal.SIGKILL)
+            #
+            # **先把"杀"的能力恢复回来**：前面把它换成空操作，是为了模拟
+            # "信号递不进去"；收尾的时候要真的把它杀掉。
+            monkeypatch.undo()
+            await _kill_and_reap(adapter, session.session_id, pid)
+
+    async def test_a_killed_process_is_reaped_not_just_killed(self, tmp_path: Path) -> None:
+        """杀掉之后还要**回收**。
+
+        **"进程死了"与"进程被回收了"是两件事。** 进程死了但没被回收，它就是
+        **僵尸** —— 还在进程表里占着 PID 表项，而 PID 表项是有限的。
+
+        **这一条盯的是"回收"那一步，断言的是 ``process.returncode`` 不是
+        ``None``** —— 那意味着 asyncio 已经知道这个进程退出了，也就意味着它
+        被回收了。
+
+        **不回收会怎样。** 进程对象在它被垃圾回收的那一刻会喊
+        ``ResourceWarning: subprocess N is still running``，而仓库把警告当错误
+        （``filterwarnings = ["error"]``）—— pytest 又把"垃圾回收时冒出来的
+        异常"算在**下一条**用例头上，于是**别的**用例替它背锅。这个坑真的
+        踩过：CI 挂在 ``test_cli_events.py`` 的 ``test_the_broken_line_is_kept``
+        上，那条用例跟子进程一点关系都没有。
+        """
+        script = write_stub(
+            tmp_path / "cli",
+            events=claude_events(),
+            sleep_before_exit=300,
+        )
+        adapter = ClaudeCodeAdapter(binary=str(script))
+        session = await adapter.create_session(_config(tmp_path / "ws"))
+        await adapter.execute(_task(session.session_id))
+        await _wait_until_the_process_is_running(adapter, session.session_id)
+        pid = read_log(tmp_path / "cli")[-1]["pid"]
+
+        await _kill_and_reap(adapter, session.session_id, pid)
+
+        process = adapter._sessions[session.session_id].process
+        assert process is not None
+        assert process.returncode is not None, "asyncio 不知道进程已经退出 —— 它没被回收"
 
 
 class TestTheCancelledResult:

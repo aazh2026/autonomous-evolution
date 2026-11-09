@@ -98,7 +98,8 @@ class _FakeReader:
 class _FakeMark:
     """消费者侧的假标记。"""
 
-    def __init__(self) -> None:
+    def __init__(self, clock: _FakeClock | None = None) -> None:
+        self._clock = clock or _FakeClock()
         self.claims: dict[tuple[str, str], datetime] = {}
         self.released: list[tuple[str, str]] = []
 
@@ -107,7 +108,7 @@ class _FakeMark:
         held = self.claims.get(key)
         if held is not None and held > stale_before:
             return False
-        self.claims[key] = NOW
+        self.claims[key] = self._clock()
         return True
 
     async def release(self, *, consumer: str, event_id: str) -> None:
@@ -116,6 +117,23 @@ class _FakeMark:
 
     async def is_consumed(self, *, consumer: str, event_id: str) -> bool:
         return (consumer, event_id) in self.claims
+
+
+def _consumer(
+    mark: _FakeMark, clock: _FakeClock, consumer: str = "evolution"
+) -> IdempotentConsumer:
+    """造一个消费者 —— **它和假标记看的是同一个钟**。
+
+    **为什么必须共用一个钟。** 消费者算"这个占用过期了没有"用的是它自己的
+    钟，假标记记"这个占用是什么时候占下的"用的是它自己的钟。两个钟不一致，
+    租约的新鲜度就成了两个时刻相减 —— 而那一刻取决于**墙上的钟**。
+
+    **这个坑真的踩过。** 这一组用例一度是"到点就红"：假标记把占用记成
+    ``NOW``（一个固定时刻），消费者却拿墙上的钟去比，于是墙上的钟一越过
+    ``NOW + 租约``，占用就被当成过期的了 —— 重复投递不再被跳过。写测试的
+    那天是绿的，第二天同一份代码就红了。
+    """
+    return IdempotentConsumer(mark, consumer=consumer, clock=clock)
 
 
 class TestTheRelay:
@@ -226,8 +244,9 @@ class TestTheIdempotentConsumer:
 
     async def test_the_first_delivery_is_handled(self) -> None:
         """第一次当然要处理。"""
-        mark = _FakeMark()
-        consumer = IdempotentConsumer(mark, consumer="evolution")
+        clock = _FakeClock()
+        mark = _FakeMark(clock)
+        consumer = _consumer(mark, clock)
         handled: list[EventMessage] = []
 
         outcome = await consumer.consume(_message(), lambda message: _record(handled, message))
@@ -238,8 +257,9 @@ class TestTheIdempotentConsumer:
     async def test_the_second_delivery_is_skipped(self) -> None:
         """**同一条消息处理一次。** 这是幂等消费的全部意义 —— relay 是至少一次
         投递的，同一条消息**一定**会被投递不止一次。"""
-        mark = _FakeMark()
-        consumer = IdempotentConsumer(mark, consumer="evolution")
+        clock = _FakeClock()
+        mark = _FakeMark(clock)
+        consumer = _consumer(mark, clock)
         handled: list[EventMessage] = []
 
         await consumer.consume(_message(), lambda message: _record(handled, message))
@@ -250,8 +270,9 @@ class TestTheIdempotentConsumer:
 
     async def test_a_skipped_delivery_says_why(self) -> None:
         """**理由缺了，日志里就只剩一句"没处理"** —— 而那看起来像故障。"""
-        mark = _FakeMark()
-        consumer = IdempotentConsumer(mark, consumer="evolution")
+        clock = _FakeClock()
+        mark = _FakeMark(clock)
+        consumer = _consumer(mark, clock)
         handled: list[EventMessage] = []
 
         await consumer.consume(_message(), lambda message: _record(handled, message))
@@ -263,9 +284,10 @@ class TestTheIdempotentConsumer:
     async def test_different_consumers_each_handle_it(self) -> None:
         """**去重粒度是 (消费者, 事件)。** 两个订阅方都得收到那条消息 ——
         一个人吃掉了，另一个人就永远收不到。"""
-        mark = _FakeMark()
-        first = IdempotentConsumer(mark, consumer="evolution")
-        second = IdempotentConsumer(mark, consumer="dashboard")
+        clock = _FakeClock()
+        mark = _FakeMark(clock)
+        first = _consumer(mark, clock, "evolution")
+        second = _consumer(mark, clock, "dashboard")
         handled: list[EventMessage] = []
 
         await first.consume(_message(), lambda message: _record(handled, message))
@@ -275,8 +297,9 @@ class TestTheIdempotentConsumer:
 
     async def test_a_failing_handler_releases_the_claim(self) -> None:
         """**没处理过的事件不该被"已经处理过"永久挡住** —— 那等于静默丢消息。"""
-        mark = _FakeMark()
-        consumer = IdempotentConsumer(mark, consumer="evolution")
+        clock = _FakeClock()
+        mark = _FakeMark(clock)
+        consumer = _consumer(mark, clock)
 
         with pytest.raises(RuntimeError):
             await consumer.consume(_message(), _boom)
@@ -286,16 +309,18 @@ class TestTheIdempotentConsumer:
     async def test_a_failing_handler_is_reraised(self) -> None:
         """**别把错误吞掉。** 处理失败却报告"处理过了"，下一次重投还会被跳过
         —— 那条消息就永远没人处理，而系统看上去一切正常。"""
-        mark = _FakeMark()
-        consumer = IdempotentConsumer(mark, consumer="evolution")
+        clock = _FakeClock()
+        mark = _FakeMark(clock)
+        consumer = _consumer(mark, clock)
 
         with pytest.raises(RuntimeError, match="处理炸了"):
             await consumer.consume(_message(), _boom)
 
     async def test_a_released_claim_allows_a_retry(self) -> None:
         """失败之后重投，**这次要真的被处理** —— 上一条断言的另一半。"""
-        mark = _FakeMark()
-        consumer = IdempotentConsumer(mark, consumer="evolution")
+        clock = _FakeClock()
+        mark = _FakeMark(clock)
+        consumer = _consumer(mark, clock)
         handled: list[EventMessage] = []
 
         with pytest.raises(RuntimeError):
@@ -313,7 +338,7 @@ class TestTheLease:
         """**没有租约，一次崩溃就等于永久丢一条消息。** 占用过期了就要能被抢走
         —— 那个抢占了却没处理（进程被 kill 了）的人，不会再来处理它。"""
         clock = _FakeClock()
-        mark = _FakeMark()
+        mark = _FakeMark(clock)
         consumer = IdempotentConsumer(
             mark, consumer="evolution", lease=timedelta(minutes=5), clock=clock
         )
