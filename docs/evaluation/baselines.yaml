@@ -1,0 +1,199 @@
+pilot: pilot_repo
+currency: USD
+measurements:
+- task_kind: bug_fix
+  source: claude-code:MiniMax-M3:completed
+  duration_seconds: '341.575'
+  tool_calls: 30
+  tokens:
+    input_tokens: 57521
+    output_tokens: 17537
+    cache_read_tokens: 577214
+    cache_write_tokens: 0
+  cost: '1.014637'
+  currency: USD
+  coverage: '0.746411'
+  coverage_by_module:
+    tinylib: '1.000000'
+    tinylib.cli: '0.000000'
+    tinylib.config: '1.000000'
+    tinylib.money: '0.868421'
+    tinylib.schedule: '0.906250'
+    tinylib.stats: '0.871795'
+    tinylib.strings: '0.968750'
+- task_kind: feature_add
+  source: claude-code:MiniMax-M3:completed
+  duration_seconds: '210.77'
+  tool_calls: 28
+  tokens:
+    input_tokens: 56449
+    output_tokens: 15500
+    cache_read_tokens: 636725
+    cache_write_tokens: 0
+  cost: '0.988107'
+  currency: USD
+  coverage: '0.765217'
+  coverage_by_module:
+    tinylib: '1.000000'
+    tinylib.cli: '0.000000'
+    tinylib.config: '1.000000'
+    tinylib.money: '0.916667'
+    tinylib.schedule: '0.906250'
+    tinylib.stats: '0.871795'
+    tinylib.strings: '0.935484'
+- task_kind: test_add
+  source: claude-code:MiniMax-M3:completed
+  duration_seconds: '55.812'
+  tool_calls: 12
+  tokens:
+    input_tokens: 38820
+    output_tokens: 3208
+    cache_read_tokens: 208891
+    cache_write_tokens: 0
+  cost: '0.378746'
+  currency: USD
+  coverage: '0.740385'
+  coverage_by_module:
+    tinylib: '1.000000'
+    tinylib.cli: '0.000000'
+    tinylib.config: '1.000000'
+    tinylib.money: '0.868421'
+    tinylib.schedule: '0.906250'
+    tinylib.stats: '0.871795'
+    tinylib.strings: '0.935484'
+- task_kind: refactor
+  source: claude-code:MiniMax-M3:completed
+  duration_seconds: '216.636'
+  tool_calls: 33
+  tokens:
+    input_tokens: 42468
+    output_tokens: 15833
+    cache_read_tokens: 884544
+    cache_write_tokens: 0
+  cost: '1.050437'
+  currency: USD
+  coverage: '0.751174'
+  coverage_by_module:
+    tinylib: '1.000000'
+    tinylib.cli: '0.000000'
+    tinylib.config: '1.000000'
+    tinylib.money: '0.868421'
+    tinylib.schedule: '0.945946'
+    tinylib.stats: '0.871795'
+    tinylib.strings: '0.935484'
+- task_kind: doc_update
+  source: claude-code:MiniMax-M3:completed
+  duration_seconds: '128.882'
+  tool_calls: 15
+  tokens:
+    input_tokens: 48235
+    output_tokens: 9643
+    cache_read_tokens: 275584
+    cache_write_tokens: 0
+  cost: '0.620042'
+  currency: USD
+  coverage: '0.740385'
+  coverage_by_module:
+    tinylib: '1.000000'
+    tinylib.cli: '0.000000'
+    tinylib.config: '1.000000'
+    tinylib.money: '0.868421'
+    tinylib.schedule: '0.906250'
+    tinylib.stats: '0.871795'
+    tinylib.strings: '0.935484'
+- task_kind: error_handling
+  source: claude-code:MiniMax-M3:completed
+  duration_seconds: '79.673'
+  tool_calls: 26
+  tokens:
+    input_tokens: 48851
+    output_tokens: 9154
+    cache_read_tokens: 388054
+    cache_write_tokens: 0
+  cost: '0.667132'
+  currency: USD
+  coverage: '0.753425'
+  coverage_by_module:
+    tinylib: '1.000000'
+    tinylib.cli: '0.000000'
+    tinylib.config: '1.000000'
+    tinylib.money: '0.868421'
+    tinylib.schedule: '0.906250'
+    tinylib.stats: '0.871795'
+    tinylib.strings: '0.935484'
+- task_kind: api_extension
+  source: claude-code:MiniMax-M3:completed
+  duration_seconds: '39.6'
+  tool_calls: 15
+  tokens:
+    input_tokens: 39775
+    output_tokens: 4013
+    cache_read_tokens: 240656
+    cache_write_tokens: 0
+  cost: '0.419528'
+  currency: USD
+  coverage: '0.740385'
+  coverage_by_module:
+    tinylib: '1.000000'
+    tinylib.cli: '0.000000'
+    tinylib.config: '1.000000'
+    tinylib.money: '0.868421'
+    tinylib.schedule: '0.906250'
+    tinylib.stats: '0.871795'
+    tinylib.strings: '0.935484'
+- task_kind: perf_tweak
+  source: claude-code:MiniMax-M3:timed_out
+  duration_seconds: '900.062'
+  tool_calls: 21
+  tokens: null
+  cost: null
+  currency: null
+  coverage: '0.743363'
+  coverage_by_module:
+    tinylib: '1.000000'
+    tinylib.cli: '0.000000'
+    tinylib.config: '1.000000'
+    tinylib.money: '0.868421'
+    tinylib.schedule: '0.906250'
+    tinylib.stats: '0.842105'
+    tinylib.strings: '0.935484'
+- task_kind: type_annotate
+  source: claude-code:MiniMax-M3:completed
+  duration_seconds: '81.165'
+  tool_calls: 30
+  tokens:
+    input_tokens: 46563
+    output_tokens: 6727
+    cache_read_tokens: 460910
+    cache_write_tokens: 0
+  cost: '0.631445'
+  currency: USD
+  coverage: '0.741627'
+  coverage_by_module:
+    tinylib: '1.000000'
+    tinylib.cli: '0.000000'
+    tinylib.config: '1.000000'
+    tinylib.money: '0.868421'
+    tinylib.schedule: '0.906250'
+    tinylib.stats: '0.871795'
+    tinylib.strings: '0.937500'
+- task_kind: changelog
+  source: claude-code:MiniMax-M3:completed
+  duration_seconds: '33.105'
+  tool_calls: 9
+  tokens:
+    input_tokens: 45737
+    output_tokens: 1824
+    cache_read_tokens: 143360
+    cache_write_tokens: 0
+  cost: '0.345965'
+  currency: USD
+  coverage: '0.740385'
+  coverage_by_module:
+    tinylib: '1.000000'
+    tinylib.cli: '0.000000'
+    tinylib.config: '1.000000'
+    tinylib.money: '0.868421'
+    tinylib.schedule: '0.906250'
+    tinylib.stats: '0.871795'
+    tinylib.strings: '0.935484'

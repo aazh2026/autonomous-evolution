@@ -59,7 +59,8 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "单价表里没有的模型也给个价 —— 猜价",
         "        except KeyError as error:\n"
         '            known = "、".join(sorted(self.model_rates)) or "（空）"\n'
-        '            raise UnknownRateError(f"单价表里没有模型 {model} 的单价；表里有：{known}") from error',
+        "            raise UnknownRateError("
+        'f"单价表里没有模型 {model} 的单价；表里有：{known}") from error',
         "        except KeyError:\n"
         "            return ModelRate(\n"
         "                model=model,\n"
@@ -72,7 +73,8 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "⑤",
         "core/metrics/cost.py",
         "计价币种不换算 —— 20 CNY 的模型被当成 20 USD 记进账",
-        "        amount = CostAmount(rate.price_of(usage), rate.currency)\n        return self.convert(amount)",
+        "        amount = CostAmount(rate.price_of(usage), rate.currency)\n"
+        "        return self.convert(amount)",
         "        amount = CostAmount(rate.price_of(usage), rate.currency)\n        return amount",
     ),
     (
@@ -142,7 +144,8 @@ MUTANTS: tuple[tuple[str, str, str, str, str], ...] = (
         "⑮",
         "core/metrics/cost.py",
         "缓存读不计价 —— 按用量推算出来的钱偏小，偏差核对看不出来",
-        "            + usage.cache_read_tokens / TOKENS_PER_PRICE_UNIT * self.cache_read_price_per_million",
+        "            + usage.cache_read_tokens / TOKENS_PER_PRICE_UNIT "
+        "* self.cache_read_price_per_million",
         "            + Decimal(0)",
     ),
     (

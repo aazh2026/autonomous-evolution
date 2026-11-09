@@ -49,6 +49,7 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 | 编排 | `GraphCheckpointWrite` | `graph_checkpoint_write` | checkpoint 期间写下的中间结果 |
 | 事件 | `OutboxEvent` | `outbox_event` | 待发布的事件（状态写入与事件发布同事务） |
 | 事件 | `ConsumedEvent` | `consumed_event` | 某个消费者已经占用过的消息（幂等消费） |
+| 标准 | `CoverageBaseline` | `coverage_baseline` | 覆盖率基线（全局地板 + 每模块基线 + 下调次数） |
 
 > **预算那两张表不在 `docs/design.md` §3.6 的清单里** —— 那是设计文档的一处缺口，
 > 已在 `docs/tasks.md` 第 6 节列为待裁决项 8。补它们的理由很直接：TASK-P1-012
@@ -102,6 +103,7 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 | `budget_entry` | `scope` | `budget_account` | `scope` | RESTRICT |
 | `budget_entry` | `metric` | `budget_account` | `metric` | RESTRICT |
 | `budget_entry` | `period` | `budget_account` | `period` | RESTRICT |
+| `coverage_baseline` | `project_id` | `project` | `id` | RESTRICT |
 
 **唯一的 CASCADE** 是 `execution_event.session_id → agent_session.id`：
 会话是一次性的尝试，它的轨迹随会话一起消失是合理的。其余全部 RESTRICT ——
@@ -128,6 +130,11 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 两张表之间靠 `thread_id` + `checkpoint_ns` + `checkpoint_id` 复合键自洽，
 一致性由 `SqlAlchemyCheckpointSaver` 保证（写 checkpoint 与写它的 writes 在
 同一个事务里）。
+
+**`coverage_baseline` 在上表里 —— 它是唯一一条从"标准"指向"项目"的外键。**
+它指向项目，是因为标准是**某个项目的**标准：换一个项目就是另一套模块、
+另一份基线。RESTRICT 是因为项目被删了，标准就该跟着作废，而不是变成一条
+悬空的"某处的标准是多少"。
 
 ### 2.2 图版
 
@@ -163,6 +170,8 @@ erDiagram
     architecture_decision ||--o| architecture_decision : "取代"
 
     budget_account ||--o{ budget_entry : "流水"
+
+    project ||--o| coverage_baseline : "覆盖率基线"
 
     approval_request {
         uuid id PK
@@ -769,6 +778,41 @@ relay 的热查询只关心没发出去的那些，已发布的那一堆不该�
 会永远挡着这条事件 —— 所以判定"这个占用是不是过期了"要看时间：过期了就可以被别人
 抢走。**没有租约，一次崩溃就等于永久丢一条消息。**
 
+### 6.20 `coverage_baseline`
+
+| 列 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `id` | UUID | PK | |
+| `project_id` | VARCHAR(64) | NOT NULL, UNIQUE, FK → `project.id` | **一个项目一份基线** |
+| `floor` | NUMERIC(7,6) | NOT NULL | 全局地板 —— **任何模块的阈值都不低于它** |
+| `modules` | JSONB | NOT NULL | 各模块的基线：`{模块名: {coverage, sample_count, source}}` |
+| `lowering_count` | INTEGER | NOT NULL | 实际下调过几次 —— **被拒的不算** |
+| `created_at` | TIMESTAMPTZ | NOT NULL | |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+CHECK 约束：`ck_coverage_baseline_floor`（`floor >= 0.85`）、
+`ck_coverage_baseline_lowering_count_non_negative`（`lowering_count >= 0`）。
+唯一约束：`uq_coverage_baseline_project_id`。
+
+**这张表记的是标准，不是测量。** `project_snapshot.metrics` 记的是"那个 commit
+当时测出来是多少"，这张表记的是"标准是多少" —— 后者是**策略**，前者是**事实**。
+混在一起的话，"这次快照的覆盖率"与"这次快照适用的阈值"会互相覆盖，而这两件事
+必须能同时取出来。
+
+**地板与各模块的基线放在同一行。** 它们必须一起变：分两处存，一次写失败就会留下
+"地板是新的、模块是旧的"这种组合 —— 而那正是"标准被悄悄放松了"的样子。
+
+**地板的下限由数据库兜住。** 应用层的校验可以被绕开（脚本、手工 SQL），约束不行。
+"地板低于 0.85"这件事在数据库层就发生不了。
+
+**`floor` 用 `NUMERIC(7,6)` 而不是 `NUMERIC(6,6)`。** `(6,6)` 的上限是 0.999999 ——
+"这个模块 100% 被覆盖"是真实存在的情况，存不进去就等于"测到满覆盖的模块没法建
+基线"，那比多一个数字位糟糕得多。
+
+**`modules` 是 JSONB。** 有哪些模块、叫什么名字，取决于项目 —— 写死成列就得给每个
+项目预留行，而"给每个项目预留"本身就会逼出一堆空行。JSONB 可以给 `modules` 建
+索引，需要按模块查的时候照样能查。
+
 ## 7. 命名的三条约定
 
 1. **表名复数、单数混乱** —— 一律单数下划线（`evolution_candidate`）。
@@ -792,6 +836,7 @@ relay 的热查询只关心没发出去的那些，已发布的那一堆不该�
 | `0005` | 审批请求表 + 状态 CHECK 约束 + 查询索引 |
 | `0006` | 决策图 checkpoint 两表（`graph_checkpoint` + `graph_checkpoint_write`） |
 | `0007` | outbox 事件表 + 消费标记表（`outbox_event` + `consumed_event`） |
+| `0008` | 覆盖率基线表（`coverage_baseline`）—— 地板、每模块的基线、下调次数 |
 
 迁移工具链的验证见 `tests/integration/test_migrations.py`：
 `upgrade head` → `downgrade base` → `upgrade head` 可逆；空库从零迁移 < 30s；
@@ -817,3 +862,5 @@ relay 的热查询只关心没发出去的那些，已发布的那一堆不该�
 - `docs/architecture/decision-stages.md` —— 五阶段图的节点契约与持久化
 - `core/events/outbox.py` —— outbox 的领域契约（至少一次投递 + 幂等消费）
 - `infrastructure/database/outbox.py` —— outbox 的落库口与 relay
+- `core/task/coverage_baseline.py` —— 覆盖率基线的口径（阈值 = max(模块基线, 全局地板)、下调要审批）
+- `infrastructure/project/coverage_baselines.py` —— 覆盖率基线的落库口

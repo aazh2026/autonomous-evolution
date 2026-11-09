@@ -161,7 +161,7 @@ def claude_events(
     *,
     is_error: bool = False,
     api_error_status: int | None = None,
-    cost_usd: float = 0.01,
+    cost_usd: float | None = 0.01,
     duration_ms: int = 120,
     tool_calls: int = 1,
     session_id: str = SESSION_PLACEHOLDER,
@@ -179,6 +179,9 @@ def claude_events(
         ``output_tokens`` / ``cache_read_input_tokens`` /
         ``cache_creation_input_tokens``）。**不给就没有用量** —— 那正是
         "没核对过成本"的那种执行。
+    :param cost_usd: 结果事件里的金额。**给 ``None`` 就没有这个字段** ——
+        那正是"没读到金额"的那种执行（一次超时跑飞的执行就长这样：钱花了，
+        但 CLI 被掐了，金额没吐出来）。
     """
     assistant_blocks: list[dict[str, Any]] = [{"type": "text", "text": "好的"}]
     for index in range(tool_calls):
@@ -215,9 +218,10 @@ def claude_events(
             "result": "好的",
             "stop_reason": "end_turn",
             "session_id": session_id,
-            "total_cost_usd": cost_usd,
         },
     ]
+    if cost_usd is not None:
+        events[-1]["total_cost_usd"] = cost_usd
     if usage is not None:
         events[-1]["usage"] = dict(usage)
     return events

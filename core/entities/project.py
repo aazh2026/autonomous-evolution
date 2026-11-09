@@ -1,7 +1,8 @@
 """项目与项目快照的持久化实体。
 
 设计依据：docs/design.md §3.6 核心数据模型表（``Project``: id、goal、policy；
-``ProjectSnapshot``: version、commit、metrics）、docs/tasks.md TASK-P1-020。
+``ProjectSnapshot``: version、commit、metrics）、docs/tasks.md TASK-P1-020、
+TASK-P1-042（覆盖率模块基线）。
 
 **同名不同层**：``core.project.models.Project`` 是**领域模型**（纯 Python，
 六要素强校验，可从 YAML 载入）；``core.entities.Project`` 是**持久化实体**
@@ -11,7 +12,17 @@
 
 from __future__ import annotations
 
-from sqlalchemy import ForeignKey, Index, Integer, String, UniqueConstraint
+from decimal import Decimal
+
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.entities.base import Base, JSONDocument, TimestampMixin, UUIDPrimaryKeyMixin
@@ -115,4 +126,52 @@ class ProjectSnapshot(UUIDPrimaryKeyMixin, Base):
     )
 
 
-__all__ = ["Project", "ProjectSnapshot"]
+class CoverageBaseline(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """一个项目的覆盖率基线 —— **地板、各模块的基线、下调次数**。
+
+    设计依据：docs/tasks.md TASK-P1-042（"每模块基线存储（落
+    ``ProjectSnapshot.metrics`` 或独立基线表）"、"基线下调需审批"）。
+
+    **为什么独立成表，而不是塞进快照的 ``metrics``。** 快照记的是"那个
+    commit 当时测出来是多少"，基线记的是"标准是多少" —— 后者是**策略**，
+    前者是**测量**。混在一起的话，"这次快照的覆盖率"与"这次快照适用的
+    阈值"会互相覆盖，而这两件事必须能同时取出来。
+
+    **地板与各模块的基线放在一行里。** 它们必须一起变：分两处存，一次写
+    失败就会留下"地板是新的、模块是旧的"这种组合 —— 而那正是"标准被悄悄
+    放松了"的样子。
+
+    **地板的下限由数据库兜住。** CHECK 约束让"地板低于 0.85"这件事在数据库
+    层就发生不了 —— 应用层的校验可以被绕开（脚本、手工 SQL），约束不行。
+    """
+
+    __tablename__ = "coverage_baseline"
+
+    #: 项目 id —— **一个项目一份基线**。
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("project.id", ondelete="RESTRICT"), nullable=False, unique=True
+    )
+    #: 全局地板 —— **任何模块的阈值都不低于它**。
+    #:
+    #: 精度是 ``(7, 6)`` 而不是 ``(6, 6)``：``(6, 6)`` 的取值上限是 0.999999，
+    #: 而"这个模块 100% 被覆盖"是真实存在的情况 —— 存不进去就意味着"测到满
+    #: 覆盖的模块无法建基线"，那比多一个数字位糟糕得多。
+    floor: Mapped[Decimal] = mapped_column(Numeric(7, 6), nullable=False)
+    #: 各模块的基线 —— 键是模块名，值是 ``{coverage, sample_count, source}``。
+    modules: Mapped[dict[str, object]] = mapped_column(JSONDocument, nullable=False, default=dict)
+    #: 实际下调过几次 —— T2 的"基线下调次数 = 0"看它。
+    lowering_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        CheckConstraint(
+            "floor >= 0.85",
+            name="floor",
+        ),
+        CheckConstraint(
+            "lowering_count >= 0",
+            name="lowering_count_non_negative",
+        ),
+    )
+
+
+__all__ = ["CoverageBaseline", "Project", "ProjectSnapshot"]

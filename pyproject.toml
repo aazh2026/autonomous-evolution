@@ -45,6 +45,11 @@ packages = ["apps", "core", "agents", "orchestration", "executors", "harness", "
 line-length = 100
 target-version = "py312"
 src = ["."]
+# ``samples/`` 是**试点仓库** —— 一个独立的、给自主演进闭环当演化对象的小
+# 项目（docs/tasks.md TASK-P1-072）。它有自己的一套规矩（比如故意留一个
+# 没写类型标注的模块，那正是"补类型标注"这类任务的对象），所以不按本
+# 项目的 lint 规矩检查。
+extend-exclude = ["samples"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ANN", "PTH", "TID", "ARG", "PL"]
@@ -87,6 +92,13 @@ ignore = [
 # 打桩件要的就是"按脚本给结论"：它不关心传进来的 ``state`` 与
 # ``session_id``，也不该去关心 —— 关心了就等于在编排层之外另起一套判定。
 "tests/system/**" = ["ARG002"]
+# 快照口径的测试替身：``_FakeCommits`` / ``_FakeCode`` / ``_FakeTests`` /
+# ``_FakeCoverage`` 实现的是 ``core/project/snapshot.py`` 里的采集口协议
+# （``CommitProbe`` / ``CodeStatisticsProbe`` / ``SuiteOutcomeProbe`` /
+# ``CoverageProbe``），方法签名由协议定死 —— 而替身**要的就是**"按剧本给
+# 答案"：它不关心传进来的工作区是哪个目录，关心了就等于在替身里另起一套
+# 采集逻辑。参数不用不是疏忽，是这些替身的全部含义。
+"tests/unit/core/test_snapshot.py" = ["ARG002"]
 "**/__init__.py" = ["F401"]
 # 仓储层的写方法把实体的字段一一对应成关键字参数 —— 参数多是有意的，
 # 参数名本身就是文档。刻意逐列列出，比收成一个 dict 更难写错。
@@ -135,6 +147,18 @@ ignore = [
 # 一个 dict 只会把这些事实塞进调用点的字典字面量里 —— 而这份配置恰恰是
 # "这次模拟的进程行为是什么"这份契约的输入，它必须一眼可读。
 "tests/unit/executors/stub_cli.py" = ["PLR0913"]
+# 基线采集器：`_collect_one` 与 `_collect` 的参数就是"一次采集需要配的全部
+# 项"——试点仓库、副本目录、执行器二进制、模型、权限模式、超时、要不要量
+# 覆盖率。逐个列全比收成一个 dict 更好：收成 dict 只会把"采集需要配什么"
+# 藏进调用点的字典字面量里，而这份配置恰恰是"这次采的是哪一次执行"的唯一
+# 说明。
+"scripts/collect_baselines.py" = ["PLR0913"]
+# 基线测试的构造器：``_measurement`` 的每个参数对应一条测量里的一项独立事实
+# （任务类别、时长、工具调用数、用量、金额、整体覆盖率、按模块的覆盖率、来
+# 源）。逐个列全比收成一个 dict 更好：收成 dict 只会把"一条测量由哪些项构
+# 成"藏进调用点的字典字面量里，而这份构成恰恰是"这次到底测到了什么"的唯
+# 一说明 —— 而"没测到"与"测出来是 0"必须分得开。
+"tests/unit/evaluation/test_baselines.py" = ["PLR0913"]
 # 取消链的"没有这一类资源"实现：`NoProcessStopper` 与 `NoContainerStopper`
 # 的方法签名由端口协议定死，而它们**要的就是**不用那个参数 —— 没有进程就
 # 没有进程要停，没有容器就没有容器要停。参数不用不是疏忽，是这两个实现
@@ -229,7 +253,7 @@ disallow_any_generics = true
 # 那条检查只看我们写出来的注解，不看继承来的成员。
 disallow_any_explicit = true
 plugins = []
-exclude = ["^\\.venv/", "^build/"]
+exclude = ["^\\.venv/", "^build/", "^samples/"]
 
 [[tool.mypy.overrides]]
 # 定义了 Pydantic 模型的模块 —— 见上面关于 `disallow_any_explicit` 的说明。

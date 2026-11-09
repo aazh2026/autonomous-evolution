@@ -83,6 +83,7 @@ ALL_TABLES = (
     "graph_checkpoint",
     "consumed_event",
     "outbox_event",
+    "coverage_baseline",
 )
 
 #: append-only 表。清理时需要临时关掉 TRUNCATE 守卫 —— 守卫存在的目的

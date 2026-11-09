@@ -66,7 +66,7 @@ from core.entities.evidence import Artifact, VerificationRun
 from core.entities.evolution import EvolutionCandidate, EvolutionCycle, EvolutionDecision
 from core.entities.execution import AgentSession, ExecutionEvent
 from core.entities.outbox import ConsumedEvent, OutboxEvent
-from core.entities.project import Project, ProjectSnapshot
+from core.entities.project import CoverageBaseline, Project, ProjectSnapshot
 from core.entities.task import Task, TaskDependency
 
 #: 十二个核心实体 + 两张预算账本表 + 一张审批请求表 + 两张编排状态表
@@ -95,6 +95,7 @@ ALL_ENTITIES = (
     GraphCheckpointWrite,
     OutboxEvent,
     ConsumedEvent,
+    CoverageBaseline,
 )
 
 __all__ = [
@@ -107,6 +108,7 @@ __all__ = [
     "BudgetAccount",
     "BudgetEntry",
     "ConsumedEvent",
+    "CoverageBaseline",
     "EvolutionCandidate",
     "EvolutionCycle",
     "EvolutionDecision",
