@@ -78,7 +78,7 @@ assert result.metrics["latency"].number == Decimal(120)  # 数还是量出来了
 ```python
 report = await verifier.verify(request)
 assert report.errored_layers == (VerificationLayer.FUNCTIONAL,)
-assert report.failed_layers == ()          # 崩的那层不算"失败"
+assert report.failed_layers == ()  # 崩的那层不算"失败"
 assert report.result(VerificationLayer.CODE).outcome is LayerOutcome.PASSED
 ```
 
@@ -144,9 +144,9 @@ FAILED > ERROR > INCOMPLETE > PASSED
 ```python
 evidence = ContractEvidence(
     task_id=request.task_id,
-    checks=...,       # 每层 → 它的必检项 → CheckOutcome
-    metrics=...,      # 各层量到的指标
-    violations=...,   # 安全层命中的禁止项
+    checks=...,  # 每层 → 它的必检项 → CheckOutcome
+    metrics=...,  # 各层量到的指标
+    violations=...,  # 安全层命中的禁止项
     produced_artifacts=...,
 )
 evaluation = evaluate_contract(contract, evidence)

@@ -136,8 +136,8 @@ classify(failure)  →  Classification  →  to_diagnosis()  →  RepairCoordina
 ```python
 second = await planner.plan(request, failure=failure)
 assert second.allowed is False
-assert second.outcome.limit is RepairLimit.COUNT   # 次数 / 成本 / 时间
-assert second.instruction == ""                    # 被拒了就不排任务
+assert second.outcome.limit is RepairLimit.COUNT  # 次数 / 成本 / 时间
+assert second.instruction == ""  # 被拒了就不排任务
 ```
 
 "修复停了"没法行动；"全局次数已达上限 1 次"才知道该提配额还是认账停下。
