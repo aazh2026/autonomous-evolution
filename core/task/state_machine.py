@@ -146,6 +146,7 @@ _TRANSITION_TABLE: Final[dict[TaskState, dict[TaskAction, TaskState]]] = {
     },
     TaskState.PLANNED: {
         TaskAction.READY: TaskState.READY,
+        TaskAction.BLOCK: TaskState.BLOCKED,
         # 从 PLANNED 重新规划没有意义 —— 计划刚生成。此时的"重规划"请求
         # 应来自 READY 之后的某个态（计划已失效）。
     },
