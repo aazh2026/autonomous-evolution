@@ -19,17 +19,20 @@ import pytest
 from core.evolution.proposal import (
     MINIMUM_APPROVALS_BY_KIND,
     MINIMUM_RISK_BY_KIND,
+    REQUIRED_SCOPES_BY_KIND,
     IndependentTestReport,
     ProposalApproval,
     ProposalIndependenceError,
     ProposalIntegrityError,
     ProposalKind,
+    ProposalScopeError,
     ProposalStateError,
     ProposalStatus,
     SystemEvolutionProposal,
     bump_criteria_version,
     is_valid_criteria_version,
 )
+from core.evolution.risk import ReviewerScope
 from core.evolution.taxonomy import RiskLevel
 
 
@@ -54,6 +57,7 @@ def _proposal(
     criteria_version: str = "criteria-v1",
     risk: RiskLevel | None = None,
     required_approvals: int | None = None,
+    required_scopes: tuple[ReviewerScope, ...] = (),
 ) -> SystemEvolutionProposal:
     """造一份草稿提案 —— **风险与审批数按规矩给**。"""
     return SystemEvolutionProposal(
@@ -72,6 +76,7 @@ def _proposal(
             if required_approvals is not None
             else MINIMUM_APPROVALS_BY_KIND[kind]
         ),
+        required_scopes=required_scopes,
     )
 
 
@@ -90,6 +95,7 @@ def _approval(
     *,
     approver: str = "reviewer",
     approved: bool = True,
+    scopes: tuple[ReviewerScope, ...] = (),
 ) -> ProposalApproval:
     """造一份审批 —— **批的就是这一版、这一版标准**。"""
     return ProposalApproval(
@@ -97,6 +103,7 @@ def _approval(
         approved_digest=proposal.content_digest,
         criteria_version=proposal.criteria_version,
         approved=approved,
+        scopes=scopes,
     )
 
 
@@ -183,8 +190,86 @@ class TestFloors:
             assert MINIMUM_APPROVALS_BY_KIND[kind] == 2
 
 
+class TestScopeFloor:
+    """评审资格 —— **每一类改动都有它的天生下限**。
+
+    **为什么这一层要单列。** "有几个人批了"回答不了"这几个人看得懂吗" —— 让一
+    个只懂测试的人去批改架构的改动，等于没批。这一层钉的是"**至少有一位看得懂
+    这一类的人**"。
+    """
+
+    def test_the_governance_kinds_need_a_governance_reviewer(self) -> None:
+        for kind in (
+            ProposalKind.ACCEPTANCE_CRITERIA_CHANGE,
+            ProposalKind.POLICY_CHANGE,
+            ProposalKind.GOVERNANCE_CHANGE,
+        ):
+            assert REQUIRED_SCOPES_BY_KIND[kind] == (ReviewerScope.GOVERNANCE,)
+
+    def test_an_architecture_change_needs_an_architecture_reviewer(self) -> None:
+        assert REQUIRED_SCOPES_BY_KIND[ProposalKind.ARCHITECTURE_CHANGE] == (
+            ReviewerScope.ARCHITECTURE,
+        )
+
+    def test_a_dependency_change_needs_a_security_reviewer(self) -> None:
+        assert REQUIRED_SCOPES_BY_KIND[ProposalKind.DEPENDENCY_CHANGE] == (
+            ReviewerScope.SECURITY,
+        )
+
+    def test_a_code_change_needs_no_special_reviewer(self) -> None:
+        """**代码改动要的是"看得懂这段改动"** —— 那正是通用资格的定义。"""
+        assert REQUIRED_SCOPES_BY_KIND[ProposalKind.CODE_CHANGE] == ()
+
+    def test_the_floor_is_filled_in_when_nothing_is_asked_for(self) -> None:
+        """**没提要求 = 用天生的下限** —— 而不是"什么都不要"。"""
+        proposal = _proposal(kind=ProposalKind.GOVERNANCE_CHANGE)
+        assert proposal.required_scopes == (ReviewerScope.GOVERNANCE,)
+
+    def test_the_floor_may_not_be_reduced(self) -> None:
+        """**规矩只能往严里加** —— 减去一项资格，改架构就没人看得懂了。"""
+        with pytest.raises(ValueError, match="评审资格"):
+            _proposal(
+                kind=ProposalKind.GOVERNANCE_CHANGE,
+                required_scopes=(ReviewerScope.GENERAL,),
+            )
+
+    def test_a_stricter_requirement_is_accepted(self) -> None:
+        proposal = _proposal(
+            kind=ProposalKind.GOVERNANCE_CHANGE,
+            required_scopes=(ReviewerScope.GOVERNANCE, ReviewerScope.SECURITY),
+        )
+        assert proposal.required_scopes == (
+            ReviewerScope.SECURITY,
+            ReviewerScope.GOVERNANCE,
+        )
+
+    def test_publishing_without_a_qualified_approver_is_refused(self) -> None:
+        """**有几个人批了不算数 —— 得有一个人看得懂。**"""
+        proposal = _proposal(kind=ProposalKind.GOVERNANCE_CHANGE)
+        submitted = proposal.submit()
+        verified = submitted.record_test(_report(submitted))
+        once = verified.record_approval(_approval(verified, approver="reviewer-a"))
+        twice = once.record_approval(_approval(once, approver="reviewer-b"))
+        assert twice.status is ProposalStatus.APPROVED
+
+        with pytest.raises(ProposalScopeError, match="评审资格"):
+            twice.publish(current_criteria_version="criteria-v1")
+
+    def test_publishing_with_a_qualified_approver_works(self) -> None:
+        proposal = _proposal(kind=ProposalKind.GOVERNANCE_CHANGE)
+        submitted = proposal.submit()
+        verified = submitted.record_test(_report(submitted))
+        once = verified.record_approval(
+            _approval(verified, approver="reviewer-a", scopes=(ReviewerScope.GOVERNANCE,))
+        )
+        twice = once.record_approval(_approval(once, approver="reviewer-b"))
+
+        assert twice.publish(current_criteria_version="criteria-v1").status is (
+            ProposalStatus.PUBLISHED
+        )
+
+
 class TestTransitions:
-    """状态机 —— **一步都不能跳**。"""
 
     def test_submit_moves_it_to_submitted(self) -> None:
         assert _proposal().submit().status is ProposalStatus.SUBMITTED

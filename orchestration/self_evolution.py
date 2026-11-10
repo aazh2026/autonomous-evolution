@@ -39,6 +39,7 @@ from core.evolution.proposal import (
     SystemEvolutionProposal,
     bump_criteria_version,
 )
+from core.evolution.risk import ReviewerScope
 from core.policy.self_evolution import SelfEvolutionPolicy
 
 
@@ -284,7 +285,8 @@ class SelfEvolutionFlow:
 
         1. **从存储里取回审批结论** —— 不相信对象上的状态。
         2. **逐项核对** —— 审批够不够数、批的是不是这一版内容、用的是不是这一
-           版标准、有没有人拒过、有没有人是提案人自己。
+           版标准、有没有人拒过、有没有人是提案人自己、有没有一位看得懂的
+           人。
         3. **实体层的闸** —— 状态、独立测试、内容摘要。
         4. **写审计** —— 写不进去就**到此为止**（失败关闭）。
         5. **落地改动**；若是"改验收标准"那一类，**推进标准版本**。
@@ -353,6 +355,16 @@ class SelfEvolutionFlow:
             )
         if proposal.proposed_by in approvers:
             raise SelfEvolutionError("审批人里有提案人自己 —— 这不算独立审批")
+        covered: set[ReviewerScope] = set()
+        for approval in stored:
+            covered.update(approval.scopes)
+        missing = set(proposal.required_scopes) - covered
+        if missing:
+            names = "、".join(scope.value for scope in ReviewerScope if scope in missing)
+            raise SelfEvolutionError(
+                f"提案 {proposal.proposal_id} 缺 {names} 评审资格 —— "
+                "有几个人批了不算数，得有一个人看得懂"
+            )
         digest = proposal.content_digest
         for approval in stored:
             if approval.approved_digest != digest:

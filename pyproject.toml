@@ -223,6 +223,8 @@ ignore = [
 # 对它没有意义（行 id 是自己编的），``decision_rows`` 对它也没有意义（任务行
 # id 也是自己编的）。参数不用不是疏忽，是这个替身的全部含义。
 "tests/support/evolution_loop.py" = ["ARG002"]
+"tests/unit/evolution/test_proposal.py" = ["PLR0913"]
+"tests/unit/policy/test_high_risk.py" = ["PLR0913"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"

@@ -24,6 +24,7 @@ from core.evolution.proposal import (
     ProposalStatus,
     SystemEvolutionProposal,
 )
+from core.evolution.risk import ReviewerScope
 from core.evolution.taxonomy import RiskLevel
 from core.policy.self_evolution import SelfEvolutionPolicy
 from orchestration.self_evolution import (
@@ -186,6 +187,7 @@ def _approval(
     *,
     approver: str = "reviewer",
     approved: bool = True,
+    scopes: tuple[ReviewerScope, ...] = (),
 ) -> ProposalApproval:
     """造一份审批 —— **绑在这一版内容与这一版标准上**。"""
     return ProposalApproval(
@@ -193,6 +195,7 @@ def _approval(
         approved_digest=proposal.content_digest,
         criteria_version=proposal.criteria_version,
         approved=approved,
+        scopes=scopes,
     )
 
 
@@ -347,8 +350,12 @@ class TestCriteriaAdvance:
         rig = _rig()
         await _submitted(rig, kind=ProposalKind.ACCEPTANCE_CRITERIA_CHANGE)
         proposal = rig.store.items["p-1"]
-        await rig.flow.record_approval("p-1", _approval(proposal, approver="reviewer-a"))
-        rig.approvals.conclusions["req-1"].append(_approval(proposal, approver="reviewer-a"))
+        await rig.flow.record_approval(
+            "p-1", _approval(proposal, approver="reviewer-a", scopes=(ReviewerScope.GOVERNANCE,))
+        )
+        rig.approvals.conclusions["req-1"].append(
+            _approval(proposal, approver="reviewer-a", scopes=(ReviewerScope.GOVERNANCE,))
+        )
         await rig.flow.record_approval("p-1", _approval(proposal, approver="reviewer-b"))
         rig.approvals.conclusions["req-1"].append(_approval(proposal, approver="reviewer-b"))
 
@@ -385,6 +392,38 @@ class TestTheFlowsOwnRules:
         with pytest.raises(SelfEvolutionError, match="独立审批"):
             await rig.flow.publish("p-1")
         assert rig.applier.applied == []
+
+    async def test_a_governance_change_needs_a_governance_approver(self) -> None:
+        """**有几个人批了不算数 —— 得有一个人看得懂。**
+
+        **这一条是 TASK-P4-060 落到 TASK-P4-070 上的那一笔。** 改治理的提案
+        要两位审批人 —— 但如果两位都没有治理资格，那还是没人看得懂，**发出去
+        等于没人管**。所以流程在核对时还要看**谁批的、批的人当时持有什么资格**。
+        """
+        rig = _rig()
+        await _submitted(rig, kind=ProposalKind.GOVERNANCE_CHANGE)
+        proposal = rig.store.items["p-1"]
+        rig.approvals.conclusions["req-1"].append(_approval(proposal, approver="reviewer-a"))
+        rig.approvals.conclusions["req-1"].append(_approval(proposal, approver="reviewer-b"))
+
+        with pytest.raises(SelfEvolutionError, match="评审资格"):
+            await rig.flow.publish("p-1")
+        assert rig.applier.applied == []
+
+    async def test_a_governance_change_with_a_qualified_approver_publishes(self) -> None:
+        rig = _rig()
+        await _submitted(rig, kind=ProposalKind.GOVERNANCE_CHANGE)
+        proposal = rig.store.items["p-1"]
+        qualified = _approval(proposal, approver="reviewer-a", scopes=(ReviewerScope.GOVERNANCE,))
+        plain = _approval(proposal, approver="reviewer-b")
+        await rig.flow.record_approval("p-1", qualified)
+        rig.approvals.conclusions["req-1"].append(qualified)
+        await rig.flow.record_approval("p-1", plain)
+        rig.approvals.conclusions["req-1"].append(plain)
+
+        await rig.flow.publish("p-1")
+
+        assert rig.applier.applied != []
 
     async def test_the_risk_comes_from_the_policy(self) -> None:
         """**提案人给不了风险档 —— 那是规矩的事。**"""

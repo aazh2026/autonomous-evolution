@@ -69,4 +69,7 @@ class TestEffective:
     def test_an_unrelated_kind_is_unaffected(self) -> None:
         """**给一类加严不该影响另一类。**"""
         policy = SelfEvolutionPolicy(required_approvals={ProposalKind.CODE_CHANGE: 4})
-        assert policy.approvals_for(ProposalKind.DEPENDENCY_CHANGE) == 1
+        assert (
+            policy.approvals_for(ProposalKind.DEPENDENCY_CHANGE)
+            == MINIMUM_APPROVALS_BY_KIND[ProposalKind.DEPENDENCY_CHANGE]
+        )
