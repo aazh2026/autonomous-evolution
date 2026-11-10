@@ -138,21 +138,35 @@ digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 推进一版（`criteria-v3` → `criteria-v4`）。**没发布就不推进** —— 提案被拒、
 测试没过、审批没齐，版本都原地不动。
 
-## 6. 风险下限与审批数：规矩只能往严里加
+## 6. 风险下限、审批数与评审资格：规矩只能往严里加
 
 **下限钉在种类上**，因为风险是这类改动的**内在属性**，不是项目的心情：
 
-| 种类 | 风险下限 | 最少独立审批 | 为什么 |
-| --- | --- | --- | --- |
-| `code_change` | 中 | 1 | 改自己的实现代码 |
-| `configuration_change` | 中 | 1 | 阈值、超时、并发数 |
-| `dependency_change` | 高 | 1 | 换依赖可能换进新的攻击面 |
-| `acceptance_criteria_change` | 高 | **2** | **改判罚标准** |
-| `policy_change` | 高 | **2** | 改决策策略、权限策略、预算限制 |
-| `governance_change` | 高 | **2** | **改"谁能批、怎么批"** |
+| 种类 | 风险下限 | 最少独立审批 | 要求的评审资格 | 为什么 |
+| --- | --- | --- | --- | --- |
+| `code_change` | 中 | 1 | （无） | 改自己的实现代码 |
+| `configuration_change` | 中 | 1 | （无） | 阈值、超时、并发数 |
+| `dependency_change` | 高 | **2** | **security** | 换依赖可能换进新的攻击面 |
+| `architecture_change` | 高 | **2** | **architecture** | 改分层、改边界 |
+| `acceptance_criteria_change` | 高 | **2** | **governance** | **改判罚标准** |
+| `policy_change` | 高 | **2** | **governance** | 改决策策略、权限策略、预算限制 |
+| `governance_change` | 高 | **2** | **governance** | **改"谁能批、怎么批"** |
 
 **改标准、改策略、改治理 —— 这三类动的都是"谁说了算"。** 一个人既提标准又批
 标准，等于自己给自己定规矩又自己验收。**所以这三类一个人批不够。**
+
+**"有几个人批了"回答不了"这几个人看得懂吗"。** 让一个只懂测试的人去批改架构
+的改动，等于没批 —— 所以每一类改动还有一条**资格下限**：改依赖要安全评审人，改
+架构要架构评审人，改标准、改策略、改治理要治理评审人。
+
+> **为什么资格下限也住在提案实体里，而不是只在流程层查。** 实体这一层是**纵深防
+> 御** —— 它让"漏写一步"在代码里就发生不了。**要是资格只在流程层查，那么任何
+> 绕过流程直接调用 `publish` 的路径就绕过了它。** 实体层按审批记录上记着的资格
+> 判，流程层再拿**在册的评审人名册**核一遍（`orchestration.high_risk_review` 干
+> 的就是这件事）—— **两层都要过**。
+
+**没提要求 = 用天生的下限**，而不是"什么都不要"。**规矩只能往严里加**：减去一项
+资格，改架构就没人看得懂了 —— 那样的一份提案**建不出来**（`ValueError`）。
 
 **项目可以在下限之上再抬**（`core/policy/self_evolution.py`），但**只能往严里
 加**：写一个比下限更松的值，**策略压根建不出来**（`ValueError`，不是被悄悄忽
@@ -212,13 +226,13 @@ digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 ## 9. 实测
 
-### 9.1 纯函数层（T1，54 条）
+### 9.1 纯函数层（T1，65 条）
 
 | 文件 | 条数 | 钉的是什么 |
 | --- | --- | --- |
-| `tests/unit/evolution/test_proposal.py` | 31 | **只能以草稿建出来**、**占位写法不算**、**版本形状定死**、**风险与审批数不得低于下限**、**状态机一步都不能跳**、**自己测自己/自己批自己**、**测的批的必须是这一版**、**拒绝是粘的**、**发布只有一条路** |
+| `tests/unit/evolution/test_proposal.py` | 40 | **只能以草稿建出来**、**占位写法不算**、**版本形状定死**、**风险与审批数不得低于下限**、**每一类改动的资格下限**、**没提要求就用下限**、**资格只能往严里加**、**没人看得懂就发不出去**、**状态机一步都不能跳**、**自己测自己/自己批自己**、**测的批的必须是这一版**、**拒绝是粘的**、**发布只有一条路** |
 | `tests/unit/policy/test_self_evolution.py` | 9 | **治理三类天生高风险**、**默认按下限**、**往松了写就是建不出来**、**取更严的那个** |
-| `tests/unit/orchestration/test_self_evolution.py` | 14 | **走完全程才发布**、**审计留痕**、**没批过不许发**、**伪造"已审批"发不出去**、**偷改内容发不出去**、**标准变了发不出去**、**提案人批自己不算数**、**拒过发不出去**、**审计写不进去就不发**、**改标准的那一类版本推进一版** |
+| `tests/unit/orchestration/test_self_evolution.py` | 16 | **走完全程才发布**、**审计留痕**、**没批过不许发**、**伪造"已审批"发不出去**、**偷改内容发不出去**、**标准变了发不出去**、**提案人批自己不算数**、**拒过发不出去**、**审计写不进去就不发**、**改标准的那一类版本推进一版**、**没人看得懂就发不出去** |
 
 **全绿**：
 
@@ -226,7 +240,7 @@ digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 .venv/bin/python -m pytest tests/unit/evolution/test_proposal.py \
   tests/unit/policy/test_self_evolution.py \
   tests/unit/orchestration/test_self_evolution.py -q
-# 54 passed
+# 65 passed
 ```
 
 ### 9.2 伪造路径是**真的被测过**的
@@ -253,12 +267,19 @@ object.__setattr__(clone, "status", ProposalStatus.APPROVED)  # 伪造"已审批
 （`disallow_any_explicit`）在这几个新模块上**全绿**：
 
 ```bash
-.venv/bin/python -m ruff check core/evolution/proposal.py core/evolution/placeholders.py \
+.venv/bin/python -m ruff check core/evolution/common.py core/evolution/risk.py \
+  core/evolution/proposal.py core/evolution/placeholders.py \
   core/policy/self_evolution.py orchestration/self_evolution.py
-.venv/bin/python -m mypy core/evolution/proposal.py core/evolution/placeholders.py \
+.venv/bin/python -m mypy core/evolution/common.py core/evolution/risk.py \
+  core/evolution/proposal.py core/evolution/placeholders.py \
   core/policy/self_evolution.py orchestration/self_evolution.py
-# Success: no issues found in 4 source files
+# Success: no issues found in 6 source files
 ```
+
+> **为什么多出两个模块。** `core/evolution/common.py`（摘要、空串、占位、资格去重）
+> 与 `core/evolution/risk.py`（评审资格词汇与下限）**是 TASK-P4-060 那一层抽出来
+> 的叶子模块** —— 两边都要用同一套"算摘要""查占位""去重资格"的规矩，而各写一份
+> 迟早会对不上。**它们不依赖任何东西**，所以放在最底下，谁都能引。
 
 > **为什么这几个模块不用 Pydantic 模型。** 仓库里的 `disallow_any_explicit` 是全
 > 局开的，而 Pydantic v2 继承来的 `BaseModel.__init__(**data: Any)` 会让每一个
@@ -305,7 +326,7 @@ object.__setattr__(clone, "status", ProposalStatus.APPROVED)  # 伪造"已审批
 | R-104（防止系统自改验收标准） | §5 —— **标准版本治理外置 + 审批绑版本 + 改标准要两份审批** | §9.1 的 `TestCriteriaVersion` |
 | design.md §7 | §1、§2 的四条硬约束 | 54 条 |
 | TASK-P1-011（治理外置 + 变更需审批） | `CriteriaPort` —— **版本不住在策略对象里** | 9 条 |
-| TASK-P4-060（高风险变更治理） | §6 的**下限**与"只许更严"；**独立评审的那一端还没接** | 见 §10 第 4 条 |
+| TASK-P4-060（高风险变更治理） | §6 的**下限**、**资格下限**与"只许更严"；**独立评审的那一端在 `docs/architecture/high-risk-review.md`** | 65 条 + 那边�� 47 条 |
 
 ## 12. 复现
 
