@@ -33,11 +33,26 @@ import pytest
 from executors.base import CodingAgentAdapter
 from executors.claude_code import ClaudeCodeAdapter
 from executors.codex import CodexAdapter
+from executors.gemini_cli import GeminiCliAdapter
+from executors.opencode import OpenCodeAdapter
 from tests.unit.executors.doubles import InlineAdapter, SessionAdapter
-from tests.unit.executors.stub_cli import claude_events, write_stub
+from tests.unit.executors.stub_cli import (
+    claude_events,
+    codex_events,
+    gemini_cli_events,
+    opencode_events,
+    write_stub,
+)
 
 #: 参与契约测试的实现。
-ADAPTERS: tuple[str, ...] = ("inline", "session", "claude-code", "codex")
+ADAPTERS: tuple[str, ...] = (
+    "inline",
+    "session",
+    "claude-code",
+    "codex",
+    "gemini-cli",
+    "opencode",
+)
 
 #: 上一条用例的节点 ID —— 漏了资源时要说清楚**是谁**漏的。
 _PREVIOUS_ITEM_ID: dict[str, str] = {"nodeid": ""}
@@ -110,7 +125,16 @@ def adapter(request: pytest.FixtureRequest, tmp_path: Path) -> CodingAgentAdapte
         return InlineAdapter()
     if kind == "session":
         return SessionAdapter()
-    script = write_stub(tmp_path / kind, events=claude_events())
     if kind == "claude-code":
+        script = write_stub(tmp_path / kind, events=claude_events())
         return ClaudeCodeAdapter(binary=str(script))
-    return CodexAdapter(binary=str(script))
+    if kind == "codex":
+        script = write_stub(tmp_path / kind, events=codex_events())
+        return CodexAdapter(binary=str(script))
+    if kind == "gemini-cli":
+        script = write_stub(tmp_path / kind, events=gemini_cli_events())
+        return GeminiCliAdapter(binary=str(script))
+    if kind == "opencode":
+        script = write_stub(tmp_path / kind, events=opencode_events())
+        return OpenCodeAdapter(binary=str(script))
+    raise ValueError(f"Unknown adapter kind: {kind}")

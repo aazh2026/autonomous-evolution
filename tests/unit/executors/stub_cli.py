@@ -227,9 +227,213 @@ def claude_events(
     return events
 
 
+def codex_events(
+    *,
+    is_error: bool = False,
+    cost_usd: float | None = 0.015,
+    duration_ms: int = 150,
+    tool_calls: int = 1,
+    session_id: str = SESSION_PLACEHOLDER,
+    model: str = "codex-test",
+    usage: dict[str, int] | None = None,
+) -> list[dict[str, Any]]:
+    """一份形状与真实 Codex 一致的 NDJSON 事件流。"""
+    events: list[dict[str, Any]] = [
+        {
+            "type": "session.start",
+            "session_id": session_id,
+            "cwd": "/tmp",
+            "model": model,
+            "codex_version": "0.1.0-stub",
+        },
+        {
+            "type": "thought",
+            "content": "分析任务并准备执行",
+            "session_id": session_id,
+        },
+        {
+            "type": "message",
+            "content": "开始执行代码改动",
+            "session_id": session_id,
+        },
+    ]
+    for index in range(tool_calls):
+        call_id = f"call_{index:04d}"
+        events.append(
+            {
+                "type": "tool_call",
+                "call_id": call_id,
+                "name": "edit_file",
+                "arguments": '{"path": "README.md"}',
+                "session_id": session_id,
+            }
+        )
+        events.append(
+            {
+                "type": "tool_result",
+                "call_id": call_id,
+                "output": "ok",
+                "is_error": False,
+                "session_id": session_id,
+            }
+        )
+
+    result_event: dict[str, Any] = {
+        "type": "turn.completed",
+        "status": "failed" if is_error else "completed",
+        "is_error": is_error,
+        "duration_ms": duration_ms,
+        "message": "执行完成" if not is_error else "执行失败",
+        "session_id": session_id,
+    }
+    if cost_usd is not None:
+        result_event["total_cost_usd"] = cost_usd
+    if usage is not None:
+        result_event["usage"] = dict(usage)
+    events.append(result_event)
+    return events
+
+
+def gemini_cli_events(
+    *,
+    is_error: bool = False,
+    cost_usd: float | None = 0.02,
+    duration_ms: int = 180,
+    tool_calls: int = 1,
+    session_id: str = SESSION_PLACEHOLDER,
+    model: str = "gemini-2.0-flash",
+    usage: dict[str, int] | None = None,
+) -> list[dict[str, Any]]:
+    """一份形状与真实 Gemini CLI 一致的 NDJSON 事件流。"""
+    events: list[dict[str, Any]] = [
+        {
+            "type": "session.init",
+            "session_id": session_id,
+            "cwd": "/tmp",
+            "model": model,
+            "gemini_version": "0.1.0-stub",
+        },
+        {
+            "type": "thought",
+            "content": "正在思考如何处理任务...",
+            "session_id": session_id,
+        },
+        {
+            "type": "content",
+            "content": "我将开始执行任务变更",
+            "session_id": session_id,
+        },
+    ]
+    for index in range(tool_calls):
+        call_id = f"call_gemini_{index:04d}"
+        events.append(
+            {
+                "type": "call",
+                "call_id": call_id,
+                "name": "replace_text",
+                "arguments": '{"file": "README.md"}',
+                "session_id": session_id,
+            }
+        )
+        events.append(
+            {
+                "type": "response",
+                "call_id": call_id,
+                "output": "ok",
+                "is_error": False,
+                "session_id": session_id,
+            }
+        )
+
+    result_event: dict[str, Any] = {
+        "type": "result",
+        "status": "failed" if is_error else "completed",
+        "is_error": is_error,
+        "duration_ms": duration_ms,
+        "result": "变更已成功完成" if not is_error else "任务失败",
+        "session_id": session_id,
+    }
+    if cost_usd is not None:
+        result_event["total_cost_usd"] = cost_usd
+    if usage is not None:
+        result_event["usage"] = dict(usage)
+    events.append(result_event)
+    return events
+
+
+def opencode_events(
+    *,
+    is_error: bool = False,
+    cost_usd: float | None = 0.01,
+    duration_ms: int = 140,
+    tool_calls: int = 1,
+    session_id: str = SESSION_PLACEHOLDER,
+    model: str = "opencode-default",
+    usage: dict[str, int] | None = None,
+) -> list[dict[str, Any]]:
+    """一份形状与真实 OpenCode 一致的 NDJSON 事件流。"""
+    events: list[dict[str, Any]] = [
+        {
+            "type": "session.start",
+            "session_id": session_id,
+            "cwd": "/tmp",
+            "model": model,
+            "opencode_version": "0.1.0-stub",
+        },
+        {
+            "type": "plan",
+            "content": "制定执行计划...",
+            "session_id": session_id,
+        },
+        {
+            "type": "message",
+            "content": "开始施工",
+            "session_id": session_id,
+        },
+    ]
+    for index in range(tool_calls):
+        call_id = f"act_{index:04d}"
+        events.append(
+            {
+                "type": "action",
+                "action_id": call_id,
+                "action": "edit",
+                "args": '{"file": "README.md"}',
+                "session_id": session_id,
+            }
+        )
+        events.append(
+            {
+                "type": "observation",
+                "action_id": call_id,
+                "observation": "ok",
+                "is_error": False,
+                "session_id": session_id,
+            }
+        )
+
+    result_event: dict[str, Any] = {
+        "type": "finish",
+        "status": "failed" if is_error else "completed",
+        "is_error": is_error,
+        "duration_ms": duration_ms,
+        "result": "执行完成" if not is_error else "发生错误",
+        "session_id": session_id,
+    }
+    if cost_usd is not None:
+        result_event["total_cost_usd"] = cost_usd
+    if usage is not None:
+        result_event["usage"] = dict(usage)
+    events.append(result_event)
+    return events
+
+
 __all__ = [
     "SESSION_PLACEHOLDER",
     "claude_events",
+    "codex_events",
+    "gemini_cli_events",
+    "opencode_events",
     "read_log",
     "write_stub",
 ]

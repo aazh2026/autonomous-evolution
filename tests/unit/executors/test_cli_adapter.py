@@ -36,8 +36,17 @@ from executors.claude_code import ClaudeCodeAdapter
 from executors.claude_code.command import build_command
 from executors.cli.errors import CliNotFoundError, MalformedOutputError, SessionMismatchError
 from executors.codex import CodexAdapter
+from executors.gemini_cli import GeminiCliAdapter
+from executors.opencode import OpenCodeAdapter
 from tests.unit.executors.conftest import ADAPTERS
-from tests.unit.executors.stub_cli import claude_events, read_log, write_stub
+from tests.unit.executors.stub_cli import (
+    claude_events,
+    codex_events,
+    gemini_cli_events,
+    opencode_events,
+    read_log,
+    write_stub,
+)
 
 
 def _config(workspace: Path, *, credential_ref: str | None = None) -> SessionConfig:
@@ -422,6 +431,83 @@ class TestTheCodexSkeleton:
         assert all(event.kind == "unhandled" for event in events)
 
 
+class TestCodexAdapterExecution:
+    """TASK-P2-010 —— 验证 Codex 真实事件流能跑通 COMPLETED 结论。"""
+
+    async def test_codex_events_stream_and_complete(self, tmp_path: Path) -> None:
+        script = write_stub(tmp_path / "cli", events=codex_events(tool_calls=2, cost_usd=0.03))
+        adapter = CodexAdapter(binary=str(script))
+        session = await adapter.create_session(_config(tmp_path / "ws"))
+        await adapter.execute(_task(session.session_id))
+
+        events = [event async for event in await adapter.stream_events(session.session_id)]
+        assert [event.kind for event in events] == [
+            "session.started",
+            "message.thinking",
+            "message.assistant",
+            "tool.started",
+            "tool.completed",
+            "tool.started",
+            "tool.completed",
+            "result",
+        ]
+
+        result = await adapter.collect_result(session.session_id)
+        assert result.status is ExecutionStatus.COMPLETED
+        assert result.execution.tool_calls == 2
+        assert result.execution.cost == Decimal("0.03")
+
+
+class TestGeminiCliAdapterExecution:
+    """TASK-P2-010b —— 验证 Gemini CLI 真实事件流能跑通 COMPLETED 结论。"""
+
+    async def test_gemini_cli_events_stream_and_complete(self, tmp_path: Path) -> None:
+        script = write_stub(tmp_path / "cli", events=gemini_cli_events(tool_calls=1, cost_usd=0.02))
+        adapter = GeminiCliAdapter(binary=str(script))
+        session = await adapter.create_session(_config(tmp_path / "ws"))
+        await adapter.execute(_task(session.session_id))
+
+        events = [event async for event in await adapter.stream_events(session.session_id)]
+        assert [event.kind for event in events] == [
+            "session.started",
+            "message.thinking",
+            "message.assistant",
+            "tool.started",
+            "tool.completed",
+            "result",
+        ]
+
+        result = await adapter.collect_result(session.session_id)
+        assert result.status is ExecutionStatus.COMPLETED
+        assert result.execution.tool_calls == 1
+        assert result.execution.cost == Decimal("0.02")
+
+
+class TestOpenCodeAdapterExecution:
+    """TASK-P2-010c —— 验证 OpenCode 真实事件流能跑通 COMPLETED 结论。"""
+
+    async def test_opencode_events_stream_and_complete(self, tmp_path: Path) -> None:
+        script = write_stub(tmp_path / "cli", events=opencode_events(tool_calls=1, cost_usd=0.01))
+        adapter = OpenCodeAdapter(binary=str(script))
+        session = await adapter.create_session(_config(tmp_path / "ws"))
+        await adapter.execute(_task(session.session_id))
+
+        events = [event async for event in await adapter.stream_events(session.session_id)]
+        assert [event.kind for event in events] == [
+            "session.started",
+            "message.thinking",
+            "message.assistant",
+            "tool.started",
+            "tool.completed",
+            "result",
+        ]
+
+        result = await adapter.collect_result(session.session_id)
+        assert result.status is ExecutionStatus.COMPLETED
+        assert result.execution.tool_calls == 1
+        assert result.execution.cost == Decimal("0.01")
+
+
 class TestTheContractSuiteCoversTheCliAdapters:
     """T1 ④ —— 打桩 CLI 要跑通 ``TASK-P1-030`` 的全套契约测试。
 
@@ -432,6 +518,8 @@ class TestTheContractSuiteCoversTheCliAdapters:
     def test_both_cli_adapters_are_in_the_contract_parameterization(self) -> None:
         assert "claude-code" in ADAPTERS
         assert "codex" in ADAPTERS
+        assert "gemini-cli" in ADAPTERS
+        assert "opencode" in ADAPTERS
 
     def test_the_stub_records_what_the_cli_was_given(self, tmp_path: Path) -> None:
         """打桩 CLI 自己也要能用 —— 它记下 argv，才谈得上断言 argv。"""

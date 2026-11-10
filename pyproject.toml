@@ -114,6 +114,8 @@ ignore = [
 "executors/cli/adapter.py" = ["PLR0913"]
 "executors/claude_code/adapter.py" = ["PLR0913"]
 "executors/codex/adapter.py" = ["PLR0913"]
+"executors/gemini_cli/adapter.py" = ["PLR0913"]
+"executors/opencode/adapter.py" = ["PLR0913"]
 # Alembic 迁移是机器生成的：手写折行会与 `alembic revision` 的输出不一致，
 # 下次 autogenerate 又会打回原形。迁移文件按生成物对待。
 "migrations/versions/*.py" = ["E501"]

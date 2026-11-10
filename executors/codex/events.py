@@ -1,59 +1,275 @@
-"""Codex 的事件词汇表 —— **尚未对真实 CLI 核实**。
+"""Codex 的事件词汇表 —— 原始事件 → 统一事件。
 
-设计依据：docs/design.md §3.4（R-043）、docs/tasks.md TASK-P1-031。
+设计依据：docs/design.md §3.4（R-043：统一的是系统级任务契约，不是底层协议）；
+docs/tasks.md TASK-P2-010（多执行器接入）。
 
-**这里为什么是空的。** 与 :mod:`executors.claude_code.events` 那张实测出来的
-表相比，这张表一个字段都没有 —— 因为写它的时候这台机器上没装 codex，没有
-任何真实事件样例。
+Codex CLI 采用 NDJSON 流式事件输出，包含会话启动、思考、消息、工具调用/结果与完工事件：
+- ``session.start`` / ``session``：带 ``session_id``、``model``、``cwd``、``codex_version``；
+- ``thought`` / ``reasoning``：带思考过程文本；
+- ``message`` / ``assistant``：助手答复文本；
+- ``tool_call`` / ``function_call``：带 ``call_id``、``name``、``arguments``；
+- ``tool_result`` / ``function_result``：带 ``call_id``、``output``、``is_error``；
+- ``turn.completed`` / ``result``：带 ``status``、``is_error``、``duration_ms``、
+  ``total_cost_usd`` 与 ``usage``。
 
-**空表比猜出来的表好。** 猜错事件名，后果不是"报个错"，而是**把这次执行做
-的事记成另一件事**：猜 `"done"` 而实际是 `"thread.completed"`，一次失败的执行
-会被记成"完成了"；反过来，一次成功的执行会被记成"还在跑"。而这些错误在结果
-里**看不出来** —— 结果只说"完成了"，只有逐条比对事件才发现对不上。
-
-所以这里只做一件诚实的事：**原样记下我们不认识的事件**（``unhandled``），
-并且**不给结论**（:func:`summarize` 返回空摘要）。空摘要会被
-:func:`executors.cli.exit_codes.classify_exit` 判成"没有产出结果事件 ⇒ 失败"
-—— 这正是"我们没有证据"应有的结论。
-
-**接入时要做的三件事**（详见 :mod:`executors.codex.command` 的模块文档）：
-
-1. 装上 codex，跑一次真实调用，把完整 stdout 存下来；
-2. 把实测到的事件类型填成一张表（类型 → 统一事件种类），不确定的字段宁可
-   不映射；
-3. 把结果事件里"成功/失败""成本""时长"三个字段的位置填进 :func:`summarize`。
+不认识的事件原样记为 ``unhandled``，保证向前兼容性与诊断审计透明度。
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
+from decimal import Decimal, InvalidOperation
+from typing import cast
 
+from core.metrics.cost import TokenUsage
 from executors.cli.adapter import EventFragment, RunSummary
 from executors.cli.events import RawEvent
 
-#: 认识这条事件，但不知道它是什么。
+#: 会话开始（CLI 报告配置）。
+KIND_SESSION_STARTED: str = "session.started"
+#: 助手消息。
+KIND_MESSAGE_ASSISTANT: str = "message.assistant"
+#: 助手的思考过程。
+KIND_MESSAGE_THINKING: str = "message.thinking"
+#: 助手调用工具。
+KIND_TOOL_STARTED: str = "tool.started"
+#: 工具执行返回结果。
+KIND_TOOL_COMPLETED: str = "tool.completed"
+#: 本次执行的完工结论。
+KIND_RESULT: str = "result"
+#: 无法识别的未知事件。
 KIND_UNHANDLED: str = "unhandled"
 
 
-def map_event(raw: RawEvent) -> Sequence[EventFragment]:
-    """一条 Codex 原始事件 → 统一事件。
+def _object(value: object) -> Mapping[str, object] | None:
+    """把对象安全转换为 Mapping。"""
+    if isinstance(value, dict):
+        return cast("Mapping[str, object]", value)
+    return None
 
-    **当前只原样记下。** 见模块文档：没有实测样例时，猜出来的映射比没有
-    映射更危险。
-    """
+
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) else None
+
+
+def _integer(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    return None
+
+
+def _decimal(value: object) -> Decimal | None:
+    """金额转 Decimal（避免浮点精度累积误差）。"""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return Decimal(str(value))
+        except InvalidOperation:
+            return None
+    if isinstance(value, str):
+        try:
+            return Decimal(value)
+        except InvalidOperation:
+            return None
+    return None
+
+
+def _usage_of(raw: RawEvent) -> TokenUsage | None:
+    """从原始事件中读取 token 用量。"""
+    usage = _object(raw.get("usage"))
+    if usage is None:
+        return None
+
+    input_tokens = _integer(usage.get("prompt_tokens")) or _integer(usage.get("input_tokens"))
+    output_tokens = _integer(usage.get("completion_tokens")) or _integer(usage.get("output_tokens"))
+
+    # 读取缓存 token（支持 prompt_tokens_details 与扁平 cached_tokens 两种结构）
+    cache_read = _integer(usage.get("cached_tokens")) or _integer(
+        usage.get("cache_read_input_tokens")
+    )
+    if cache_read is None:
+        details = _object(usage.get("prompt_tokens_details"))
+        if details is not None:
+            cache_read = _integer(details.get("cached_tokens"))
+
+    cache_write = _integer(usage.get("cache_creation_input_tokens")) or 0
+
+    if input_tokens is None and output_tokens is None and cache_read is None:
+        return None
+
+    return TokenUsage(
+        input_tokens=input_tokens or 0,
+        output_tokens=output_tokens or 0,
+        cache_read_tokens=cache_read or 0,
+        cache_write_tokens=cache_write,
+    )
+
+
+def _map_session(raw: RawEvent) -> Sequence[EventFragment]:
+    return (
+        (
+            KIND_SESSION_STARTED,
+            {
+                "session_id": raw.get("session_id"),
+                "cwd": raw.get("cwd"),
+                "model": raw.get("model"),
+                "cli_version": raw.get("codex_version") or raw.get("cli_version"),
+            },
+        ),
+    )
+
+
+def _map_message(raw: RawEvent) -> Sequence[EventFragment]:
+    text = _text(raw.get("content")) or _text(raw.get("text")) or _text(raw.get("message"))
+    if text is None:
+        return ((KIND_UNHANDLED, {"raw_type": raw.type, "reason": "缺少文本内容"}),)
+    return ((KIND_MESSAGE_ASSISTANT, {"text": text}),)
+
+
+def _map_thought(raw: RawEvent) -> Sequence[EventFragment]:
+    text = _text(raw.get("content")) or _text(raw.get("text")) or _text(raw.get("thought"))
+    if text is None:
+        return ((KIND_UNHANDLED, {"raw_type": raw.type, "reason": "缺少思考内容"}),)
+    return ((KIND_MESSAGE_THINKING, {"text": text}),)
+
+
+def _map_tool_call(raw: RawEvent) -> Sequence[EventFragment]:
+    call_id = _text(raw.get("call_id")) or _text(raw.get("id"))
+    tool_name = _text(raw.get("name")) or _text(raw.get("function_name"))
+    return (
+        (
+            KIND_TOOL_STARTED,
+            {
+                "tool_name": tool_name,
+                "tool_use_id": call_id,
+                "arguments": raw.get("arguments"),
+            },
+        ),
+    )
+
+
+def _map_tool_result(raw: RawEvent) -> Sequence[EventFragment]:
+    call_id = _text(raw.get("call_id")) or _text(raw.get("tool_call_id")) or _text(raw.get("id"))
+    return (
+        (
+            KIND_TOOL_COMPLETED,
+            {
+                "tool_use_id": call_id,
+                "is_error": bool(raw.get("is_error")),
+                "content": raw.get("output") or raw.get("content"),
+            },
+        ),
+    )
+
+
+def _map_result(raw: RawEvent) -> Sequence[EventFragment]:
+    is_error = raw.get("is_error")
+    status = _text(raw.get("status"))
+    if is_error is None and status is not None:
+        is_error = status in ("failed", "error")
+
+    return (
+        (
+            KIND_RESULT,
+            {
+                "status": status,
+                "is_error": is_error,
+                "duration_ms": raw.get("duration_ms"),
+                "total_cost_usd": raw.get("total_cost_usd") or raw.get("cost_usd"),
+                "usage": raw.get("usage"),
+                "result": raw.get("message") or raw.get("result"),
+            },
+        ),
+    )
+
+
+_EVENT_DISPATCH: Mapping[str, Callable[[RawEvent], Sequence[EventFragment]]] = {
+    "session.start": _map_session,
+    "session_start": _map_session,
+    "codex.session": _map_session,
+    "thought": _map_thought,
+    "reasoning": _map_thought,
+    "thinking": _map_thought,
+    "message": _map_message,
+    "assistant_message": _map_message,
+    "response.text": _map_message,
+    "tool_call": _map_tool_call,
+    "function_call": _map_tool_call,
+    "tool_result": _map_tool_result,
+    "function_result": _map_tool_result,
+    "turn.completed": _map_result,
+    "turn_completed": _map_result,
+    "response.done": _map_result,
+}
+
+
+def map_event(raw: RawEvent) -> Sequence[EventFragment]:
+    """一条 Codex 原始事件 → 统一事件。"""
+    mapper = _EVENT_DISPATCH.get(raw.type)
+    if mapper is not None:
+        return mapper(raw)
     return ((KIND_UNHANDLED, {"raw_type": raw.type, "raw": raw.raw}),)
 
 
 def summarize(raws: Sequence[RawEvent]) -> RunSummary:
-    """整段事件流 → 摘要。
+    """整段 Codex 事件流 → 执行摘要。"""
+    is_error: bool | None = None
+    cost: Decimal | None = None
+    duration_ms: int | None = None
+    text: str | None = None
+    tool_calls = 0
+    model: str | None = None
+    usage: TokenUsage | None = None
 
-    **当前是空的。** 没有实测过结果事件里"成功/失败"在哪个字段，就不能读
-    它 —— 读错字段的后果是把失败读成成功。
-    """
-    return RunSummary()
+    for raw in raws:
+        if raw.type in ("session.start", "session_start", "codex.session"):
+            model = _text(raw.get("model")) or model
+            continue
+
+        if raw.type in ("tool_call", "function_call"):
+            tool_calls += 1
+            continue
+
+        if raw.type in ("message", "assistant_message", "response.text"):
+            text = _text(raw.get("content")) or _text(raw.get("text")) or text
+            continue
+
+        if raw.type in ("turn.completed", "turn_completed", "response.done"):
+            raw_err = raw.get("is_error")
+            status = _text(raw.get("status"))
+            if isinstance(raw_err, bool):
+                is_error = raw_err
+            elif status is not None:
+                is_error = status in ("failed", "error")
+            else:
+                is_error = False
+
+            cost = _decimal(raw.get("total_cost_usd") or raw.get("cost_usd"))
+            duration_ms = _integer(raw.get("duration_ms"))
+            text = _text(raw.get("message") or raw.get("result")) or text
+            usage = _usage_of(raw)
+
+    return RunSummary(
+        is_error=is_error,
+        cost=cost,
+        duration_ms=duration_ms,
+        text=text,
+        tool_calls=tool_calls,
+        model=model,
+        usage=usage,
+    )
 
 
 __all__ = [
+    "KIND_MESSAGE_ASSISTANT",
+    "KIND_MESSAGE_THINKING",
+    "KIND_RESULT",
+    "KIND_SESSION_STARTED",
+    "KIND_TOOL_COMPLETED",
+    "KIND_TOOL_STARTED",
     "KIND_UNHANDLED",
     "map_event",
     "summarize",
