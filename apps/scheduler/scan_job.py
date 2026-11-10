@@ -123,6 +123,38 @@ class InMemoryScanHistory:
         self._last_fingerprints = report.fingerprints
 
 
+def fresh_signals(
+    scanner: ProjectScanner,
+    scope: ScanScope,
+    history: ScanHistory,
+    *,
+    scan_id: str,
+    at: datetime,
+) -> tuple[ScanReport, tuple[ScanSignal, ...]]:
+    """扫一遍，并挑出**新出现**的信号。
+
+    :param scanner: 扫描器。
+    :param scope: 扫描范围。
+    :param history: 扫描历史 —— 用来判断哪些信号是新的。
+    :param scan_id: 这次扫描的标识。
+    :param at: 这次扫描的时刻。
+    :return: (报告, 新出现的信号)。
+
+    **"新旧"这件事只有一处知道，所以只有这一处能算。** 定时扫描作业
+    （:class:`ScheduledScanner`）与定时触发源（:class:`apps.triggers.sources.
+    ScanScheduleSource`）都要"扫一遍、比一比、记下来"—— **两处各写一遍，
+    迟早有一处改了另一处没改**，于是"什么算新问题"在系统里有了两个答案。
+
+    **扫完就记住。** 历史在这一步就更新 —— 因为"这次扫到了什么"与"这次有
+    什么是新的"是同一次扫描的两面，中间隔着就会有人插进来再扫一遍。
+    """
+    report = scanner.scan(scope, scan_id=scan_id)
+    known = history.last_fingerprints
+    fresh = tuple(item for item in report.signals if item.fingerprint not in known)
+    history.remember(report, at=at)
+    return report, fresh
+
+
 @dataclass(frozen=True, slots=True)
 class ScheduledScanOutcome:
     """一次定时扫描的结果。
@@ -215,10 +247,13 @@ class ScheduledScanner:
         :param scan_id: 这次扫描的标识。
         """
         now = self._clock()
-        report = self._scanner.scan(self._scope, scan_id=scan_id)
-        known = self._history.last_fingerprints
-        fresh = tuple(item for item in report.signals if item.fingerprint not in known)
-        self._history.remember(report, at=now)
+        report, fresh = fresh_signals(
+            self._scanner,
+            self._scope,
+            self._history,
+            scan_id=scan_id,
+            at=now,
+        )
         if not fresh:
             return ScheduledScanOutcome(
                 report=report,
@@ -264,4 +299,5 @@ __all__ = [
     "ScanTriggerPort",
     "ScheduledScanOutcome",
     "ScheduledScanner",
+    "fresh_signals",
 ]
