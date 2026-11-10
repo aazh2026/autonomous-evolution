@@ -78,9 +78,28 @@ def _die_here(options: Options, point: str) -> None:
 
 
 def _git(repo: Path, *args: str) -> str:
-    """跑一条 git 命令。"""
+    """跑一条 git 命令。
+
+    **把身份钉死。** `git commit` 需要提交者身份，没配就直接退出 128
+    （"Author identity unknown"）—— CI 的 runner 上没有全局身份，
+    本地有，于是**本地绿的、CI 红的**。这里显式钉上，跟
+    `tests/integration/test_resume_after_kill.py` 里那个 `_git` 一致。
+    """
     result = subprocess.run(
-        ["git", "-C", str(repo), *args],
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.email=ases@example.invalid",
+            "-c",
+            "user.name=ases",
+            "-c",
+            "commit.gpgsign=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            *args,
+        ],
         capture_output=True,
         text=True,
         check=True,

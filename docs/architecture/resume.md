@@ -114,7 +114,7 @@
 
 ```python
 async def _probe_commit() -> ProbeOutcome:
-    if _has_effect_commit(repo):      # git log 里有没有那个提交
+    if _has_effect_commit(repo):  # git log 里有没有那个提交
         return ProbeOutcome.COMPLETED
     return ProbeOutcome.NOT_COMPLETED
 ```
@@ -174,10 +174,13 @@ from orchestration.resume import ResumableStepRunner, Step
 ledger = PostgresStepEffectLedger(session_factory, lease_seconds=60)
 runner = ResumableStepRunner(ledger, attempt=attempt)
 
-report = await runner.run(task_id, [
-    Step(name="commit", run=_commit, probe=_probe_commit),
-    Step(name="publish", run=_publish, probe=_probe_publish),
-])
+report = await runner.run(
+    task_id,
+    [
+        Step(name="commit", run=_commit, probe=_probe_commit),
+        Step(name="publish", run=_publish, probe=_probe_publish),
+    ],
+)
 
 if report.halted:
     ...  # 停住了 —— 看 report.halted_step 与那一步的 detail
