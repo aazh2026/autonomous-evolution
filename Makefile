@@ -62,6 +62,15 @@ demo-approval: ## 人工审批门演示（验证通过 → 审批 → 合并到 
 demo-m1: ## M1 单轮闭环演示（候选 → 决策 → 任务 → 执行 → 独立验证 → 记录）
 	uv run python -m scripts.demo_m1_cycle
 
+# M2 自主闭环演示（TASK-P1-082 的 T3 验收）：
+# 只给 project.yaml，系统自主发掘候选、决策不行动（defer）、写代码修复缺陷、
+# 独立验证、计算目标达成度增量并更新差距。
+#
+# 同样需要真实 PostgreSQL（先 make up）。
+.PHONY: demo-m2
+demo-m2: ## M2 自主闭环演示（自主发掘 → 不行动验证 → 修复 → 目标增量驱动）
+	uv run python -m scripts.demo_m2_cycle
+
 # ---------- 本地环境 ----------
 
 # 启动等待时间（秒）。

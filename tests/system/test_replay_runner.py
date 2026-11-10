@@ -50,10 +50,11 @@ from tests.system.replay_runner import (
 #: 脚本目录 —— 三份样例脚本放在那儿。
 SCRIPT_DIR = Path(__file__).parent / "scripts"
 
-#: 三份脚本各演一条路。
+#: 四份脚本各演一条路。
 HAPPY_PATH = SCRIPT_DIR / "happy_path.yaml"
 VERIFICATION_FAILURE = SCRIPT_DIR / "verification_failure.yaml"
 CRITIC_VETO = SCRIPT_DIR / "critic_veto.yaml"
+M2_CYCLE = SCRIPT_DIR / "m2_cycle.yaml"
 
 
 async def _replay(path: Path) -> tuple[ReplayScript, StubJournal, RecordingJournal]:
@@ -480,3 +481,31 @@ class TestScriptedExecutor:
         third = await _execute_once(executor, attempt=3)
 
         assert first.artifacts.commit == third.artifacts.commit
+
+
+class TestM2Replay:
+    """TASK-P1-082 M2 自主闭环脚本的回放测试。"""
+
+    async def test_m2_replay_repeatable(self) -> None:
+        """同一 M2 脚本回放两次，状态迁移序列与留痕完全相同。"""
+        script = ReplayScript.from_yaml(M2_CYCLE)
+        first = await ReplayRunner(
+            journal=StubJournal(),
+            session_journal=RecordingJournal(),
+        ).replay(script)
+        second = await ReplayRunner(
+            journal=StubJournal(),
+            session_journal=RecordingJournal(),
+        ).replay(script)
+        assert first == second
+        assert first.digest == second.digest
+
+    async def test_m2_replay_has_discovery_and_inaction(self) -> None:
+        """M2 脚本包含两条自主发掘的候选：一条 record，一条 defer。"""
+        _, journal, _ = await _replay(M2_CYCLE)
+        assert len(journal.candidates) == 2
+        round_ = journal.decisions[0]
+        recorded_ids = [r.candidate_id for r in round_.recorded]
+        inaction_ids = [r.candidate_id for r in round_.no_action]
+        assert "CAND-M2-001" in recorded_ids
+        assert "CAND-M2-002" in inaction_ids

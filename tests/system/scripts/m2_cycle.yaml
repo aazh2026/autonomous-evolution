@@ -1,0 +1,112 @@
+# 演练脚本 —— M2 自主闭环的那条链（TASK-P1-082 回放）。
+#
+# 包含两条自主发掘的候选：
+# 1. CAND-M2-001：确凿缺陷，走向 record -> 派生任务 T-M2-001 -> 执行与独立验证通过；
+# 2. CAND-M2-002：投机性架构设想，低置信度 (<0.3) 触发 defer -> 证明不行动机制真实生效。
+project_id: pilot-tinylib-m2-replay
+cycle_id: cycle-m2-replay-0001
+trigger: schedule
+
+observation:
+  commit: "3333333333333333333333333333333333333333"
+  branch: main
+  goal: 自主发掘并闭环修复缺陷
+  tech_stack: [python, postgresql]
+  metrics:
+    line_coverage: 0.740385
+    cli_module_coverage: 0.0
+    known_defects_fixed: 0
+    test_count: 43
+  latest_snapshot_version: 0
+
+snapshot: snap-m2-replay-0001
+
+gaps:
+  - id: gap-m2-001
+    description: PILOT-001 空输入异常
+    severity: medium
+    evidence:
+      - kind: file
+        ref: src/tinylib/cli.py
+        note: stats 分支没有空输入守卫，直接把空序列交给 mean()
+      - kind: file
+        ref: known_issues/test_known_issues.py
+        note: PILOT-001 的复现用例
+  - id: gap-m2-002
+    description: 引入异步事件循环以提高批量统计吞吐量
+    severity: low
+    evidence:
+      - kind: file
+        ref: src/tinylib/cli.py
+        note: CLI 入口当前完全基于同步阻塞实现
+
+candidates:
+  - id: CAND-M2-001
+    category: quality
+    title: "PILOT-001: test_the_cli_reports_an_empty_stats_input_instead_of_crashing"
+    hypothesis: 空输入是一句用法错误，不该是一段 traceback
+    expected_outcome:
+      - "cli.main(['stats', '']) 返回 2，不再抛 ValueError"
+    risk: low
+    confidence: "0.90"
+    estimated_effort: 0.5d
+    evidence:
+      - kind: file
+        ref: src/tinylib/cli.py
+        note: stats 分支没有空输入守卫，直接把空序列交给 mean()
+      - kind: file
+        ref: known_issues/test_known_issues.py
+        note: PILOT-001 的复现用例
+  - id: CAND-M2-002
+    category: architecture
+    title: "PILOT-SPEC-001: 引入异步事件循环以提高批量统计吞吐量"
+    hypothesis: 异步事件循环可能对大规模数据统计带来吞吐量收益，但目前缺少基准数据且可能触碰非目标约束
+    expected_outcome:
+      - "评估异步事件循环对 CLI 的影响并补充性能基准"
+    risk: high
+    confidence: "0.25"
+    estimated_effort: 3d
+    evidence:
+      - kind: file
+        ref: src/tinylib/cli.py
+        note: CLI 入口当前完全基于同步阻塞实现
+
+scores:
+  - candidate_id: CAND-M2-001
+    value: "0.70"
+    impact: "0.60"
+    urgency: "0.50"
+    cost: "0.30"
+  - candidate_id: CAND-M2-002
+    value: "0.40"
+    impact: "0.30"
+    urgency: "0.20"
+    cost: "0.80"
+
+drafts:
+  - key: T-M2-001
+    candidate_id: CAND-M2-001
+    task_type: bugfix
+    title: "PILOT-001: test_the_cli_reports_an_empty_stats_input_instead_of_crashing"
+    description: 空输入是一句用法错误，不该是一段 traceback
+    depends_on: []
+
+critic:
+  veto: false
+  check: evidence_sufficient
+  summary: 候选 CAND-M2-001 审查通过
+
+attempts:
+  - status: completed
+    changed_files: 3
+    branch: agent/T-M2-001
+    commit: "4444444444444444444444444444444444444444"
+    cost: "0.631445"
+
+verifications:
+  - verdict: passed
+    reasons: []
+
+failure_category: auto_repairable
+repair_budget: 3
+
