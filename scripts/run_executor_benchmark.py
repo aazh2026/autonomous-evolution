@@ -96,6 +96,26 @@ _TRANSIENT_MARKERS: tuple[str, ...] = (
     "稍后重试",
 )
 
+#: **配额耗尽**的说法 —— 这跟"忙不过来"是两回事。
+#:
+#: 实测：MiniMax 的 OpenAI 兼容端点返回 ``429`` + ``"已达到 Token Plan 用量
+#: 上限"``。429 看着像限流，但它是**额度用完了** —— 15 秒后重试，额度还是那个
+#: 额度，重试三次只会白白多烧两遍调用。
+#:
+#: **所以配额耗尽不重试，而是停下来。** 补了额度再接着跑，已完成的不会重来。
+_QUOTA_MARKERS: tuple[str, ...] = (
+    "用量上限",
+    "额度用尽",
+    "余额不足",
+    "积分不足",
+    "quota",
+    "insufficient_quota",
+    "insufficient balance",
+    "insufficient funds",
+    "credit balance is too low",
+    "billing",
+)
+
 #: 原始输出存盘时留多少字 —— 够查因，又不至于把仓库塞满。
 OUTPUT_LIMIT: int = 4000
 
@@ -185,8 +205,13 @@ def is_transient_failure(record: RunRecord) -> bool:
     "它行"，而这次评测要量的恰恰是能力。
 
     **"模型没做对"也不算。** 那是 FAILED，不是 NOT_RUN，根本不进这个判断。
+
+    **配额耗尽也不算。** 它也报 429，但它是"没额度了" —— 重试不会凭空多出
+    额度，只会把同样的失败再烧两遍。配额的事交给 :func:`is_quota_exhausted`。
     """
     if record.outcome is not RunOutcome.NOT_RUN:
+        return False
+    if is_quota_exhausted(record):
         return False
     haystack = f"{record.detail}\n{record.output}".lower()
     if any(marker in haystack for marker in _TRANSIENT_MARKERS):
@@ -195,6 +220,22 @@ def is_transient_failure(record: RunRecord) -> bool:
     if status is None:
         return False
     return status == _STATUS_TOO_MANY_REQUESTS or status >= _STATUS_SERVER_ERROR
+
+
+def is_quota_exhausted(record: RunRecord) -> bool:
+    """这次失败是不是**额度用完了**。
+
+    **和"忙不过来"分开，因为处理方式不一样。** 忙不过来等一会儿就好，额度用完
+    等多久都没用 —— 得先有人去补额度。
+
+    **实测踩过的坑**：MiniMax 报的是 ``429`` + ``"已达到 Token Plan 用量上
+    限"``。429 看着像限流，按限流去重试，每次都还是同一句"额度用完了"，三次
+    重试等于把失败多烧两遍。
+    """
+    if record.outcome is not RunOutcome.NOT_RUN:
+        return False
+    haystack = f"{record.detail}\n{record.output}".lower()
+    return any(marker in haystack for marker in _QUOTA_MARKERS)
 
 
 def _api_error_status(output: str) -> int | None:
@@ -249,14 +290,28 @@ def cost_from_payloads(text: str) -> Decimal | None:
 
 
 def opencode_cost(text: str) -> Decimal | None:
-    """OpenCode 的成本 —— 但 antigravity 这条路**没有价目表**。
+    """OpenCode 的成本 —— 但这条路上它**没有价目表**。
 
     **0 不是免费，是没标价。** OpenCode 对不在它价目表里的模型一律报 0。
     把这个 0 当成本记上去，看板上就会冒出一条"OpenCode 便宜到离谱"的假差异
     —— 那是记账口径的差别，不是能力差别。所以这里记 ``None``（未计价），
     成本那一格写"无样本"。
+
+    **取最后一个 ``step_finish`` 的成本** —— 与 token 同一个道理，那也是累计
+    值。
     """
-    value = cost_from_payloads(text)
+    value: Decimal | None = None
+    for payload in json_payloads(text):
+        part = payload.get("part")
+        if not isinstance(part, dict):
+            continue
+        raw = part.get("cost")
+        if raw is None:
+            continue
+        try:
+            value = Decimal(str(raw))
+        except InvalidOperation:
+            continue
     if value is not None and value == 0:
         return None
     return value
@@ -325,18 +380,23 @@ def claude_tokens(text: str) -> TokenUsage | None:
     """Claude Code 的 token 用量。
 
     **``input_tokens`` 不含缓存命中** —— 缓存读、缓存写是另外两个字段。
+
+    **取最后一个带 ``usage`` 的载荷。** Claude Code 的 ``result`` 消息报的是整
+    场会话的**累计**用量；万一输出里混进了别的带 ``usage`` 的消息，累加会被
+    算两遍，所以只认最后一份。
     """
+    usage: TokenUsage | None = None
     for payload in json_payloads(text):
-        usage = payload.get("usage")
-        if not isinstance(usage, dict):
+        block = payload.get("usage")
+        if not isinstance(block, dict):
             continue
-        return TokenUsage(
-            input=_as_int(usage.get("input_tokens")) or 0,
-            output=_as_int(usage.get("output_tokens")) or 0,
-            cache_read=_as_int(usage.get("cache_read_input_tokens")) or 0,
-            cache_write=_as_int(usage.get("cache_creation_input_tokens")) or 0,
+        usage = TokenUsage(
+            input=_as_int(block.get("input_tokens")) or 0,
+            output=_as_int(block.get("output_tokens")) or 0,
+            cache_read=_as_int(block.get("cache_read_input_tokens")) or 0,
+            cache_write=_as_int(block.get("cache_creation_input_tokens")) or 0,
         )
-    return None
+    return usage
 
 
 def codex_tokens(text: str) -> TokenUsage | None:
@@ -344,30 +404,37 @@ def codex_tokens(text: str) -> TokenUsage | None:
 
     **Codex 的 ``input_tokens`` 含缓存命中** —— 所以要把命中的那部分减出来，
     否则缓存会被算两遍钱。
+
+    **取最后一个 ``turn.completed``。** 一次 ``codex exec`` 是一轮；万一输出
+    里有多轮，取最后一份 —— 前面几轮的数在最后一轮里已经算过了。
     """
+    usage: TokenUsage | None = None
     for payload in json_payloads(text):
         if payload.get("type") != "turn.completed":
             continue
-        usage = payload.get("usage")
-        if not isinstance(usage, dict):
+        block = payload.get("usage")
+        if not isinstance(block, dict):
             continue
-        total_input = _as_int(usage.get("input_tokens")) or 0
-        cached = _as_int(usage.get("cached_input_tokens")) or 0
-        return TokenUsage(
+        total_input = _as_int(block.get("input_tokens")) or 0
+        cached = _as_int(block.get("cached_input_tokens")) or 0
+        usage = TokenUsage(
             input=max(total_input - cached, 0),
-            output=_as_int(usage.get("output_tokens")) or 0,
+            output=_as_int(block.get("output_tokens")) or 0,
             cache_read=cached,
             cache_write=0,
         )
-    return None
+    return usage
 
 
-def opencode_tokens(text: str) -> TokenUsage | None:
-    """OpenCode 的 token 用量。
+def token_steps(text: str) -> list[dict[str, int]]:
+    """把每一步的 token 快照抠出来 —— **每一步一行。**
 
-    **token 数挂在 ``step_finish`` 事件的 ``part.tokens`` 里** —— 输入、输出、
-    推理、缓存读写各占一格，其中输入**不含**缓存读。
+    **为什么留这份逐步明细。** OpenCode 的 ``step_finish`` 里塞了两种语义
+    （增量与累计混在一起），搞错一次就要重跑 27 次真任务才能纠正。而原始输出
+    是截断的，事后翻不回来。**把每一步的数原样存进日志，口径再改就能直接重
+    算，不必重跑。**
     """
+    steps: list[dict[str, int]] = []
     for payload in json_payloads(text):
         part = payload.get("part")
         if not isinstance(part, dict):
@@ -377,13 +444,52 @@ def opencode_tokens(text: str) -> TokenUsage | None:
             continue
         cache = tokens.get("cache")
         cache = cache if isinstance(cache, dict) else {}
-        return TokenUsage(
-            input=_as_int(tokens.get("input")) or 0,
-            output=_as_int(tokens.get("output")) or 0,
-            cache_read=_as_int(cache.get("read")) or 0,
-            cache_write=_as_int(cache.get("write")) or 0,
+        steps.append(
+            {
+                "input": _as_int(tokens.get("input")) or 0,
+                "output": _as_int(tokens.get("output")) or 0,
+                "reasoning": _as_int(tokens.get("reasoning")) or 0,
+                "cache_read": _as_int(cache.get("read")) or 0,
+                "cache_write": _as_int(cache.get("write")) or 0,
+            }
         )
-    return None
+    return steps
+
+
+def opencode_tokens(text: str) -> TokenUsage | None:
+    """OpenCode 的 token 用量。
+
+    **token 数挂在 ``step_finish`` 事件的 ``part.tokens`` 里** —— 输入、输出、
+    推理、缓存读写各占一格，其中输入**不含**缓存读。
+
+    **这里有两种语义，必须分开处理。** 抓了一次完整的事件流逐字段对过：
+
+    - ``input`` / ``output`` / ``reasoning`` 是**每一步的增量** —— 第一次调用
+      报 ``input 35009``（首次进模型的系统提示 + 工具 + 提问），下一步就掉到
+      ``input 141``；``output`` 也会从 75 掉回 45。**它们要加起来。**
+    - ``cache.read`` 是**累计值** —— 1956 → 36964 → 37104 → 37224 → 37315，一路
+      只增不减。**它取最后一个就对了。**
+
+    原因也讲得通：每一步都要把整段对话再送一遍，绝大部分命中缓存。所以"没命中
+    缓存的那部分"是每步新增的少量，而"从缓存读了多少"是整场累加。
+
+    **注意 ``total`` 那格不能信。** 它是"本步的 input + output + reasoning +
+    累计的 cache.read"拼出来的，既不是本步的总量，也不是整场的总量 —— 所以
+    整场总量自己算，不用它。
+
+    **推理 token 算进输出。** ``reasoning`` 是独立一格，但各家都按输出价计
+    费，Claude Code 与 Codex 的输出计数里也已经含了推理。不并进去，就是让
+    OpenCode 白赚一截便宜。
+    """
+    steps = token_steps(text)
+    if not steps:
+        return None
+    return TokenUsage(
+        input=sum(step["input"] for step in steps),
+        output=sum(step["output"] + step["reasoning"] for step in steps),
+        cache_read=steps[-1]["cache_read"],
+        cache_write=steps[-1]["cache_write"],
+    )
 
 
 def claude_argv(_workspace: str, prompt: str, model: str) -> tuple[str, ...]:
@@ -458,9 +564,28 @@ def gemini_argv(_workspace: str, prompt: str) -> tuple[str, ...]:
     return ("gemini", "--approval-mode", "yolo", "-o", "json", prompt)
 
 
-def opencode_argv(_workspace: str, prompt: str, model: str) -> tuple[str, ...]:
-    """OpenCode 的命令行。"""
-    return ("opencode", "run", "--format", "json", "--auto", "-m", model, prompt)
+def opencode_argv(workspace: str, prompt: str, model: str) -> tuple[str, ...]:
+    """OpenCode 的命令行。
+
+    **``--dir`` 是必须的，不是可选的。** OpenCode **不认进程的 cwd** —— 它自己
+    去找"项目"，找不到就落到它记住的那个上。实测：不带 ``--dir`` 时，它把改动
+    落在了**真正的试点仓库**上（仓库根目录），而不是工作区副本里。
+
+    那不是小毛病：**工作区是从源仓库拷出来的** —— 源仓库被改了，后面的运行就
+    都建在污染过的地基上，第一次失败、后面几次成功，全是假的。
+    """
+    return (
+        "opencode",
+        "run",
+        "--format",
+        "json",
+        "--auto",
+        "-m",
+        model,
+        "--dir",
+        workspace,
+        prompt,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -630,15 +755,55 @@ def read_log(path: Path) -> list[dict[str, object]]:
 
 
 def append_log(path: Path, entry: Mapping[str, object]) -> None:
-    """追加一条原始记录。
+    """把一条原始记录写进日志。
 
     **带上时间戳** —— 报告要能看出"这些数是什么时候量的"。一周前的数和今天
     的数不是一回事。
+
+    **"没跑成"的旧记录会被顶掉。** "没跑成"不是结果，是**空缺** —— 环境修好
+    了就该重跑，重跑出来的数比"没跑成"更有价值。所以同一个
+    ``(执行器, 任务, 次数)`` 上如果已经躺着一条"没跑成"，新记录会把它替掉；
+    而"跑过了"的记录不会被替 —— 那是一次量好的数据，不该重跑。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     stamped = {**entry, "at": datetime.now(UTC).isoformat(timespec="seconds")}
+    line = json.dumps(stamped, ensure_ascii=False) + "\n"
+    if path.exists():
+        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        for index, existing in enumerate(lines):
+            parsed = _parse_entry(existing)
+            if parsed is None:
+                continue
+            if _entry_key(parsed) != _entry_key(stamped):
+                continue
+            if str(parsed.get("outcome")) == RunOutcome.NOT_RUN.value:
+                lines[index] = line
+                path.write_text("".join(lines), encoding="utf-8")
+                return
+            return
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(stamped, ensure_ascii=False) + "\n")
+        handle.write(line)
+
+
+def _parse_entry(line: str) -> dict[str, object] | None:
+    """把一行日志解成字典 —— 解不出来就当没有。"""
+    candidate = line.strip()
+    if not candidate:
+        return None
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _entry_key(entry: Mapping[str, object]) -> tuple[str, str, int]:
+    """一条记录的键 —— ``(执行器, 任务, 次数)``。"""
+    try:
+        attempt = int(str(entry.get("attempt", 0)))
+    except ValueError:
+        attempt = 0
+    return (str(entry.get("executor")), str(entry.get("task_id")), attempt)
 
 
 def _as_bool(value: object) -> bool | None:
@@ -668,6 +833,7 @@ def record_from_dict(entry: Mapping[str, object]) -> RunRecord:
         currency=str(entry["currency"]) if entry.get("currency") else None,
         tokens=_tokens_from(entry.get("tokens")),
         touched_reserved=bool(entry.get("touched_reserved", False)),
+        source_touched=bool(entry.get("source_touched", False)),
         detail=str(entry.get("detail", "")),
         output=str(entry.get("output", "")),
         retries=_as_int(entry.get("retries")) or 0,
@@ -743,6 +909,22 @@ async def run_executor(
             record = await _run_with_retries(harness, task, attempt, retries=plan.retries)
             records.append(record)
             append_log(plan.log, _entry_of(record))
+            if record.source_touched:
+                # **停下来。** 源仓库被改了 —— 工作区是从它拷的，后面的运行全都
+                # 建在污染过的地基上。继续跑出来的数是假的，而且看起来是真的。
+                raise SourceContaminatedError(
+                    f"{spec.executor} 在 {task.task_id} 第{attempt}次动了源仓库 {plan.repo}"
+                )
+            if is_quota_exhausted(record):
+                # **停下来。** 额度用完了 —— 再跑下去，一次一次都是同一句"额度用完
+                # 了"，烧的是钱，换不来一条数据。剩下的记成"没跑成"，补了额度再
+                # 接着跑（已跑完的不会重来）。
+                done.add(key)
+                raise QuotaExhaustedError(
+                    f"{spec.executor} 在 {task.task_id} 第{attempt}次撞上额度上限",
+                    completed=records,
+                    remaining=_remaining_keys(tasks, plan.attempts, done),
+                )
             done.add(key)
             print(
                 f"  [{spec.executor}] {task.task_id} 第{attempt}次：{record.outcome.value}"
@@ -750,6 +932,20 @@ async def run_executor(
                 flush=True,
             )
     return records
+
+
+def _remaining_keys(
+    tasks: Sequence[BenchmarkTask],
+    attempts: int,
+    done: set[tuple[str, str, int]],
+) -> list[tuple[str, int]]:
+    """还没跑的任务 —— ``(任务号, 第几次)``。"""
+    return [
+        (task.task_id, attempt)
+        for task in tasks
+        for attempt in range(1, attempts + 1)
+        if not any(key[1] == task.task_id and key[2] == attempt for key in done)
+    ]
 
 
 async def _run_with_retries(
@@ -780,9 +976,15 @@ async def _run_with_retries(
 
 
 def _entry_of(record: RunRecord) -> dict[str, object]:
-    """记录落盘前脱敏 —— 原始输出也要脱。"""
+    """记录落盘前脱敏 —— 原始输出也要脱。
+
+    **逐步的 token 明细一并存进去。** 口径改了要能从原始记录重算 —— 而原始
+    输出是截断的，事后翻不回来；把每一步的数原样留下，就不必为了改一次折算
+    方式重跑几十次真任务。
+    """
     entry = record.to_dict()
     entry["output"] = redact_output(record.output)
+    entry["token_steps"] = token_steps(record.output)
     return entry
 
 
@@ -828,6 +1030,40 @@ def not_run_records(
     ]
 
 
+class SourceContaminatedError(RuntimeError):
+    """执行器动了源仓库 —— **这一轮的数据不可信**。
+
+    **为什么必须停。** 工作区是源仓库的副本：源仓库被改了，后面的运行就都建
+    在污染过的地基上。第一次失败、后面几次成功 —— 全是假的，而且**看起来比
+    真结果还干净**。
+    """
+
+
+class QuotaExhaustedError(RuntimeError):
+    """额度用完了 —— **剩下的任务不用再试**。
+
+    **和"限流"是两回事。** 限流等一会儿就好；额度用完等多久都没用，得先有人
+    去补。实测 MiniMax 报的是 ``429`` + ``"已达到 Token Plan 用量上限"`` ——
+    按限流去重试，三次重试烧的是三倍的调用，换来的还是同一句"额度用完了"。
+
+    **停下来，而不是接着撞。** 已经跑完的记着（不重来），剩下的记成"没跑成"
+    —— 补了额度再跑一次，那些"没跑成"会被顶掉。
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        completed: list[RunRecord],
+        remaining: list[tuple[str, int]],
+    ) -> None:
+        super().__init__(message)
+        #: 已经跑出来的记录。
+        self.completed = completed
+        #: 还没跑的任务 —— ``(任务号, 第几次)``。
+        self.remaining = remaining
+
+
 async def main_async(args: argparse.Namespace) -> int:
     """跑一遍，出看板。"""
     repo = Path(args.repo).resolve()
@@ -860,6 +1096,9 @@ async def main_async(args: argparse.Namespace) -> int:
     done = {
         (str(entry.get("executor")), str(entry.get("task_id")), int(str(entry.get("attempt", 0))))
         for entry in read_log(log)
+        # **"没跑成"不算跑过。** 它是**空缺**，不是结果 —— 环境修好了就该重跑，
+        # 重跑出来的数比"没跑成"更有价值。跑过了的（有通过有失败）才不再重跑。
+        if str(entry.get("outcome")) != RunOutcome.NOT_RUN.value
     }
     plan = RunPlan(
         repo=repo,
@@ -892,7 +1131,37 @@ async def main_async(args: argparse.Namespace) -> int:
             all_records.extend(records)
             continue
         print(f"  探针通过（{redact(availability.detail, limit=60)}）")
-        records = await run_executor(spec, tasks, plan, done)
+        try:
+            records = await run_executor(spec, tasks, plan, done)
+        except SourceContaminatedError as error:
+            print(f"\n停了：{error}", file=sys.stderr)
+            print(
+                "源仓库被改了 —— 这一轮的数据不可信，先把源仓库恢复干净再重跑。",
+                file=sys.stderr,
+            )
+            return 3
+        except QuotaExhaustedError as error:
+            # **额度用完了 —— 停这个执行器，不是停整个矩阵。** 别的执行器可能连
+            # 的是另一个端点，额度是分开的。
+            print(f"\n停了：{error}", file=sys.stderr)
+            print(
+                f"额度用完了。{spec.executor} 剩下的 {len(error.remaining)} 次记成"
+                '"没跑成"——补了额度再跑一次，它们会被顶掉。',
+                file=sys.stderr,
+            )
+            for record in error.completed:
+                all_records.append(record)
+            for task_id, attempt in error.remaining:
+                record = RunRecord(
+                    task_id=task_id,
+                    executor=spec.executor,
+                    attempt=attempt,
+                    outcome=RunOutcome.NOT_RUN,
+                    detail="额度用完了，没跑（不是没做到）",
+                )
+                append_log(log, _entry_of(record))
+                all_records.append(record)
+            continue
         all_records.extend(records)
 
     board = _build(all_records, [spec.executor for spec in selected])

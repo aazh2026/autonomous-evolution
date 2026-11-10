@@ -300,6 +300,12 @@ class RunRecord:
     tokens: TokenUsage | None = None
     #: 执行器改动了验收文件（改不动结论，但要记下来）。
     touched_reserved: bool = False
+    #: 执行器**动了源仓库** —— 评测把被测对象改了。
+    #:
+    #: **这不是小事。** 有个执行器不认工作目录，把改动落在了真正的试点仓库
+    #: 上 —— 于是下一次运行的工作区副本是从"已经被改过"的仓库拷的，那次失败
+    #: 是假的，后面几次的成功也是假的。**测出来的数会自己骗自己。**
+    source_touched: bool = False
     #: 补充说明。
     detail: str = ""
     #: 执行的原始输出 —— 存盘要脱敏。
@@ -331,6 +337,7 @@ class RunRecord:
             "currency": self.currency,
             "tokens": self.tokens.to_dict() if self.tokens is not None else None,
             "touched_reserved": self.touched_reserved,
+            "source_touched": self.source_touched,
             "detail": self.detail,
             "output": self.output,
             "retries": self.retries,
@@ -647,9 +654,11 @@ class BenchmarkHarness:
         而装置的超时是"这轮评测该给多久" —— 后者是上限，前者只是默认值。
         """
         scoped = replace(task, timeout_seconds=self._timeout)
+        before = _snapshot_dir(self._repo)
         prepared = self._prepare(scoped, attempt)
         observation = await self._observe(scoped, prepared.path)
-        return self._judge(scoped, attempt, prepared, observation)
+        record = self._judge(scoped, attempt, prepared, observation)
+        return replace(record, source_touched=_snapshot_dir(self._repo) != before)
 
     def _prepare(self, task: BenchmarkTask, attempt: int) -> PreparedWorkspace:
         """把工作区铺好。
@@ -883,6 +892,30 @@ def _digest_dir(path: Path) -> dict[str, str]:
     }
 
 
+def _snapshot_dir(path: Path) -> dict[str, str]:
+    """整个目录的快照 —— **每个文件**都算，不只是 ``.py``。
+
+    **为什么不用 :func:`_digest_dir`。** 那个只盯着 ``.py``，是给"回归套件变没
+    变"用的；而"源仓库有没有被动过"要盯的是**任何**文件 —— 多出来的用例文件、
+    改掉的配置、删掉的说明，全都要看见。
+
+    **新增文件也算动过。** 执行器往源仓库里塞一个测试文件，比改一行源码更值得
+    警惕：那是在**改验收的战场**。
+    """
+    if not path.is_dir():
+        return {}
+    snapshot: dict[str, str] = {}
+    for item in sorted(path.rglob("*")):
+        if not item.is_file():
+            continue
+        if set(item.parts) & {"__pycache__", ".pytest_cache", ".git"}:
+            continue
+        if item.name in {".coverage", ".DS_Store"}:
+            continue
+        snapshot[str(item.relative_to(path))] = _digest_file(item)
+    return snapshot
+
+
 def _strip_xfail(source: str, test_name: str) -> str:
     """把某条用例上的 ``xfail`` 标记去掉。
 
@@ -1010,6 +1043,15 @@ class ExecutorReport:
         藏起来，看板上就只剩一个干干净净的"成功率 90%"。
         """
         return sum(run.retries for run in self.runs)
+
+    @property
+    def source_touched(self) -> int:
+        """动了源仓库的运行次数。
+
+        **这一列更要摆出来。** 动了源仓库的运行，其数据**不可信** —— 工作区是
+        从源仓库拷的，源仓库被改了，后面的运行就都建在污染过的地基上。
+        """
+        return sum(1 for run in self.runs if run.source_touched)
 
     @property
     def currency(self) -> str | None:
@@ -1221,8 +1263,8 @@ class BenchmarkBoard:
         """渲染成 Markdown 看板。"""
         header = (
             "| 执行器 | 可用率 | 成功率 | 回归率 | 成本中位数 | token 中位数 "
-            "| 耗时中位数 | 工具自报成本 | 没跑成 | 重试 |",
-            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+            "| 耗时中位数 | 工具自报成本 | 没跑成 | 重试 | 动了源仓库 |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
         )
         lines = list(header)
         for report in self.reports:
@@ -1237,6 +1279,7 @@ class BenchmarkBoard:
                 _format_distribution(report.reported_cost, report.reported_currency),
                 str(report.not_run),
                 str(report.retries),
+                str(report.source_touched),
             ]
             lines.append("| " + " | ".join(cells) + " |")
         if not self.comparisons:

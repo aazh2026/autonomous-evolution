@@ -18,17 +18,21 @@ from pathlib import Path
 
 from evaluation.executors.benchmark import RunOutcome, RunRecord, TokenUsage
 from scripts.run_executor_benchmark import (
+    append_log,
     claude_tokens,
     codex_is_error,
     codex_tokens,
     cost_from_payloads,
+    is_quota_exhausted,
     is_transient_failure,
     opencode_cost,
     opencode_tokens,
     price_table,
+    read_log,
     record_from_dict,
     redact,
     redact_output,
+    token_steps,
     write_provider_setup,
 )
 
@@ -66,6 +70,33 @@ class TestTheClaudeOutput:
 
     def test_output_without_a_usage_block_has_no_tokens(self) -> None:
         assert claude_tokens('{"type":"result","result":"ok"}') is None
+
+    def test_the_last_usage_block_wins(self) -> None:
+        """**``result`` 报的是整场会话的累计用量** —— 混进别的 ``usage`` 块时，
+        取最后一份，别把两份加起来。
+        """
+        text = "\n".join(
+            [
+                json.dumps({"type": "usage", "usage": {"input_tokens": 10, "output_tokens": 1}}),
+                json.dumps(
+                    {
+                        "type": "result",
+                        "usage": {
+                            "input_tokens": 20799,
+                            "cache_read_input_tokens": 128,
+                            "cache_creation_input_tokens": 64,
+                            "output_tokens": 3,
+                        },
+                    }
+                ),
+            ]
+        )
+
+        usage = claude_tokens(text)
+
+        assert usage is not None
+        assert usage.input == 20799
+        assert usage.output == 3
 
 
 class TestTheCodexOutput:
@@ -126,6 +157,42 @@ class TestTheCodexOutput:
 
         assert codex_is_error(text) is True
 
+    def test_the_last_turn_wins(self) -> None:
+        """**取最后一个 ``turn.completed``** —— 一次 ``codex exec`` 是一轮，
+        但输出里若混进多轮，最后一轮的数已经含了前面几轮。
+        """
+        text = "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "turn.completed",
+                        "usage": {
+                            "input_tokens": 500,
+                            "cached_input_tokens": 100,
+                            "output_tokens": 10,
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "turn.completed",
+                        "usage": {
+                            "input_tokens": 9416,
+                            "cached_input_tokens": 128,
+                            "output_tokens": 3,
+                        },
+                    }
+                ),
+            ]
+        )
+
+        usage = codex_tokens(text)
+
+        assert usage is not None
+        assert usage.input == 9288
+        assert usage.cache_read == 128
+        assert usage.output == 3
+
 
 class TestTheOpencodeOutput:
     """OpenCode —— 事件流，token 挂在 ``step_finish`` 的 ``part.tokens`` 上。"""
@@ -161,6 +228,71 @@ class TestTheOpencodeOutput:
         assert usage.cache_read == 128
         assert usage.total == 36956
 
+    def test_the_last_step_is_the_cumulative_one(self) -> None:
+        """**``step_finish`` 里有两种语义 —— 必须分开处理。**
+
+        抓了一次完整的事件流逐字段对过：
+
+        - ``input`` / ``output`` / ``reasoning`` 是**每一步的增量**（第一步
+          ``input 35009``，第二步就掉到 ``141``；``output`` 也会从 75 掉回 45）
+          —— **要加起来**；
+        - ``cache.read`` 是**累计值**（1956 → 36964 → 37104 → 37224 → 37315，
+          一路只增不减）—— **取最后一个就对了**。
+
+        下面的事件流是实测抓的（把 src/calc.py 里的加法改成减法）。
+        """
+        text = "\n".join(
+            [
+                self._step(35009, 30, 78, 1956),
+                self._step(141, 45, 0, 36964),
+                self._step(121, 75, 0, 37104),
+                self._step(92, 45, 0, 37224),
+                self._step(121, 19, 0, 37315),
+            ]
+        )
+
+        usage = opencode_tokens(text)
+
+        assert usage is not None
+        # 增量相加：35009+141+121+92+121
+        assert usage.input == 35484
+        # 输出 30+45+75+45+19，推理 78 并进来
+        assert usage.output == 214 + 78
+        # 缓存读是累计值 —— 取最后一个
+        assert usage.cache_read == 37315
+        assert usage.total == 35484 + 214 + 78 + 37315
+
+    def _step(self, inp: int, out: int, reasoning: int, cache_read: int) -> str:
+        return json.dumps(
+            {
+                "type": "step_finish",
+                "part": {
+                    "type": "step-finish",
+                    "tokens": {
+                        "total": inp + out + reasoning + cache_read,
+                        "input": inp,
+                        "output": out,
+                        "reasoning": reasoning,
+                        "cache": {"write": 0, "read": cache_read},
+                    },
+                    "cost": 0,
+                },
+            }
+        )
+
+    def test_the_reasoning_tokens_are_counted_as_output(self) -> None:
+        """**推理 token 按输出价计费** —— 不并进输出，就等于白送它一截便宜。
+
+        Claude Code 与 Codex 的输出计数里都已经含了推理；OpenCode 单列一格，
+        不并进去，三家就没法比。
+        """
+        text = self._step(100, 50, 150, 900)
+
+        usage = opencode_tokens(text)
+
+        assert usage is not None
+        assert usage.output == 200
+
     def test_a_cost_of_zero_is_not_a_free_run(self) -> None:
         """**0 不是免费，是没标价。** 记成 0，看板上就会冒出一条"这个执行器便宜
         到离谱"的假差异 —— 那是记账口径的差别。
@@ -173,6 +305,32 @@ class TestTheOpencodeOutput:
         text = json.dumps({"type": "step_finish", "part": {"cost": 0.01105878}})
 
         assert opencode_cost(text) == Decimal("0.01105878")
+
+    def test_the_last_step_carries_the_cost(self) -> None:
+        """**成本也是累计的** —— 和缓存读一个道理。"""
+        text = "\n".join(
+            [
+                json.dumps({"type": "step_finish", "part": {"cost": 0.001}}),
+                json.dumps({"type": "step_finish", "part": {"cost": 0.01105878}}),
+            ]
+        )
+
+        assert opencode_cost(text) == Decimal("0.01105878")
+
+    def test_every_step_is_kept_for_a_later_recalculation(self) -> None:
+        """**逐步明细要留在日志里** —— 原始输出是截断的，事后翻不回来。
+
+        口径改了要能重算，而重算不能靠"再跑一遍几十次真任务"。
+        """
+        text = "\n".join([self._step(35009, 30, 78, 1956), self._step(141, 45, 0, 36964)])
+
+        steps = token_steps(text)
+
+        assert len(steps) == 2
+        assert steps[0]["input"] == 35009
+        assert steps[0]["cache_read"] == 1956
+        assert steps[1]["input"] == 141
+        assert steps[1]["cache_read"] == 36964
 
 
 class TestTheProviderSetup:
@@ -357,3 +515,98 @@ class TestTheTransientFailures:
         record = self._record("not_run", "执行器报错：认证过期")
 
         assert is_transient_failure(record) is False
+
+
+class TestTheQuotaIsNotTheRateLimit:
+    """**额度用完了 ≠ 忙不过来** —— 两者的处理方式不一样。"""
+
+    def _record(self) -> RunRecord:
+        return RunRecord(
+            task_id="pilot-004",
+            executor="opencode",
+            attempt=2,
+            outcome=RunOutcome.NOT_RUN,
+            detail="执行器报错：已达到 Token Plan 用量上限",
+            output=(
+                '{"type":"error","error":{"name":"APIError","data":'
+                '{"message":"已达到 Token Plan 用量上限","statusCode":429,'
+                '"isRetryable":true}}}'
+            ),
+        )
+
+    def test_the_quota_is_recognised(self) -> None:
+        assert is_quota_exhausted(self._record()) is True
+
+    def test_the_quota_is_not_retried(self) -> None:
+        """**429 看着像限流，但额度不会因为重试而多出来。**
+
+        实测撞过一次：按限流去重试，三次重试烧掉三倍的调用，换来的还是同一句
+        "额度用完了"。
+        """
+        assert is_transient_failure(self._record()) is False
+
+    def test_a_busy_backend_is_not_a_quota_problem(self) -> None:
+        record = RunRecord(
+            task_id="pilot-004",
+            executor="opencode",
+            attempt=2,
+            outcome=RunOutcome.NOT_RUN,
+            detail="执行器报错：high demand",
+        )
+
+        assert is_quota_exhausted(record) is False
+
+    def test_a_capability_failure_is_not_a_quota_problem(self) -> None:
+        record = RunRecord(
+            task_id="pilot-004",
+            executor="opencode",
+            attempt=2,
+            outcome=RunOutcome.FAILED,
+            detail="复现用例没过",
+        )
+
+        assert is_quota_exhausted(record) is False
+
+
+class TestTheLogKeepsOneRowPerRun:
+    """**同一个 ``(执行器, 任务, 次数)`` 只留一行。**
+
+    **"没跑成"的旧记录会被顶掉** —— 它是空缺不是结果，环境修好了就该重跑。
+    **跑过了的不会被顶** —— 那是一次量好的数据。
+    """
+
+    def _entry(self, outcome: str) -> dict[str, object]:
+        return {
+            "task_id": "pilot-001",
+            "executor": "opencode",
+            "attempt": 1,
+            "outcome": outcome,
+        }
+
+    def test_a_stale_not_run_row_is_replaced(self, tmp_path: Path) -> None:
+        log = tmp_path / "runs.jsonl"
+        append_log(log, self._entry("not_run"))
+        append_log(log, self._entry("succeeded"))
+
+        entries = read_log(log)
+
+        assert len(entries) == 1
+        assert entries[0]["outcome"] == "succeeded"
+
+    def test_a_finished_row_is_never_overwritten(self, tmp_path: Path) -> None:
+        log = tmp_path / "runs.jsonl"
+        append_log(log, self._entry("failed"))
+        append_log(log, self._entry("succeeded"))
+
+        entries = read_log(log)
+
+        assert len(entries) == 1
+        assert entries[0]["outcome"] == "failed"
+
+    def test_different_runs_are_kept_apart(self, tmp_path: Path) -> None:
+        log = tmp_path / "runs.jsonl"
+        append_log(log, self._entry("not_run"))
+        append_log(log, {**self._entry("not_run"), "attempt": 2})
+        append_log(log, {**self._entry("not_run"), "task_id": "pilot-002"})
+
+        assert len(read_log(log)) == 3
