@@ -41,37 +41,16 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from decimal import Decimal
 from enum import StrEnum
-from typing import Final, Self
+from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from core.evolution.placeholders import PLACEHOLDER_DESCRIPTIONS
 from core.evolution.priority import (
     PriorityFactors,
     ScoredCandidate,
     normalize_priority,
     raw_priority,
-)
-
-#: 补充分析项里那些"占位"写法 —— 它们表示"其实没填"。
-#:
-#: 为什么单独拦这些：它们能通过"非空"检查，但信息量是零。"以后再说"必须说
-#: 清楚还要补什么（R-034 / R-035），而"待补充"恰恰是最常见的伪装 —— 它看
-#: 起来像是填了，实际上把该做的思考又推回给了下一轮。
-_PLACEHOLDER_DESCRIPTIONS: Final[frozenset[str]] = frozenset(
-    {
-        "待补充",
-        "待定",
-        "稍后再说",
-        "tbd",
-        "todo",
-        "n/a",
-        "na",
-        "none",
-        "-",
-        "--",
-        "...",
-        "无",
-    }
 )
 
 
@@ -131,7 +110,7 @@ class FollowUpAnalysis(BaseModel):
         text = value.strip()
         if not text:
             raise ValueError("补充分析项要写清楚做什么")
-        if text.lower() in _PLACEHOLDER_DESCRIPTIONS:
+        if text.lower() in PLACEHOLDER_DESCRIPTIONS:
             raise ValueError(
                 f"补充分析项不能是占位写法：{text!r} —— 「以后再说」必须说清还要补什么"
             )
