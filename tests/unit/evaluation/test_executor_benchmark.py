@@ -145,6 +145,15 @@ class FakeRunner:
     def executor(self) -> str:
         return "fake-executor"
 
+    @property
+    def model(self) -> str:
+        """这次跑的是哪个模型。
+
+        **空串表示"没记"** —— 二维能力矩阵（TASK-P4-030）按模型切片，没记模型
+        的运行切不进任何格子。
+        """
+        return ""
+
     async def run(self, _task: BenchmarkTask, workspace: Path) -> ExecutionObservation:
         self.workspaces.append(workspace)
         if self._action == "unavailable":

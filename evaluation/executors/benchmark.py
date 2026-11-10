@@ -290,6 +290,12 @@ class RunRecord:
     regressions: int | None = None
     #: 回归套件是否真的跑了。
     suite_ran: bool = False
+    #: 这次跑的是哪个模型。
+    #:
+    #: **空串表示"没记"** —— 不是"某个叫空串的模型"。二维能力矩阵（TASK-P4-030）
+    #: 要按模型切片，**没记模型的运行就切不出格子**：它们只能进"模型不明"那
+    #: 一栏，不能被算进任何一个模型的成绩里 —— 否则那张表上有几格是凭空的。
+    model: str = ""
     #: 耗时（秒）。
     duration_seconds: Decimal | None = None
     #: 成本 —— **执行器自报的**。
@@ -332,6 +338,7 @@ class RunRecord:
             "target_passed": self.target_passed,
             "regressions": self.regressions,
             "suite_ran": self.suite_ran,
+            "model": self.model,
             "duration_seconds": str(self.duration_seconds) if self.duration_seconds else None,
             "cost": str(self.cost) if self.cost is not None else None,
             "currency": self.currency,
@@ -355,6 +362,13 @@ class ExecutorRunner(Protocol):
     @property
     def executor(self) -> str:
         """执行器名字。"""
+
+    @property
+    def model(self) -> str:
+        """这次跑的是哪个模型 —— 记进每一条运行记录。
+
+        **空串表示"没记"** —— 那条运行就切不进任何一格模型成绩里。
+        """
 
     async def run(self, task: BenchmarkTask, workspace: Path) -> ExecutionObservation:
         """在 ``workspace`` 里干这个活，返回执行器侧的观测。"""
@@ -399,6 +413,13 @@ class CliSpec:
     #: **不认"模型没做对"** —— 那属于 FAILED，是能力问题。环境问题算成能力
     #: 问题，是横向评测最常见的一处造假。
     is_error: Callable[[str], bool] | None = None
+    #: 这次跑的是哪个模型 —— **记进每一条运行记录**。
+    #:
+    #: **为什么必须记。** 二维能力矩阵（TASK-P4-030）要按模型切片，而"这次跑
+    #: 的是哪个模型"这件事**只有发起运行的人知道** —— 事后从日志里猜是猜不出来的
+    #: （命令行里可能写了、也可能写在配置文件里）。不记，矩阵就有一半的格子是
+    #: 凭空的。
+    model: str = ""
 
 
 class CliRunner:
@@ -426,6 +447,10 @@ class CliRunner:
     @property
     def executor(self) -> str:
         return self._spec.executor
+
+    @property
+    def model(self) -> str:
+        return self._spec.model
 
     async def run(self, task: BenchmarkTask, workspace: Path) -> ExecutionObservation:
         """跑一次 CLI。"""
@@ -586,6 +611,10 @@ class AdapterRunner:
     def executor(self) -> str:
         return self._adapter.name
 
+    @property
+    def model(self) -> str:
+        return self._model or ""
+
     async def run(self, task: BenchmarkTask, workspace: Path) -> ExecutionObservation:
         """建会话、提交、等结果。"""
         config = SessionConfig(workspace=str(workspace), model=self._model)
@@ -718,6 +747,7 @@ class BenchmarkHarness:
             target_passed=target_passed,
             regressions=regressions,
             suite_ran=suite_ran,
+            model=self._runner.model,
             duration_seconds=observation.duration_seconds,
             cost=observation.cost,
             currency=observation.currency,
