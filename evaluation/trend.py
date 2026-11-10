@@ -372,9 +372,7 @@ class TrendBoard:
         lines.append("")
         lines.append("**— 表示算不出来（基线未建立 / 无样本），不是 0。**")
         lines.append("")
-        lines.append(
-            "曲线是**累计**口径：第 D 天的点 = 截至第 D 天为止的指标值。"
-        )
+        lines.append("曲线是**累计**口径：第 D 天的点 = 截至第 D 天为止的指标值。")
         lines.append("")
         for dimension, trends in self._grouped():
             if not trends:
@@ -406,9 +404,7 @@ class TrendBoard:
             for point in trend.points:
                 row.append(_format_point(point, trend))
             rows.append(row)
-        widths = [
-            max(_display_width(row[index]) for row in rows) for index in range(len(header))
-        ]
+        widths = [max(_display_width(row[index]) for row in rows) for index in range(len(header))]
         lines = [
             _markdown_row(rows[0], widths),
             "| " + " | ".join("-" * width for width in widths) + " |",
@@ -553,9 +549,7 @@ def _discoveries(cycles: Sequence[CycleSample], labels: LabelSet | None) -> list
     items = [item for cycle in cycles for item in cycle.discoveries]
     if labels is None:
         return items
-    return [
-        replace(item, label=labels.verdict_of(item.candidate_id)) for item in items
-    ]
+    return [replace(item, label=labels.verdict_of(item.candidate_id)) for item in items]
 
 
 def _decisions(cycles: Sequence[CycleSample], labels: LabelSet | None) -> list[DecisionRecord]:

@@ -188,10 +188,7 @@ class TestTheBoardRefusesActivityMetrics:
 
     def test_a_forbidden_metric_is_rejected(self) -> None:
         window = _window(7)
-        trends = tuple(
-            _trend(metric_id, window)
-            for metric_id in CORE_REGISTRY.metric_ids()
-        )
+        trends = tuple(_trend(metric_id, window) for metric_id in CORE_REGISTRY.metric_ids())
         trends = (*trends, _trend("task_count", window, layer=MetricLayer.DELIVERY))
 
         with pytest.raises(ForbiddenMetricError):
@@ -199,9 +196,7 @@ class TestTheBoardRefusesActivityMetrics:
 
     def test_a_core_metric_must_be_registered(self) -> None:
         window = _window(7)
-        trends = tuple(
-            _trend(metric_id, window) for metric_id in CORE_REGISTRY.metric_ids()
-        )
+        trends = tuple(_trend(metric_id, window) for metric_id in CORE_REGISTRY.metric_ids())
         trends = (*trends, _trend("made_up_metric", window, layer=MetricLayer.DELIVERY))
 
         with pytest.raises(TrendError):
@@ -210,9 +205,7 @@ class TestTheBoardRefusesActivityMetrics:
     def test_a_diagnostic_metric_must_not_be_a_core_metric(self) -> None:
         """一个量既是成绩又是背景，读者迟早会把它当成绩看。"""
         window = _window(7)
-        trends = tuple(
-            _trend(metric_id, window) for metric_id in CORE_REGISTRY.metric_ids()
-        )
+        trends = tuple(_trend(metric_id, window) for metric_id in CORE_REGISTRY.metric_ids())
         trends = (
             *trends,
             _trend("task_success_rate", window, kind=SeriesKind.DIAGNOSTIC, layer=None),
@@ -224,9 +217,7 @@ class TestTheBoardRefusesActivityMetrics:
     def test_a_curve_with_too_few_points_is_rejected(self) -> None:
         """缺的那天不会自己消失 —— 少一个点就是少一天。"""
         window = _window(7)
-        trends = tuple(
-            _trend(metric_id, window) for metric_id in CORE_REGISTRY.metric_ids()
-        )
+        trends = tuple(_trend(metric_id, window) for metric_id in CORE_REGISTRY.metric_ids())
         short = MetricTrend(
             metric_id="short_one",
             layer=MetricLayer.DELIVERY,

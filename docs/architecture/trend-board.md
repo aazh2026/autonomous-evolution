@@ -49,9 +49,9 @@
 
 ```python
 if len(trend.points) != len(days):
-    raise TrendError(...)          # 点数与窗口对不上
+    raise TrendError(...)  # 点数与窗口对不上
 if tuple(p.day for p in trend.points) != days:
-    raise TrendError(...)          # 日期对不上
+    raise TrendError(...)  # 日期对不上
 ```
 
 **没有周期的那天，点在，值与前一天相同**（累计口径），细节里写着
