@@ -1,0 +1,1542 @@
+{
+  "report": {
+    "failures": [],
+    "required_rounds": 10,
+    "rounds": [
+      {
+        "attainment_after": "0.6380",
+        "attainment_before": "0.3592",
+        "autonomous": true,
+        "checks": [
+          {
+            "name": "候选有证据",
+            "passed": true,
+            "reason": "1 条候选，每条都带证据"
+          },
+          {
+            "name": "有被采纳的决策",
+            "passed": true,
+            "reason": "采纳了 1 条决策，派生出 1 个任务"
+          },
+          {
+            "name": "有可验证的改善记录",
+            "passed": true,
+            "reason": "验收通过、合入 d54666de、达成度 0.3592 → 0.6380"
+          }
+        ],
+        "cycle_id": "cycle-lr-20261110-093809-41b92f",
+        "delta": "0.2788",
+        "improved": true,
+        "origin": "autonomous",
+        "valid": true
+      },
+      {
+        "attainment_after": "0.6786",
+        "attainment_before": "0.6380",
+        "autonomous": true,
+        "checks": [
+          {
+            "name": "候选有证据",
+            "passed": true,
+            "reason": "1 条候选，每条都带证据"
+          },
+          {
+            "name": "有被采纳的决策",
+            "passed": true,
+            "reason": "采纳了 1 条决策，派生出 1 个任务"
+          },
+          {
+            "name": "有可验证的改善记录",
+            "passed": true,
+            "reason": "验收通过、合入 e75ae2e3、达成度 0.6380 → 0.6786"
+          }
+        ],
+        "cycle_id": "cycle-lr-20261110-093812-916639",
+        "delta": "0.0406",
+        "improved": true,
+        "origin": "autonomous",
+        "valid": true
+      },
+      {
+        "attainment_after": "0.7174",
+        "attainment_before": "0.6786",
+        "autonomous": true,
+        "checks": [
+          {
+            "name": "候选有证据",
+            "passed": true,
+            "reason": "1 条候选，每条都带证据"
+          },
+          {
+            "name": "有被采纳的决策",
+            "passed": true,
+            "reason": "采纳了 1 条决策，派生出 1 个任务"
+          },
+          {
+            "name": "有可验证的改善记录",
+            "passed": true,
+            "reason": "验收通过、合入 55f79693、达成度 0.6786 → 0.7174"
+          }
+        ],
+        "cycle_id": "cycle-lr-20261110-093815-ade47b",
+        "delta": "0.0388",
+        "improved": true,
+        "origin": "autonomous",
+        "valid": true
+      },
+      {
+        "attainment_after": "0.7473",
+        "attainment_before": "0.7174",
+        "autonomous": true,
+        "checks": [
+          {
+            "name": "候选有证据",
+            "passed": true,
+            "reason": "1 条候选，每条都带证据"
+          },
+          {
+            "name": "有被采纳的决策",
+            "passed": true,
+            "reason": "采纳了 1 条决策，派生出 1 个任务"
+          },
+          {
+            "name": "有可验证的改善记录",
+            "passed": true,
+            "reason": "验收通过、合入 c7ca21ef、达成度 0.7174 → 0.7473"
+          }
+        ],
+        "cycle_id": "cycle-lr-20261110-093817-9bb3f4",
+        "delta": "0.0299",
+        "improved": true,
+        "origin": "autonomous",
+        "valid": true
+      },
+      {
+        "attainment_after": "0.7726",
+        "attainment_before": "0.7473",
+        "autonomous": true,
+        "checks": [
+          {
+            "name": "候选有证据",
+            "passed": true,
+            "reason": "1 条候选，每条都带证据"
+          },
+          {
+            "name": "有被采纳的决策",
+            "passed": true,
+            "reason": "采纳了 1 条决策，派生出 1 个任务"
+          },
+          {
+            "name": "有可验证的改善记录",
+            "passed": true,
+            "reason": "验收通过、合入 85bbae93、达成度 0.7473 → 0.7726"
+          }
+        ],
+        "cycle_id": "cycle-lr-20261110-093820-8a22ba",
+        "delta": "0.0253",
+        "improved": true,
+        "origin": "autonomous",
+        "valid": true
+      },
+      {
+        "attainment_after": "0.7973",
+        "attainment_before": "0.7726",
+        "autonomous": true,
+        "checks": [
+          {
+            "name": "候选有证据",
+            "passed": true,
+            "reason": "1 条候选，每条都带证据"
+          },
+          {
+            "name": "有被采纳的决策",
+            "passed": true,
+            "reason": "采纳了 1 条决策，派生出 1 个任务"
+          },
+          {
+            "name": "有可验证的改善记录",
+            "passed": true,
+            "reason": "验收通过、合入 d11a4527、达成度 0.7726 → 0.7973"
+          }
+        ],
+        "cycle_id": "cycle-lr-20261110-093823-e62843",
+        "delta": "0.0247",
+        "improved": true,
+        "origin": "autonomous",
+        "valid": true
+      },
+      {
+        "attainment_after": "0.8220",
+        "attainment_before": "0.7973",
+        "autonomous": true,
+        "checks": [
+          {
+            "name": "候选有证据",
+            "passed": true,
+            "reason": "1 条候选，每条都带证据"
+          },
+          {
+            "name": "有被采纳的决策",
+            "passed": true,
+            "reason": "采纳了 1 条决策，派生出 1 个任务"
+          },
+          {
+            "name": "有可验证的改善记录",
+            "passed": true,
+            "reason": "验收通过、合入 13f2e95b、达成度 0.7973 → 0.8220"
+          }
+        ],
+        "cycle_id": "cycle-lr-20261110-093826-74e76c",
+        "delta": "0.0247",
+        "improved": true,
+        "origin": "autonomous",
+        "valid": true
+      },
+      {
+        "attainment_after": "0.8451",
+        "attainment_before": "0.8220",
+        "autonomous": true,
+        "checks": [
+          {
+            "name": "候选有证据",
+            "passed": true,
+            "reason": "1 条候选，每条都带证据"
+          },
+          {
+            "name": "有被采纳的决策",
+            "passed": true,
+            "reason": "采纳了 1 条决策，派生出 1 个任务"
+          },
+          {
+            "name": "有可验证的改善记录",
+            "passed": true,
+            "reason": "验收通过、合入 d74f08f2、达成度 0.8220 → 0.8451"
+          }
+        ],
+        "cycle_id": "cycle-lr-20261110-093829-d71999",
+        "delta": "0.0231",
+        "improved": true,
+        "origin": "autonomous",
+        "valid": true
+      },
+      {
+        "attainment_after": "0.8707",
+        "attainment_before": "0.8451",
+        "autonomous": true,
+        "checks": [
+          {
+            "name": "候选有证据",
+            "passed": true,
+            "reason": "1 条候选，每条都带证据"
+          },
+          {
+            "name": "有被采纳的决策",
+            "passed": true,
+            "reason": "采纳了 1 条决策，派生出 1 个任务"
+          },
+          {
+            "name": "有可验证的改善记录",
+            "passed": true,
+            "reason": "验收通过、合入 c0c8ee78、达成度 0.8451 → 0.8707"
+          }
+        ],
+        "cycle_id": "cycle-lr-20261110-093832-54ff06",
+        "delta": "0.0256",
+        "improved": true,
+        "origin": "autonomous",
+        "valid": true
+      },
+      {
+        "attainment_after": "0.9093",
+        "attainment_before": "0.8707",
+        "autonomous": true,
+        "checks": [
+          {
+            "name": "候选有证据",
+            "passed": true,
+            "reason": "1 条候选，每条都带证据"
+          },
+          {
+            "name": "有被采纳的决策",
+            "passed": true,
+            "reason": "采纳了 1 条决策，派生出 1 个任务"
+          },
+          {
+            "name": "有可验证的改善记录",
+            "passed": true,
+            "reason": "验收通过、合入 0b756cdc、达成度 0.8707 → 0.9093"
+          }
+        ],
+        "cycle_id": "cycle-lr-20261110-093835-7d7dfb",
+        "delta": "0.0386",
+        "improved": true,
+        "origin": "autonomous",
+        "valid": true
+      }
+    ],
+    "summary": {
+      "accepted": true,
+      "all_autonomous": true,
+      "all_valid": true,
+      "enough_rounds": true,
+      "trend_non_decreasing": true,
+      "valid_cycles": 10
+    },
+    "trend": {
+      "net_gain": "0.5501",
+      "non_decreasing": true,
+      "reason": "逐轮不下降",
+      "regressions": [],
+      "series": [
+        "0.3592",
+        "0.6380",
+        "0.6786",
+        "0.7174",
+        "0.7473",
+        "0.7726",
+        "0.7973",
+        "0.8220",
+        "0.8451",
+        "0.8707",
+        "0.9093"
+      ],
+      "state": "computed"
+    }
+  },
+  "rounds": [
+    {
+      "accepted": true,
+      "approval_request_id": "b0586d0b-8ed6-4627-bac6-0865a2e7e83c",
+      "attainment_after": "0.6380",
+      "attainment_before": "0.3592",
+      "attainment_delta": "0.2788",
+      "candidate_id": "CAND-cycle-lr-20261110-093809-41b92f-PILOT-001",
+      "candidates": [
+        [
+          "CAND-cycle-lr-20261110-093809-41b92f-PILOT-001",
+          "test_the_cli_reports_an_empty_stats_input_instead_of_crashing",
+          "0.90"
+        ]
+      ],
+      "changed_files": 3,
+      "cost": "0.631445",
+      "critic_outcomes": [
+        [
+          "problem_exists",
+          "passed",
+          "测试报告里有与「test_the_cli_reports_an_empty_stats_input_instead_of_crashing」相关的失败用例 —— 问题真实存在"
+        ],
+        [
+          "evidence_sufficient",
+          "passed",
+          "2 条证据都指得到真的东西"
+        ],
+        [
+          "not_already_solved",
+          "unverified",
+          "任务表里有相关任务：任务表里有 3 条与「test_the_cli_reports_an_empty_stats_input_instead_of_crashing」相关的任务：test_the_cli_reports_an_empty_stats_input_instead_of_crashing（ff128c70-209b-4fec-8212-3e5dcb729521）、test_the_cli_reports_an_empty_stats_input_instead_of_crashing（57d841ef-378c-4645-b3d8-66f2c5755085）、test_the_cli_reports_an_empty_stats_input_instead_of_crashing（4a48bfe2-68af-4c5f-b00b-cfdfb826ac3e） —— 是不是同一件事要人判断"
+        ],
+        [
+          "respects_goals_and_constraints",
+          "passed",
+          "按项目状态查询，没有已确认违反的约束（项目声明了 5 条）"
+        ],
+        [
+          "has_lower_cost_alternative",
+          "unverified",
+          "Git 历史里没有提到「test_the_cli_reports_an_empty_stats_input_instead_of_crashing」的提交 —— 有没有更省的做法只能人判断"
+        ],
+        [
+          "no_unnecessary_complexity",
+          "unverified",
+          "仓库里有 2 处与「test_the_cli_reports_an_empty_stats_input_instead_of_crashing」相关 —— 命中多处不等于复杂，复杂不复杂只能人判断"
+        ],
+        [
+          "worth_doing_now",
+          "passed",
+          "还有关键结果没达成（4 个关键结果尚未达成）"
+        ],
+        [
+          "respects_non_goals",
+          "passed",
+          "逐条比对了 3 条 Non-goals，没有命中"
+        ],
+        [
+          "does_not_trigger_stop_conditions",
+          "passed",
+          "没有触发任何停止条件"
+        ]
+      ],
+      "currency": "USD",
+      "cycle_id": "cycle-lr-20261110-093809-41b92f",
+      "cycle_outcome": "improved",
+      "cycle_ref": "5efa4169-d20c-4558-a792-397b7e1cec9d",
+      "decision_id": "EVD-cycle-lr-20261110-093809-41b92f-001",
+      "decisions": [
+        [
+          "CAND-cycle-lr-20261110-093809-41b92f-PILOT-001",
+          "record",
+          "价值 0.70、置信度 0.90、成本 0.30、风险 0.2 均达到门槛，按优先级推进"
+        ]
+      ],
+      "elapsed_seconds": "2.971",
+      "measurement": {
+        "boundary_covered": false,
+        "cli_coverage": "0.642857",
+        "covered_lines": 181,
+        "defects_fixed": 2,
+        "failing_repro": [
+          "test_the_cli_reports_an_out_of_range_percentile_instead_of_crashing",
+          "test_the_cli_does_not_silently_drop_the_limit_option",
+          "test_main_returns_an_exit_code_instead_of_raising",
+          "test_money_amount_cannot_be_reassigned",
+          "test_load_config_rejects_an_empty_key",
+          "test_load_config_reports_a_duplicated_key",
+          "test_word_wrap_breaks_a_word_longer_than_the_width",
+          "test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does"
+        ],
+        "line_coverage": "0.857820",
+        "money_paths_covered": false,
+        "test_count": 44,
+        "total_lines": 211
+      },
+      "merge_commit": "d54666ded051f01254d0966ffcc79b10e5b62e71",
+      "merged": true,
+      "records": {
+        "critic_review": "已审查",
+        "evolution_candidate": "c7446396-9bda-4658-b6cb-9446ab66d22d",
+        "evolution_cycle": "5efa4169-d20c-4558-a792-397b7e1cec9d",
+        "evolution_decision": "f9791d92-b995-421b-a726-5e6a4e586716",
+        "project_snapshot": "37b8cb9b-d7b4-4b9d-a108-8a93af9e0ff4",
+        "task": "670a82b2-2b08-45bb-87e4-ae11b47068b9"
+      },
+      "round": 1,
+      "task_id": "670a82b2-2b08-45bb-87e4-ae11b47068b9",
+      "task_key": "T-LR-CAND-cycle-lr-20261110-093809-41b92f-PILOT-001",
+      "verdict": "passed",
+      "visited_nodes": [
+        "observe_project",
+        "build_project_snapshot",
+        "analyze_goal_gap",
+        "discover_candidates",
+        "gather_evidence",
+        "evaluate_value_risk_cost",
+        "worth_doing",
+        "record_defer_reject",
+        "generate_evolution_plan",
+        "decompose_into_tasks",
+        "dependency_and_resource_scheduling",
+        "execute_engineering_cycle",
+        "evaluate_actual_outcome",
+        "update_project_knowledge",
+        "update_goal_gap"
+      ]
+    },
+    {
+      "accepted": true,
+      "approval_request_id": "3eb9eb9d-ce0f-4600-9614-5c1a5898222a",
+      "attainment_after": "0.6786",
+      "attainment_before": "0.6380",
+      "attainment_delta": "0.0406",
+      "candidate_id": "CAND-cycle-lr-20261110-093812-916639-PILOT-002",
+      "candidates": [
+        [
+          "CAND-cycle-lr-20261110-093812-916639-PILOT-002",
+          "test_the_cli_reports_an_out_of_range_percentile_instead_of_crashing",
+          "0.90"
+        ]
+      ],
+      "changed_files": 3,
+      "cost": "0.631445",
+      "critic_outcomes": [
+        [
+          "problem_exists",
+          "passed",
+          "测试报告里有与「test_the_cli_reports_an_out_of_range_percentile_instead_of_crashing」相关的失败用例 —— 问题真实存在"
+        ],
+        [
+          "evidence_sufficient",
+          "passed",
+          "2 条证据都指得到真的东西"
+        ],
+        [
+          "not_already_solved",
+          "unverified",
+          "任务表里有相关任务：任务表里有 3 条与「test_the_cli_reports_an_out_of_range_percentile_instead_of_crashing」相关的任务：test_the_cli_reports_an_out_of_range_percentile_instead_of_crashing（2febb32f-ebe9-479d-b3aa-908efac705f0）、test_the_cli_reports_an_out_of_range_percentile_instead_of_crashing（4666642c-2a83-4cf5-8c91-6bc9cdfc6e33）、test_the_cli_reports_an_out_of_range_percentile_instead_of_crashing（2841f810-8224-4c09-81ba-7604d27eb952） —— 是不是同一件事要人判断"
+        ],
+        [
+          "respects_goals_and_constraints",
+          "passed",
+          "按项目状态查询，没有已确认违反的约束（项目声明了 5 条）"
+        ],
+        [
+          "has_lower_cost_alternative",
+          "unverified",
+          "Git 历史里没有提到「test_the_cli_reports_an_out_of_range_percentile_instead_of_crashing」的提交 —— 有没有更省的做法只能人判断"
+        ],
+        [
+          "no_unnecessary_complexity",
+          "unverified",
+          "仓库里有 2 处与「test_the_cli_reports_an_out_of_range_percentile_instead_of_crashing」相关 —— 命中多处不等于复杂，复杂不复杂只能人判断"
+        ],
+        [
+          "worth_doing_now",
+          "passed",
+          "还有关键结果没达成（4 个关键结果尚未达成）"
+        ],
+        [
+          "respects_non_goals",
+          "passed",
+          "逐条比对了 3 条 Non-goals，没有命中"
+        ],
+        [
+          "does_not_trigger_stop_conditions",
+          "passed",
+          "没有触发任何停止条件"
+        ]
+      ],
+      "currency": "USD",
+      "cycle_id": "cycle-lr-20261110-093812-916639",
+      "cycle_outcome": "improved",
+      "cycle_ref": "b79e4bb8-2fa5-4fcb-aeed-7c1bb456f513",
+      "decision_id": "EVD-cycle-lr-20261110-093812-916639-001",
+      "decisions": [
+        [
+          "CAND-cycle-lr-20261110-093812-916639-PILOT-002",
+          "record",
+          "价值 0.70、置信度 0.90、成本 0.30、风险 0.2 均达到门槛，按优先级推进"
+        ]
+      ],
+      "elapsed_seconds": "2.905",
+      "measurement": {
+        "boundary_covered": false,
+        "cli_coverage": "0.688889",
+        "covered_lines": 185,
+        "defects_fixed": 3,
+        "failing_repro": [
+          "test_the_cli_does_not_silently_drop_the_limit_option",
+          "test_main_returns_an_exit_code_instead_of_raising",
+          "test_money_amount_cannot_be_reassigned",
+          "test_load_config_rejects_an_empty_key",
+          "test_load_config_reports_a_duplicated_key",
+          "test_word_wrap_breaks_a_word_longer_than_the_width",
+          "test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does"
+        ],
+        "line_coverage": "0.864486",
+        "money_paths_covered": false,
+        "test_count": 45,
+        "total_lines": 214
+      },
+      "merge_commit": "e75ae2e32bc367102e93b2d4792aac7fda63fb8f",
+      "merged": true,
+      "records": {
+        "critic_review": "已审查",
+        "evolution_candidate": "d3e3d3ea-842a-44de-806f-cd3ac5994eca",
+        "evolution_cycle": "b79e4bb8-2fa5-4fcb-aeed-7c1bb456f513",
+        "evolution_decision": "915c5487-1d32-46f3-930e-cfe1fc815941",
+        "project_snapshot": "93af48e5-9d1d-4381-a868-dcbbe3ac0240",
+        "task": "44f61fc7-9fb6-47ed-bc75-c14463e1ad88"
+      },
+      "round": 2,
+      "task_id": "44f61fc7-9fb6-47ed-bc75-c14463e1ad88",
+      "task_key": "T-LR-CAND-cycle-lr-20261110-093812-916639-PILOT-002",
+      "verdict": "passed",
+      "visited_nodes": [
+        "observe_project",
+        "build_project_snapshot",
+        "analyze_goal_gap",
+        "discover_candidates",
+        "gather_evidence",
+        "evaluate_value_risk_cost",
+        "worth_doing",
+        "record_defer_reject",
+        "generate_evolution_plan",
+        "decompose_into_tasks",
+        "dependency_and_resource_scheduling",
+        "execute_engineering_cycle",
+        "evaluate_actual_outcome",
+        "update_project_knowledge",
+        "update_goal_gap"
+      ]
+    },
+    {
+      "accepted": true,
+      "approval_request_id": "3df0cd17-e62e-4944-97bf-053243bf9da5",
+      "attainment_after": "0.7174",
+      "attainment_before": "0.6786",
+      "attainment_delta": "0.0388",
+      "candidate_id": "CAND-cycle-lr-20261110-093815-ade47b-PILOT-003",
+      "candidates": [
+        [
+          "CAND-cycle-lr-20261110-093815-ade47b-PILOT-003",
+          "test_the_cli_does_not_silently_drop_the_limit_option",
+          "0.90"
+        ]
+      ],
+      "changed_files": 3,
+      "cost": "0.631445",
+      "critic_outcomes": [
+        [
+          "problem_exists",
+          "passed",
+          "测试报告里有与「test_the_cli_does_not_silently_drop_the_limit_option」相关的失败用例 —— 问题真实存在"
+        ],
+        [
+          "evidence_sufficient",
+          "passed",
+          "2 条证据都指得到真的东西"
+        ],
+        [
+          "not_already_solved",
+          "unverified",
+          "任务表里有相关任务：任务表里有 2 条与「test_the_cli_does_not_silently_drop_the_limit_option」相关的任务：test_the_cli_does_not_silently_drop_the_limit_option（deac9a9b-2a5f-4213-8922-f14ff70bbb44）、test_the_cli_does_not_silently_drop_the_limit_option（9d871f62-12a5-4158-94d3-6b10020d2b93） —— 是不是同一件事要人判断"
+        ],
+        [
+          "respects_goals_and_constraints",
+          "passed",
+          "按项目状态查询，没有已确认违反的约束（项目声明了 5 条）"
+        ],
+        [
+          "has_lower_cost_alternative",
+          "unverified",
+          "Git 历史里没有提到「test_the_cli_does_not_silently_drop_the_limit_option」的提交 —— 有没有更省的做法只能人判断"
+        ],
+        [
+          "no_unnecessary_complexity",
+          "unverified",
+          "仓库里有 2 处与「test_the_cli_does_not_silently_drop_the_limit_option」相关 —— 命中多处不等于复杂，复杂不复杂只能人判断"
+        ],
+        [
+          "worth_doing_now",
+          "passed",
+          "还有关键结果没达成（4 个关键结果尚未达成）"
+        ],
+        [
+          "respects_non_goals",
+          "passed",
+          "逐条比对了 3 条 Non-goals，没有命中"
+        ],
+        [
+          "does_not_trigger_stop_conditions",
+          "passed",
+          "没有触发任何停止条件"
+        ]
+      ],
+      "currency": "USD",
+      "cycle_id": "cycle-lr-20261110-093815-ade47b",
+      "cycle_outcome": "improved",
+      "cycle_ref": "53742501-18c4-4d28-8d70-4f94d7118013",
+      "decision_id": "EVD-cycle-lr-20261110-093815-ade47b-001",
+      "decisions": [
+        [
+          "CAND-cycle-lr-20261110-093815-ade47b-PILOT-003",
+          "record",
+          "价值 0.70、置信度 0.90、成本 0.30、风险 0.2 均达到门槛，按优先级推进"
+        ]
+      ],
+      "elapsed_seconds": "2.952",
+      "measurement": {
+        "boundary_covered": false,
+        "cli_coverage": "0.729167",
+        "covered_lines": 189,
+        "defects_fixed": 4,
+        "failing_repro": [
+          "test_main_returns_an_exit_code_instead_of_raising",
+          "test_money_amount_cannot_be_reassigned",
+          "test_load_config_rejects_an_empty_key",
+          "test_load_config_reports_a_duplicated_key",
+          "test_word_wrap_breaks_a_word_longer_than_the_width",
+          "test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does"
+        ],
+        "line_coverage": "0.870968",
+        "money_paths_covered": false,
+        "test_count": 46,
+        "total_lines": 217
+      },
+      "merge_commit": "55f79693d5905de7d214d5727b1906a03424b8ac",
+      "merged": true,
+      "records": {
+        "critic_review": "已审查",
+        "evolution_candidate": "826677e8-ca3e-447e-904a-595ef5ad8473",
+        "evolution_cycle": "53742501-18c4-4d28-8d70-4f94d7118013",
+        "evolution_decision": "cbf6cb9b-1fba-4b7b-9e23-ae93682b6b45",
+        "project_snapshot": "62a046cf-222f-4163-962f-65d68964b21a",
+        "task": "c7dd3eda-40ee-4fa1-a3e8-4d34cdaa6241"
+      },
+      "round": 3,
+      "task_id": "c7dd3eda-40ee-4fa1-a3e8-4d34cdaa6241",
+      "task_key": "T-LR-CAND-cycle-lr-20261110-093815-ade47b-PILOT-003",
+      "verdict": "passed",
+      "visited_nodes": [
+        "observe_project",
+        "build_project_snapshot",
+        "analyze_goal_gap",
+        "discover_candidates",
+        "gather_evidence",
+        "evaluate_value_risk_cost",
+        "worth_doing",
+        "record_defer_reject",
+        "generate_evolution_plan",
+        "decompose_into_tasks",
+        "dependency_and_resource_scheduling",
+        "execute_engineering_cycle",
+        "evaluate_actual_outcome",
+        "update_project_knowledge",
+        "update_goal_gap"
+      ]
+    },
+    {
+      "accepted": true,
+      "approval_request_id": "0013b690-5f18-4905-aad9-54fc74d07765",
+      "attainment_after": "0.7473",
+      "attainment_before": "0.7174",
+      "attainment_delta": "0.0299",
+      "candidate_id": "CAND-cycle-lr-20261110-093817-9bb3f4-PILOT-004",
+      "candidates": [
+        [
+          "CAND-cycle-lr-20261110-093817-9bb3f4-PILOT-004",
+          "test_main_returns_an_exit_code_instead_of_raising",
+          "0.90"
+        ]
+      ],
+      "changed_files": 3,
+      "cost": "0.631445",
+      "critic_outcomes": [
+        [
+          "problem_exists",
+          "passed",
+          "测试报告里有与「test_main_returns_an_exit_code_instead_of_raising」相关的失败用例 —— 问题真实存在"
+        ],
+        [
+          "evidence_sufficient",
+          "passed",
+          "2 条证据都指得到真的东西"
+        ],
+        [
+          "not_already_solved",
+          "unverified",
+          "任务表里有相关任务：任务表里有 2 条与「test_main_returns_an_exit_code_instead_of_raising」相关的任务：test_main_returns_an_exit_code_instead_of_raising（f6d0aabe-7614-424f-b6d0-e4bf4ddc3458）、test_main_returns_an_exit_code_instead_of_raising（127c6adf-68f5-4921-bc9c-34bf7138cd96） —— 是不是同一件事要人判断"
+        ],
+        [
+          "respects_goals_and_constraints",
+          "passed",
+          "按项目状态查询，没有已确认违反的约束（项目声明了 5 条）"
+        ],
+        [
+          "has_lower_cost_alternative",
+          "unverified",
+          "Git 历史里没有提到「test_main_returns_an_exit_code_instead_of_raising」的提交 —— 有没有更省的做法只能人判断"
+        ],
+        [
+          "no_unnecessary_complexity",
+          "unverified",
+          "仓库里有 2 处与「test_main_returns_an_exit_code_instead_of_raising」相关 —— 命中多处不等于复杂，复杂不复杂只能人判断"
+        ],
+        [
+          "worth_doing_now",
+          "passed",
+          "还有关键结果没达成（4 个关键结果尚未达成）"
+        ],
+        [
+          "respects_non_goals",
+          "passed",
+          "逐条比对了 3 条 Non-goals，没有命中"
+        ],
+        [
+          "does_not_trigger_stop_conditions",
+          "passed",
+          "没有触发任何停止条件"
+        ]
+      ],
+      "currency": "USD",
+      "cycle_id": "cycle-lr-20261110-093817-9bb3f4",
+      "cycle_outcome": "improved",
+      "cycle_ref": "c5a4bdf8-a68f-4984-9b4c-18c5a2494301",
+      "decision_id": "EVD-cycle-lr-20261110-093817-9bb3f4-001",
+      "decisions": [
+        [
+          "CAND-cycle-lr-20261110-093817-9bb3f4-PILOT-004",
+          "record",
+          "价值 0.70、置信度 0.90、成本 0.30、风险 0.2 均达到门槛，按优先级推进"
+        ]
+      ],
+      "elapsed_seconds": "2.898",
+      "measurement": {
+        "boundary_covered": false,
+        "cli_coverage": "0.745098",
+        "covered_lines": 192,
+        "defects_fixed": 5,
+        "failing_repro": [
+          "test_money_amount_cannot_be_reassigned",
+          "test_load_config_rejects_an_empty_key",
+          "test_load_config_reports_a_duplicated_key",
+          "test_word_wrap_breaks_a_word_longer_than_the_width",
+          "test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does"
+        ],
+        "line_coverage": "0.872727",
+        "money_paths_covered": false,
+        "test_count": 47,
+        "total_lines": 220
+      },
+      "merge_commit": "c7ca21ef098c37c0a171b0c64e6eb51e29bbf52d",
+      "merged": true,
+      "records": {
+        "critic_review": "已审查",
+        "evolution_candidate": "16897042-bd9f-42e5-a5ab-a2069e39fc77",
+        "evolution_cycle": "c5a4bdf8-a68f-4984-9b4c-18c5a2494301",
+        "evolution_decision": "28aab99f-9328-4895-a487-b1f8411e43a0",
+        "project_snapshot": "9b913ca0-b436-45b4-aa8b-efbffd315a2a",
+        "task": "643b3b45-c868-45f4-8a51-23c2d05b57a7"
+      },
+      "round": 4,
+      "task_id": "643b3b45-c868-45f4-8a51-23c2d05b57a7",
+      "task_key": "T-LR-CAND-cycle-lr-20261110-093817-9bb3f4-PILOT-004",
+      "verdict": "passed",
+      "visited_nodes": [
+        "observe_project",
+        "build_project_snapshot",
+        "analyze_goal_gap",
+        "discover_candidates",
+        "gather_evidence",
+        "evaluate_value_risk_cost",
+        "worth_doing",
+        "record_defer_reject",
+        "generate_evolution_plan",
+        "decompose_into_tasks",
+        "dependency_and_resource_scheduling",
+        "execute_engineering_cycle",
+        "evaluate_actual_outcome",
+        "update_project_knowledge",
+        "update_goal_gap"
+      ]
+    },
+    {
+      "accepted": true,
+      "approval_request_id": "37c59ca6-2df8-4798-919f-c912ee04ccda",
+      "attainment_after": "0.7726",
+      "attainment_before": "0.7473",
+      "attainment_delta": "0.0253",
+      "candidate_id": "CAND-cycle-lr-20261110-093820-8a22ba-PILOT-005",
+      "candidates": [
+        [
+          "CAND-cycle-lr-20261110-093820-8a22ba-PILOT-005",
+          "test_money_amount_cannot_be_reassigned",
+          "0.90"
+        ]
+      ],
+      "changed_files": 3,
+      "cost": "0.631445",
+      "critic_outcomes": [
+        [
+          "problem_exists",
+          "passed",
+          "测试报告里有与「test_money_amount_cannot_be_reassigned」相关的失败用例 —— 问题真实存在"
+        ],
+        [
+          "evidence_sufficient",
+          "passed",
+          "2 条证据都指得到真的东西"
+        ],
+        [
+          "not_already_solved",
+          "unverified",
+          "任务表里有相关任务：任务表里有 2 条与「test_money_amount_cannot_be_reassigned」相关的任务：test_money_amount_cannot_be_reassigned（64c1ae75-45f8-484d-a33d-0633a75df11b）、test_money_amount_cannot_be_reassigned（90565a0c-6d06-4c5d-a565-5dabd2d2ffb0） —— 是不是同一件事要人判断"
+        ],
+        [
+          "respects_goals_and_constraints",
+          "passed",
+          "按项目状态查询，没有已确认违反的约束（项目声明了 5 条）"
+        ],
+        [
+          "has_lower_cost_alternative",
+          "unverified",
+          "Git 历史里没有提到「test_money_amount_cannot_be_reassigned」的提交 —— 有没有更省的做法只能人判断"
+        ],
+        [
+          "no_unnecessary_complexity",
+          "unverified",
+          "仓库里有 2 处与「test_money_amount_cannot_be_reassigned」相关 —— 命中多处不等于复杂，复杂不复杂只能人判断"
+        ],
+        [
+          "worth_doing_now",
+          "passed",
+          "还有关键结果没达成（4 个关键结果尚未达成）"
+        ],
+        [
+          "respects_non_goals",
+          "passed",
+          "逐条比对了 3 条 Non-goals，没有命中"
+        ],
+        [
+          "does_not_trigger_stop_conditions",
+          "passed",
+          "没有触发任何停止条件"
+        ]
+      ],
+      "currency": "USD",
+      "cycle_id": "cycle-lr-20261110-093820-8a22ba",
+      "cycle_outcome": "improved",
+      "cycle_ref": "35305248-59d2-4ba2-90fa-d4c4c07e7592",
+      "decision_id": "EVD-cycle-lr-20261110-093820-8a22ba-001",
+      "decisions": [
+        [
+          "CAND-cycle-lr-20261110-093820-8a22ba-PILOT-005",
+          "record",
+          "价值 0.70、置信度 0.90、成本 0.30、风险 0.2 均达到门槛，按优先级推进"
+        ]
+      ],
+      "elapsed_seconds": "2.842",
+      "measurement": {
+        "boundary_covered": false,
+        "cli_coverage": "0.745098",
+        "covered_lines": 198,
+        "defects_fixed": 6,
+        "failing_repro": [
+          "test_load_config_rejects_an_empty_key",
+          "test_load_config_reports_a_duplicated_key",
+          "test_word_wrap_breaks_a_word_longer_than_the_width",
+          "test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does"
+        ],
+        "line_coverage": "0.876106",
+        "money_paths_covered": false,
+        "test_count": 48,
+        "total_lines": 226
+      },
+      "merge_commit": "85bbae935f194f28defbf62a5447c889c746fdcd",
+      "merged": true,
+      "records": {
+        "critic_review": "已审查",
+        "evolution_candidate": "24451de3-de18-4e04-8a0d-570cc1c69a76",
+        "evolution_cycle": "35305248-59d2-4ba2-90fa-d4c4c07e7592",
+        "evolution_decision": "b66affe8-211c-43e0-9f17-50e4c6f1ad5d",
+        "project_snapshot": "baf4a705-31d7-4de2-83b7-bf3ca5cbe157",
+        "task": "38a98afd-640b-4675-a222-90772fc1b7d6"
+      },
+      "round": 5,
+      "task_id": "38a98afd-640b-4675-a222-90772fc1b7d6",
+      "task_key": "T-LR-CAND-cycle-lr-20261110-093820-8a22ba-PILOT-005",
+      "verdict": "passed",
+      "visited_nodes": [
+        "observe_project",
+        "build_project_snapshot",
+        "analyze_goal_gap",
+        "discover_candidates",
+        "gather_evidence",
+        "evaluate_value_risk_cost",
+        "worth_doing",
+        "record_defer_reject",
+        "generate_evolution_plan",
+        "decompose_into_tasks",
+        "dependency_and_resource_scheduling",
+        "execute_engineering_cycle",
+        "evaluate_actual_outcome",
+        "update_project_knowledge",
+        "update_goal_gap"
+      ]
+    },
+    {
+      "accepted": true,
+      "approval_request_id": "9e972c9a-d2b1-4906-aecd-c2279eec9b3e",
+      "attainment_after": "0.7973",
+      "attainment_before": "0.7726",
+      "attainment_delta": "0.0247",
+      "candidate_id": "CAND-cycle-lr-20261110-093823-e62843-PILOT-006",
+      "candidates": [
+        [
+          "CAND-cycle-lr-20261110-093823-e62843-PILOT-006",
+          "test_load_config_rejects_an_empty_key",
+          "0.90"
+        ]
+      ],
+      "changed_files": 3,
+      "cost": "0.631445",
+      "critic_outcomes": [
+        [
+          "problem_exists",
+          "passed",
+          "测试报告里有与「test_load_config_rejects_an_empty_key」相关的失败用例 —— 问题真实存在"
+        ],
+        [
+          "evidence_sufficient",
+          "passed",
+          "2 条证据都指得到真的东西"
+        ],
+        [
+          "not_already_solved",
+          "unverified",
+          "任务表里有相关任务：任务表里有 2 条与「test_load_config_rejects_an_empty_key」相关的任务：test_load_config_rejects_an_empty_key（f1a90a3e-ca20-406a-aab7-927394f65e66）、test_load_config_rejects_an_empty_key（bc5fe7db-2e92-4a8c-92c4-d9996230c9df） —— 是不是同一件事要人判断"
+        ],
+        [
+          "respects_goals_and_constraints",
+          "passed",
+          "按项目状态查询，没有已确认违反的约束（项目声明了 5 条）"
+        ],
+        [
+          "has_lower_cost_alternative",
+          "unverified",
+          "Git 历史里没有提到「test_load_config_rejects_an_empty_key」的提交 —— 有没有更省的做法只能人判断"
+        ],
+        [
+          "no_unnecessary_complexity",
+          "unverified",
+          "仓库里有 2 处与「test_load_config_rejects_an_empty_key」相关 —— 命中多处不等于复杂，复杂不复杂只能人判断"
+        ],
+        [
+          "worth_doing_now",
+          "passed",
+          "还有关键结果没达成（4 个关键结果尚未达成）"
+        ],
+        [
+          "respects_non_goals",
+          "passed",
+          "逐条比对了 3 条 Non-goals，没有命中"
+        ],
+        [
+          "does_not_trigger_stop_conditions",
+          "passed",
+          "没有触发任何停止条件"
+        ]
+      ],
+      "currency": "USD",
+      "cycle_id": "cycle-lr-20261110-093823-e62843",
+      "cycle_outcome": "improved",
+      "cycle_ref": "620f644a-9346-4275-9bb8-195070e5214b",
+      "decision_id": "EVD-cycle-lr-20261110-093823-e62843-001",
+      "decisions": [
+        [
+          "CAND-cycle-lr-20261110-093823-e62843-PILOT-006",
+          "record",
+          "价值 0.70、置信度 0.90、成本 0.30、风险 0.2 均达到门槛，按优先级推进"
+        ]
+      ],
+      "elapsed_seconds": "2.839",
+      "measurement": {
+        "boundary_covered": false,
+        "cli_coverage": "0.745098",
+        "covered_lines": 200,
+        "defects_fixed": 7,
+        "failing_repro": [
+          "test_load_config_reports_a_duplicated_key",
+          "test_word_wrap_breaks_a_word_longer_than_the_width",
+          "test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does"
+        ],
+        "line_coverage": "0.877193",
+        "money_paths_covered": false,
+        "test_count": 49,
+        "total_lines": 228
+      },
+      "merge_commit": "d11a4527649917ca58173ec2ed535bc5f1192583",
+      "merged": true,
+      "records": {
+        "critic_review": "已审查",
+        "evolution_candidate": "c0fc49f1-cdfd-458b-9632-1699a7c74930",
+        "evolution_cycle": "620f644a-9346-4275-9bb8-195070e5214b",
+        "evolution_decision": "aba6c7b0-7f9d-4407-8501-f75d8c769733",
+        "project_snapshot": "b91a7c0c-a77b-48e7-958c-9a28ded9a41b",
+        "task": "1b391e41-a32c-4fcd-8baf-b91998737423"
+      },
+      "round": 6,
+      "task_id": "1b391e41-a32c-4fcd-8baf-b91998737423",
+      "task_key": "T-LR-CAND-cycle-lr-20261110-093823-e62843-PILOT-006",
+      "verdict": "passed",
+      "visited_nodes": [
+        "observe_project",
+        "build_project_snapshot",
+        "analyze_goal_gap",
+        "discover_candidates",
+        "gather_evidence",
+        "evaluate_value_risk_cost",
+        "worth_doing",
+        "record_defer_reject",
+        "generate_evolution_plan",
+        "decompose_into_tasks",
+        "dependency_and_resource_scheduling",
+        "execute_engineering_cycle",
+        "evaluate_actual_outcome",
+        "update_project_knowledge",
+        "update_goal_gap"
+      ]
+    },
+    {
+      "accepted": true,
+      "approval_request_id": "7e8ef055-a7a4-430e-96f7-742386424863",
+      "attainment_after": "0.8220",
+      "attainment_before": "0.7973",
+      "attainment_delta": "0.0247",
+      "candidate_id": "CAND-cycle-lr-20261110-093826-74e76c-PILOT-007",
+      "candidates": [
+        [
+          "CAND-cycle-lr-20261110-093826-74e76c-PILOT-007",
+          "test_load_config_reports_a_duplicated_key",
+          "0.90"
+        ]
+      ],
+      "changed_files": 3,
+      "cost": "0.631445",
+      "critic_outcomes": [
+        [
+          "problem_exists",
+          "passed",
+          "测试报告里有与「test_load_config_reports_a_duplicated_key」相关的失败用例 —— 问题真实存在"
+        ],
+        [
+          "evidence_sufficient",
+          "passed",
+          "2 条证据都指得到真的东西"
+        ],
+        [
+          "not_already_solved",
+          "unverified",
+          "任务表里有相关任务：任务表里有 2 条与「test_load_config_reports_a_duplicated_key」相关的任务：test_load_config_reports_a_duplicated_key（899c7efe-f2ee-49a0-aefd-b049609b0c68）、test_load_config_reports_a_duplicated_key（6159859c-667e-441e-86dd-905faae05b4a） —— 是不是同一件事要人判断"
+        ],
+        [
+          "respects_goals_and_constraints",
+          "passed",
+          "按项目状态查询，没有已确认违反的约束（项目声明了 5 条）"
+        ],
+        [
+          "has_lower_cost_alternative",
+          "unverified",
+          "Git 历史里没有提到「test_load_config_reports_a_duplicated_key」的提交 —— 有没有更省的做法只能人判断"
+        ],
+        [
+          "no_unnecessary_complexity",
+          "unverified",
+          "仓库里有 2 处与「test_load_config_reports_a_duplicated_key」相关 —— 命中多处不等于复杂，复杂不复杂只能人判断"
+        ],
+        [
+          "worth_doing_now",
+          "passed",
+          "还有关键结果没达成（4 个关键结果尚未达成）"
+        ],
+        [
+          "respects_non_goals",
+          "passed",
+          "逐条比对了 3 条 Non-goals，没有命中"
+        ],
+        [
+          "does_not_trigger_stop_conditions",
+          "passed",
+          "没有触发任何停止条件"
+        ]
+      ],
+      "currency": "USD",
+      "cycle_id": "cycle-lr-20261110-093826-74e76c",
+      "cycle_outcome": "improved",
+      "cycle_ref": "f44f2adb-84d9-4fcc-b178-3cf80630e966",
+      "decision_id": "EVD-cycle-lr-20261110-093826-74e76c-001",
+      "decisions": [
+        [
+          "CAND-cycle-lr-20261110-093826-74e76c-PILOT-007",
+          "record",
+          "价值 0.70、置信度 0.90、成本 0.30、风险 0.2 均达到门槛，按优先级推进"
+        ]
+      ],
+      "elapsed_seconds": "2.875",
+      "measurement": {
+        "boundary_covered": false,
+        "cli_coverage": "0.745098",
+        "covered_lines": 202,
+        "defects_fixed": 8,
+        "failing_repro": [
+          "test_word_wrap_breaks_a_word_longer_than_the_width",
+          "test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does"
+        ],
+        "line_coverage": "0.878261",
+        "money_paths_covered": false,
+        "test_count": 50,
+        "total_lines": 230
+      },
+      "merge_commit": "13f2e95b87c6160eaa3c3bc267941cd0dd8ff22a",
+      "merged": true,
+      "records": {
+        "critic_review": "已审查",
+        "evolution_candidate": "38124104-ba19-4cb3-815a-f9eb36705b17",
+        "evolution_cycle": "f44f2adb-84d9-4fcc-b178-3cf80630e966",
+        "evolution_decision": "dd5ebb5c-ddb2-493c-9b04-489706369f9e",
+        "project_snapshot": "bbe60c12-d000-4b33-9713-cc3a9c7f8b52",
+        "task": "36098e07-f288-4c34-8e6e-e97183487578"
+      },
+      "round": 7,
+      "task_id": "36098e07-f288-4c34-8e6e-e97183487578",
+      "task_key": "T-LR-CAND-cycle-lr-20261110-093826-74e76c-PILOT-007",
+      "verdict": "passed",
+      "visited_nodes": [
+        "observe_project",
+        "build_project_snapshot",
+        "analyze_goal_gap",
+        "discover_candidates",
+        "gather_evidence",
+        "evaluate_value_risk_cost",
+        "worth_doing",
+        "record_defer_reject",
+        "generate_evolution_plan",
+        "decompose_into_tasks",
+        "dependency_and_resource_scheduling",
+        "execute_engineering_cycle",
+        "evaluate_actual_outcome",
+        "update_project_knowledge",
+        "update_goal_gap"
+      ]
+    },
+    {
+      "accepted": true,
+      "approval_request_id": "e0f6bc39-d2d8-48a0-a56b-bead9c41b53d",
+      "attainment_after": "0.8451",
+      "attainment_before": "0.8220",
+      "attainment_delta": "0.0231",
+      "candidate_id": "CAND-cycle-lr-20261110-093829-d71999-PILOT-008",
+      "candidates": [
+        [
+          "CAND-cycle-lr-20261110-093829-d71999-PILOT-008",
+          "test_word_wrap_breaks_a_word_longer_than_the_width",
+          "0.90"
+        ]
+      ],
+      "changed_files": 3,
+      "cost": "0.631445",
+      "critic_outcomes": [
+        [
+          "problem_exists",
+          "passed",
+          "测试报告里有与「test_word_wrap_breaks_a_word_longer_than_the_width」相关的失败用例 —— 问题真实存在"
+        ],
+        [
+          "evidence_sufficient",
+          "passed",
+          "2 条证据都指得到真的东西"
+        ],
+        [
+          "not_already_solved",
+          "unverified",
+          "任务表里有相关任务：任务表里有 2 条与「test_word_wrap_breaks_a_word_longer_than_the_width」相关的任务：test_word_wrap_breaks_a_word_longer_than_the_width（7984b1e2-cb58-4329-8422-fc92d4ecf11b）、test_word_wrap_breaks_a_word_longer_than_the_width（08ee7b9f-edbc-408b-82c1-7d33743fe90e） —— 是不是同一件事要人判断"
+        ],
+        [
+          "respects_goals_and_constraints",
+          "passed",
+          "按项目状态查询，没有已确认违反的约束（项目声明了 5 条）"
+        ],
+        [
+          "has_lower_cost_alternative",
+          "unverified",
+          "Git 历史里没有提到「test_word_wrap_breaks_a_word_longer_than_the_width」的提交 —— 有没有更省的做法只能人判断"
+        ],
+        [
+          "no_unnecessary_complexity",
+          "unverified",
+          "仓库里有 2 处与「test_word_wrap_breaks_a_word_longer_than_the_width」相关 —— 命中多处不等于复杂，复杂不复杂只能人判断"
+        ],
+        [
+          "worth_doing_now",
+          "passed",
+          "还有关键结果没达成（4 个关键结果尚未达成）"
+        ],
+        [
+          "respects_non_goals",
+          "passed",
+          "逐条比对了 3 条 Non-goals，没有命中"
+        ],
+        [
+          "does_not_trigger_stop_conditions",
+          "passed",
+          "没有触发任何停止条件"
+        ]
+      ],
+      "currency": "USD",
+      "cycle_id": "cycle-lr-20261110-093829-d71999",
+      "cycle_outcome": "improved",
+      "cycle_ref": "0ff53b74-594c-4fce-94ca-35d4af2c87f9",
+      "decision_id": "EVD-cycle-lr-20261110-093829-d71999-001",
+      "decisions": [
+        [
+          "CAND-cycle-lr-20261110-093829-d71999-PILOT-008",
+          "record",
+          "价值 0.70、置信度 0.90、成本 0.30、风险 0.2 均达到门槛，按优先级推进"
+        ]
+      ],
+      "elapsed_seconds": "2.804",
+      "measurement": {
+        "boundary_covered": false,
+        "cli_coverage": "0.745098",
+        "covered_lines": 207,
+        "defects_fixed": 9,
+        "failing_repro": [
+          "test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does"
+        ],
+        "line_coverage": "0.873418",
+        "money_paths_covered": false,
+        "test_count": 51,
+        "total_lines": 237
+      },
+      "merge_commit": "d74f08f26610c7a5dcbf7984ccabbb53df924635",
+      "merged": true,
+      "records": {
+        "critic_review": "已审查",
+        "evolution_candidate": "e73ec004-bbc0-4611-9a2a-2f41c740872b",
+        "evolution_cycle": "0ff53b74-594c-4fce-94ca-35d4af2c87f9",
+        "evolution_decision": "036e8e92-91bc-42b6-bb21-560f0f3e4b6a",
+        "project_snapshot": "2ab1a4e9-62b7-4a71-be51-2e128b8e2fee",
+        "task": "688e2445-9251-4b2d-9220-58fd68c80f65"
+      },
+      "round": 8,
+      "task_id": "688e2445-9251-4b2d-9220-58fd68c80f65",
+      "task_key": "T-LR-CAND-cycle-lr-20261110-093829-d71999-PILOT-008",
+      "verdict": "passed",
+      "visited_nodes": [
+        "observe_project",
+        "build_project_snapshot",
+        "analyze_goal_gap",
+        "discover_candidates",
+        "gather_evidence",
+        "evaluate_value_risk_cost",
+        "worth_doing",
+        "record_defer_reject",
+        "generate_evolution_plan",
+        "decompose_into_tasks",
+        "dependency_and_resource_scheduling",
+        "execute_engineering_cycle",
+        "evaluate_actual_outcome",
+        "update_project_knowledge",
+        "update_goal_gap"
+      ]
+    },
+    {
+      "accepted": true,
+      "approval_request_id": "423505c2-8c33-4c1d-96c5-1a5609d720ea",
+      "attainment_after": "0.8707",
+      "attainment_before": "0.8451",
+      "attainment_delta": "0.0256",
+      "candidate_id": "CAND-cycle-lr-20261110-093832-54ff06-PILOT-009",
+      "candidates": [
+        [
+          "CAND-cycle-lr-20261110-093832-54ff06-PILOT-009",
+          "test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does",
+          "0.90"
+        ]
+      ],
+      "changed_files": 3,
+      "cost": "0.631445",
+      "critic_outcomes": [
+        [
+          "problem_exists",
+          "passed",
+          "测试报告里有与「test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does」相关的失败用例 —— 问题真实存在"
+        ],
+        [
+          "evidence_sufficient",
+          "passed",
+          "2 条证据都指得到真的东西"
+        ],
+        [
+          "not_already_solved",
+          "unverified",
+          "任务表里有相关任务：任务表里有 2 条与「test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does」相关的任务：test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does（5ead672a-e39d-4415-8437-97bfbae1ca9b）、test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does（c41df0c6-660d-41b9-9c98-aa6b76e3a9fb） —— 是不是同一件事要人判断"
+        ],
+        [
+          "respects_goals_and_constraints",
+          "passed",
+          "按项目状态查询，没有已确认违反的约束（项目声明了 5 条）"
+        ],
+        [
+          "has_lower_cost_alternative",
+          "unverified",
+          "Git 历史里没有提到「test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does」的提交 —— 有没有更省的做法只能人判断"
+        ],
+        [
+          "no_unnecessary_complexity",
+          "unverified",
+          "仓库里有 2 处与「test_is_due_rejects_a_non_positive_interval_the_same_way_next_run_does」相关 —— 命中多处不等于复杂，复杂不复杂只能人判断"
+        ],
+        [
+          "worth_doing_now",
+          "passed",
+          "还有关键结果没达成（4 个关键结果尚未达成）"
+        ],
+        [
+          "respects_non_goals",
+          "passed",
+          "逐条比对了 3 条 Non-goals，没有命中"
+        ],
+        [
+          "does_not_trigger_stop_conditions",
+          "passed",
+          "没有触发任何停止条件"
+        ]
+      ],
+      "currency": "USD",
+      "cycle_id": "cycle-lr-20261110-093832-54ff06",
+      "cycle_outcome": "improved",
+      "cycle_ref": "c1e19997-07dd-424a-b428-ba754f68b07e",
+      "decision_id": "EVD-cycle-lr-20261110-093832-54ff06-001",
+      "decisions": [
+        [
+          "CAND-cycle-lr-20261110-093832-54ff06-PILOT-009",
+          "record",
+          "价值 0.70、置信度 0.90、成本 0.30、风险 0.2 均达到门槛，按优先级推进"
+        ]
+      ],
+      "elapsed_seconds": "2.804",
+      "measurement": {
+        "boundary_covered": false,
+        "cli_coverage": "0.745098",
+        "covered_lines": 208,
+        "defects_fixed": 10,
+        "failing_repro": [],
+        "line_coverage": "0.877637",
+        "money_paths_covered": false,
+        "test_count": 52,
+        "total_lines": 237
+      },
+      "merge_commit": "c0c8ee788d5f47e6cc72123e4f3231453aa08310",
+      "merged": true,
+      "records": {
+        "critic_review": "已审查",
+        "evolution_candidate": "17e48e5d-9d46-47be-88da-74019e0d5970",
+        "evolution_cycle": "c1e19997-07dd-424a-b428-ba754f68b07e",
+        "evolution_decision": "29835714-a5b0-4218-a2b8-754867fcbadb",
+        "project_snapshot": "9384136a-8864-4bed-b90f-9d0d823bfd1b",
+        "task": "1ed02ef8-0a30-4bd0-a2fc-8393cea0d213"
+      },
+      "round": 9,
+      "task_id": "1ed02ef8-0a30-4bd0-a2fc-8393cea0d213",
+      "task_key": "T-LR-CAND-cycle-lr-20261110-093832-54ff06-PILOT-009",
+      "verdict": "passed",
+      "visited_nodes": [
+        "observe_project",
+        "build_project_snapshot",
+        "analyze_goal_gap",
+        "discover_candidates",
+        "gather_evidence",
+        "evaluate_value_risk_cost",
+        "worth_doing",
+        "record_defer_reject",
+        "generate_evolution_plan",
+        "decompose_into_tasks",
+        "dependency_and_resource_scheduling",
+        "execute_engineering_cycle",
+        "evaluate_actual_outcome",
+        "update_project_knowledge",
+        "update_goal_gap"
+      ]
+    },
+    {
+      "accepted": true,
+      "approval_request_id": "121af57e-2412-427c-92d2-2bc74bb7023f",
+      "attainment_after": "0.9093",
+      "attainment_before": "0.8707",
+      "attainment_delta": "0.0386",
+      "candidate_id": "CAND-cycle-lr-20261110-093835-7d7dfb-PILOT-011",
+      "candidates": [
+        [
+          "CAND-cycle-lr-20261110-093835-7d7dfb-PILOT-011",
+          "PILOT-011：补上 Money 的 is_zero / __hash__ / 与非 Money 比较三条路径的用例",
+          "0.90"
+        ]
+      ],
+      "changed_files": 1,
+      "cost": "0.631445",
+      "critic_outcomes": [
+        [
+          "problem_exists",
+          "unverified",
+          "查过测试报告：测试报告里没有失败的用例；没有失败用例能证明这个问题存在，而搜不到证明不了它不存在"
+        ],
+        [
+          "evidence_sufficient",
+          "passed",
+          "2 条证据都指得到真的东西"
+        ],
+        [
+          "not_already_solved",
+          "unverified",
+          "任务表里有相关任务：任务表里有 2 条与「PILOT-011：补上 Money 的 is_zero / __hash__ / 与非 Money 比较三条路径的用例」相关的任务：PILOT-011：补上 Money 的 is_zero / __hash__ / 与非 Money 比较三条路径的用例（a3edcc5a-a1ac-4e64-86ce-4473bdca1271）、PILOT-011：补上 Money 的 is_zero / __hash__ / 与非 Money 比较三条路径的用例（f38420f4-1c36-4b2d-acb2-cc7605ec0cee） —— 是不是同一件事要人判断"
+        ],
+        [
+          "respects_goals_and_constraints",
+          "passed",
+          "按项目状态查询，没有已确认违反的约束（项目声明了 5 条）"
+        ],
+        [
+          "has_lower_cost_alternative",
+          "unverified",
+          "Git 历史里没有提到「PILOT-011：补上 Money 的 is_zero / __hash__ / 与非 Money 比较三条路径的用例」的提交 —— 有没有更省的做法只能人判断"
+        ],
+        [
+          "no_unnecessary_complexity",
+          "unverified",
+          "仓库里没有找到与「PILOT-011：补上 Money 的 is_zero / __hash__ / 与非 Money 比较三条路径的用例」相关的文件 —— 命中多处不等于复杂，复杂不复杂只能人判断"
+        ],
+        [
+          "worth_doing_now",
+          "passed",
+          "还有关键结果没达成（4 个关键结果尚未达成）"
+        ],
+        [
+          "respects_non_goals",
+          "passed",
+          "逐条比对了 3 条 Non-goals，没有命中"
+        ],
+        [
+          "does_not_trigger_stop_conditions",
+          "passed",
+          "没有触发任何停止条件"
+        ]
+      ],
+      "currency": "USD",
+      "cycle_id": "cycle-lr-20261110-093835-7d7dfb",
+      "cycle_outcome": "improved",
+      "cycle_ref": "8021143b-4369-42dc-9ac5-b5bba2bf52aa",
+      "decision_id": "EVD-cycle-lr-20261110-093835-7d7dfb-001",
+      "decisions": [
+        [
+          "CAND-cycle-lr-20261110-093835-7d7dfb-PILOT-011",
+          "record",
+          "价值 0.70、置信度 0.90、成本 0.30、风险 0.2 均达到门槛，按优先级推进"
+        ]
+      ],
+      "elapsed_seconds": "2.835",
+      "measurement": {
+        "boundary_covered": false,
+        "cli_coverage": "0.745098",
+        "covered_lines": 211,
+        "defects_fixed": 11,
+        "failing_repro": [],
+        "line_coverage": "0.890295",
+        "money_paths_covered": true,
+        "test_count": 56,
+        "total_lines": 237
+      },
+      "merge_commit": "0b756cdc82391aeac0b300da9eb6900368e07661",
+      "merged": true,
+      "records": {
+        "critic_review": "已审查",
+        "evolution_candidate": "aecbc4b1-2a06-4183-ba65-1bc52d5c3c32",
+        "evolution_cycle": "8021143b-4369-42dc-9ac5-b5bba2bf52aa",
+        "evolution_decision": "7baf6d07-16cc-456e-9086-c2b4934d8d36",
+        "project_snapshot": "fe0cf591-bf3e-4e7d-b083-dbff97ef7949",
+        "task": "6f9f1f55-9509-47ec-bf21-d44441f1bc2d"
+      },
+      "round": 10,
+      "task_id": "6f9f1f55-9509-47ec-bf21-d44441f1bc2d",
+      "task_key": "T-LR-CAND-cycle-lr-20261110-093835-7d7dfb-PILOT-011",
+      "verdict": "passed",
+      "visited_nodes": [
+        "observe_project",
+        "build_project_snapshot",
+        "analyze_goal_gap",
+        "discover_candidates",
+        "gather_evidence",
+        "evaluate_value_risk_cost",
+        "worth_doing",
+        "record_defer_reject",
+        "generate_evolution_plan",
+        "decompose_into_tasks",
+        "dependency_and_resource_scheduling",
+        "execute_engineering_cycle",
+        "evaluate_actual_outcome",
+        "update_project_knowledge",
+        "update_goal_gap"
+      ]
+    }
+  ]
+}
