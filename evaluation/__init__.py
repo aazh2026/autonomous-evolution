@@ -15,6 +15,11 @@ docs/tasks.md TASK-P1-071（R-117 / R-118）。
 **R-117 是这一层的一条硬约束。** 任务数 / Token 数 / 提交量**不得**作为
 核心指标 —— 它们很容易被优化，却不代表项目真的变好了。注册表主动拒绝
 它们，而不只是初始集合里没有它们。
+
+**趋势看板（:mod:`evaluation.trend`）也在这一层。** 它回答的是另一个问题 ——
+**这些天下来，系统在变好还是变坏？** 口径还是那些口径，但换成**时间上的曲线**：
+窗口的每一天都必须有一个点，算不出来的时候报"算不出来"而不是 0，而累计口径
+（截至第 D 天为止）是为了躲开"最后一天的任务还没跑完"这个近因偏差。
 """
 
 from __future__ import annotations
@@ -62,12 +67,40 @@ from evaluation.task_evaluation import (
     rework_rate,
     task_success_rate,
 )
+from evaluation.trend import (
+    COST_CUMULATIVE,
+    COST_DIMENSION,
+    LAYER_NAMES,
+    MIN_TREND_DAYS,
+    QUALITY_DIMENSION,
+    VERIFICATION_PASS_RATE,
+    CostSample,
+    CycleSample,
+    MetricTrend,
+    SeriesKind,
+    TrendBoard,
+    TrendDirection,
+    TrendError,
+    TrendInput,
+    TrendPoint,
+    TrendWindow,
+    VerificationSample,
+    build_board,
+)
 
 __all__ = [
     "CORE_REGISTRY",
+    "COST_CUMULATIVE",
+    "COST_DIMENSION",
     "EXPECTED_LABEL_COUNT",
+    "LAYER_NAMES",
+    "MIN_TREND_DAYS",
     "PILOT_LABELS_PATH",
+    "QUALITY_DIMENSION",
+    "VERIFICATION_PASS_RATE",
+    "CostSample",
     "CycleAttainment",
+    "CycleSample",
     "DecisionRecord",
     "Discovery",
     "ForbiddenMetricError",
@@ -82,11 +115,21 @@ __all__ = [
     "MetricRegistry",
     "MetricResult",
     "MetricState",
+    "MetricTrend",
     "PilotLabel",
+    "SeriesKind",
     "TaskOutcome",
+    "TrendBoard",
+    "TrendDirection",
+    "TrendError",
+    "TrendInput",
+    "TrendPoint",
+    "TrendWindow",
     "Verdict",
+    "VerificationSample",
     "apply_labels",
     "attainment_delta",
+    "build_board",
     "decision_adoption_rate",
     "duplicate_discovery_rate",
     "false_positive_rate",
