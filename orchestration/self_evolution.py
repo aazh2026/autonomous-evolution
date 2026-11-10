@@ -364,9 +364,7 @@ class SelfEvolutionFlow:
                     f"审批 {approval.approver} 用的验收标准版本与提案判定时的不一致"
                 )
         if proposal.criteria_version != current_criteria_version:
-            raise SelfEvolutionError(
-                "验收标准在审批之后变了 —— 这份批准不再成立（R-104）"
-            )
+            raise SelfEvolutionError("验收标准在审批之后变了 —— 这份批准不再成立（R-104）")
 
     async def _audit(
         self,

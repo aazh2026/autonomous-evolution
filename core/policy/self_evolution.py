@@ -83,9 +83,7 @@ class SelfEvolutionPolicy:
         object.__setattr__(
             self, "required_approvals", MappingProxyType(dict(self.required_approvals))
         )
-        object.__setattr__(
-            self, "risk_overrides", MappingProxyType(dict(self.risk_overrides))
-        )
+        object.__setattr__(self, "risk_overrides", MappingProxyType(dict(self.risk_overrides)))
 
     def risk_for(self, kind: ProposalKind) -> RiskLevel:
         """这类提案的风险档 —— **下限与项目加严取更严的那个**。"""

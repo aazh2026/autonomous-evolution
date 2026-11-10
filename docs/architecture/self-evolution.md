@@ -238,7 +238,7 @@ digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 clone = object.__new__(type(proposal))
 for field_ in fields(proposal):
     object.__setattr__(clone, field_.name, getattr(proposal, field_.name))
-object.__setattr__(clone, "status", ProposalStatus.APPROVED)   # 伪造"已审批"
+object.__setattr__(clone, "status", ProposalStatus.APPROVED)  # 伪造"已审批"
 ```
 
 然后把它塞回存储，走完整的发布流程 —— **发不出去**（`没有审批结论`）。同类
