@@ -53,8 +53,13 @@ class _RefusingResolver:
         raise ModelResolutionError(project_id)
 
 
-async def _run(handlers: StubHandlers, resolver: object) -> None:
-    """带着（可能没有）路由跑一遍整图。"""
+async def _run(handlers: StubHandlers, resolver: ModelResolverPort | None) -> None:
+    """带着（可能没有）路由跑一遍整图。
+
+    **参数类型要写准。** 写成 `object` 的话，`replace(...)` 那里就传不出
+    `ModelResolverPort | None`，mypy --strict 直接报错 —— 类型写宽了反而
+    把合法的调用挡在门外。
+    """
     graph = build_loop_a_graph(replace(handlers.handlers, model_resolver=resolver))
     await run_loop_a(graph, ready_state())
 
