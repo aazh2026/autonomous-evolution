@@ -103,9 +103,15 @@ class TestM2AutonomousCycleIntegration:
         assert defer_row["requested_analysis"], "defer 决策必须明确附带补充分析要求"
 
         # 验证只有 record 决策派生了任务，defer 决策绝不派生任务
+        #
+        # **为什么是 join 而不是 task.cycle_id。** ``task`` 表上没有 cycle_id
+        # 列 —— 任务挂在决策上，决策才挂在周期上。所以"这一轮的任务"要经决策
+        # 绕过去。写成 ``task.cycle_id`` 的那条查询在真库上直接报"没有这一列"。
         task_rows = await _all(
             session,
-            "select id::text, decision_id::text, title from task where cycle_id = :cycle_id",
+            "select t.id::text, t.decision_id::text, t.title from task t "
+            "join evolution_decision d on d.id = t.decision_id "
+            "where d.cycle_id = :cycle_id",
             cycle_id=result.records["evolution_cycle"],
         )
         assert len(task_rows) == 1, "只应有一个任务派生出来"
@@ -160,7 +166,16 @@ class TestM2AutonomousCycleIntegration:
         )
         assert cycle_row["status"] == "completed"
         assert cycle_row["outcome"] == "improved"
-        assert cycle_row["metrics"].get("attainment_delta") == float(result.attainment_delta)
+        # **差值是算出来的，不是存出来的。** 库里只存前后两个达成度 —— 存一份
+        # 差值就多一份可能与前后对不上的真相。JSON 里没有十进制类型，所以两个
+        # 达成度都存成字符串，这里按十进制读回来再相减。
+        metrics = cycle_row["metrics"]
+        before = Decimal(str(metrics["attainment_before"]))
+        after = Decimal(str(metrics["attainment_after"]))
+        assert after - before == result.attainment_delta, (
+            "周期记录里前后达成度之差必须等于算出来的差值 —— "
+            f"库里是 {before} → {after}，算出来是 {result.attainment_delta}"
+        )
 
     async def test_budget_within_baseline(self, engine: AsyncEngine, tmp_path: Path) -> None:
         """预算与时长验证 —— 耗时与成本落在 TASK-P1-072 基线 2 倍以内。"""

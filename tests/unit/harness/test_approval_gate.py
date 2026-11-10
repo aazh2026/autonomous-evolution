@@ -205,15 +205,36 @@ class TestTheRejectedApprovalBlocksTheTask:
 
         任务当前状态不允许阻塞时，拒绝照样记下来 —— 报出来的是"记下了，但
         没能阻塞"，而不是"这次拒绝没发生"。
+
+        **为什么用 ``MERGED`` 而不是 ``PLANNED``。** 状态机后来加了一条
+        ``PLANNED → BLOCKED``（依赖图级联阻断要用），所以"计划中的任务也拦得住"
+        现在是对的。**仍然拦不住的是已经合并的** —— 改动进了主干，收不回来了。
+        """
+        gate = _gate()
+        request_id = await _request_merge(gate)
+        rejection = await gate.reject(
+            request_id=request_id, approver="alice", task_state=TaskState.MERGED
+        )
+        assert rejection.blocked is None
+        assert rejection.request.status is ApprovalStatus.REJECTED
+        assert "不允许阻塞" in rejection.reason
+
+    async def test_a_planned_task_can_still_be_blocked(self) -> None:
+        """**计划中的任务拦得住** —— 依赖图级联阻断要的就是这条边。
+
+        状态机加了 ``PLANNED → BLOCKED`` 之后，"拒绝之后任务停在那里等人来看"
+        对还没开工的任务同样成立。**这一条钉住那个新能力** —— 免得有人哪天
+        把它删掉，而删除的人以为自己在清理历史包袱。
         """
         gate = _gate()
         request_id = await _request_merge(gate)
         rejection = await gate.reject(
             request_id=request_id, approver="alice", task_state=TaskState.PLANNED
         )
-        assert rejection.blocked is None
-        assert rejection.request.status is ApprovalStatus.REJECTED
-        assert "不允许阻塞" in rejection.reason
+        assert rejection.blocked is not None
+        assert rejection.blocked.previous is TaskState.PLANNED
+        assert rejection.blocked.current is TaskState.BLOCKED
+        assert rejection.blocked.changed is True
 
     def test_the_block_transition_follows_the_state_machine(self) -> None:
         """门算出来的迁移必须**就是状态机算出来的那一条**。

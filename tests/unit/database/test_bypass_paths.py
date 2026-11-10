@@ -28,6 +28,22 @@ TASK_CONSTRUCTION_ALLOWLIST = {
     "infrastructure/database/repositories.py",
 }
 
+#: 单元测试里构造持久化实体的文件 —— **不写库，只是当夹具喂给纯函数**。
+#:
+#: **为什么它们不算旁路。** 这条规矩防的是"**绕过决策路径写库**"。这三份文件
+#: 在内存里造一个实体对象，交给 ``TaskDAG.from_tasks_and_dependencies`` 这种纯
+#: 函数，**一行都没写进数据库** —— 它们压根不在"写路径"上。
+#:
+#: **为什么逐个列出来，而不是把整个 tests/ 放行。** 放行整个目录会让**真正**的
+#: 旁路从测试目录里溜过去 —— 比如某个集成测试里直接 ``session.add(Task(...))``
+#: 就能绕过决策写出一行任务。逐个列出，**多一份就要多写一条理由**，扫描器
+#: 因此仍然盯着生产代码的每一个文件。
+TEST_ENTITY_CONSTRUCTION_ALLOWLIST = {
+    "tests/unit/executors/test_selector.py",
+    "tests/unit/orchestration/test_dag_scheduler.py",
+    "tests/unit/planning/test_dag.py",
+}
+
 #: 允许构造 ``EvolutionDecision`` 的文件。
 DECISION_CONSTRUCTION_ALLOWLIST = {
     "infrastructure/database/repositories.py",
@@ -200,8 +216,9 @@ class TestNoBypassWritePath:
             if "Task" in _entity_constructed_names(path, "Task")
         ]
         # 实体定义文件里是 class Task(...) —— 不是 Call，不会被算进来。
-        assert set(offenders) <= TASK_CONSTRUCTION_ALLOWLIST, (
-            f"以下文件直接构造了 Task，绕过了决策路径：{sorted(set(offenders))}"
+        allowed = TASK_CONSTRUCTION_ALLOWLIST | TEST_ENTITY_CONSTRUCTION_ALLOWLIST
+        assert set(offenders) <= allowed, (
+            f"以下文件直接构造了 Task，绕过了决策路径：{sorted(set(offenders) - allowed)}"
         )
 
     def test_decision_is_only_constructed_in_the_repository(self) -> None:
