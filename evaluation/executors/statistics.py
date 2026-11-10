@@ -386,6 +386,221 @@ def holm_adjust(p_values: Sequence[Decimal]) -> tuple[Decimal, ...]:
     return tuple(adjusted)
 
 
+def _mcnemar_p_value(
+    *,
+    only_first: int,
+    only_second: int,
+    discordant: int,
+    alternative: Alternative,
+) -> Fraction:
+    """McNemar 检验的 p 值 —— 只看不一致的那几对。
+
+    **二项分布的精确算法。** 零假设下"谁对谁错是等可能的"，于是不一致的对里
+    前者赢的次数服从 ``Binomial(discordant, 0.5)``。
+
+    **双侧不是"取两半"。** 双侧的定义是"所有概率不超过观测值那一张表的概率之
+    和" —— 与 Fisher 双侧检验同一套做法。
+
+    **单侧要按方向算。** "前者更好"只看上尾，"后者更好"只看下尾 —— 事后挑一
+    个方向再算 p 值，那叫挑数据。
+    """
+    if discordant == 0:
+        return Fraction(1)
+    if alternative is Alternative.GREATER:
+        return sum(
+            (
+                Fraction(math.comb(discordant, count), 2**discordant)
+                for count in range(only_first, discordant + 1)
+            ),
+            Fraction(0),
+        )
+    if alternative is Alternative.LESS:
+        return sum(
+            (
+                Fraction(math.comb(discordant, count), 2**discordant)
+                for count in range(only_first + 1)
+            ),
+            Fraction(0),
+        )
+    observed = min(only_first, only_second)
+    observed_probability = Fraction(math.comb(discordant, observed), 2**discordant)
+    return sum(
+        (
+            Fraction(math.comb(discordant, count), 2**discordant)
+            for count in range(discordant + 1)
+            if Fraction(math.comb(discordant, count), 2**discordant) <= observed_probability
+        ),
+        Fraction(0),
+    )
+
+
+def mcnemar_exact(
+    first: Sequence[bool],
+    second: Sequence[bool],
+    options: StatisticsOptions = DEFAULT_OPTIONS,
+) -> TestResult:
+    """配对二值结果的 McNemar 精确检验。
+
+    **为什么必须是配对的。** 两个策略跑的是**同一批任务** —— 任务的难易在两
+    组之间是共有的。不配对地比两个成功率，等于把"这批任务难"算成"这个策略
+    差"。配对检验只看**不一致的那几对**：一个对了另一个错了的那些。
+
+    **只有不一致的对才进检验。** 两边都对、两边都错的对子，对"谁更好"这个
+    问题一句话也说不出来 —— 把它们算进去只会稀释信号。
+
+    **零假设**：在不一致的那些对里，谁对谁错是等可能的（也就是两个策略一样
+    好）。**p 值**由二项分布算出："如果真是五五开，抽到这么极端的分法有多难"。
+
+    **一个不一致的对都没有时，p = 1** —— 不是"没法做"，而是"**两个策略在这
+    批任务上完全一样**"。这与"测不动"是两回事，所以 :attr:`TestResult.detail`
+    里写着不一致的对数。
+
+    :param first: 前一个策略在每个任务上的结果。
+    :param second: 后一个策略在每个任务上的结果。
+    """
+    if len(first) != len(second):
+        raise ValueError("配对检验要两组一样长的结果")
+    total = len(first)
+    if total == 0:
+        raise ValueError("一个样本都没有，检验无从做起")
+    only_first = sum(1 for left, right in zip(first, second, strict=True) if left and not right)
+    only_second = sum(1 for left, right in zip(first, second, strict=True) if right and not left)
+    discordant = only_first + only_second
+
+    if discordant == 0:
+        return TestResult(
+            name=options.label or "mcnemar_exact",
+            statistic=Decimal(0),
+            p_value=Decimal(1),
+            method="mcnemar_exact",
+            alternative=options.alternative,
+            alpha=options.alpha,
+            sample_size=total,
+            detail={
+                "only_first": only_first,
+                "only_second": only_second,
+                "discordant": 0,
+                "pairs": total,
+                "exact": True,
+                "note": "两个策略在这批任务上完全一样 —— 没有一个不一致的对",
+            },
+        )
+
+    p_value = _mcnemar_p_value(
+        only_first=only_first,
+        only_second=only_second,
+        discordant=discordant,
+        alternative=options.alternative,
+    )
+
+    statistic = _to_decimal(
+        Fraction(only_first - only_second, total),
+    )
+    return TestResult(
+        name=options.label or "mcnemar_exact",
+        statistic=statistic,
+        p_value=_to_decimal(p_value),
+        method="mcnemar_exact",
+        alternative=options.alternative,
+        alpha=options.alpha,
+        sample_size=total,
+        detail={
+            "only_first": only_first,
+            "only_second": only_second,
+            "discordant": discordant,
+            "pairs": total,
+            "exact": True,
+        },
+    )
+
+
+def paired_permutation_test(
+    first: Sequence[Decimal],
+    second: Sequence[Decimal],
+    options: StatisticsOptions = DEFAULT_OPTIONS,
+) -> TestResult:
+    """配对连续量的符号翻转置换检验。
+
+    **为什么是配对的。** 与 :func:`mcnemar_exact` 同理 —— 同一批任务的难易在
+    两组之间是共有的，不配对地比，等于把"这批任务贵"算成"这个策略贵"。
+
+    **怎么换。** 零假设是"每一对里谁大谁小是随机的"。于是把每一对的**差**随机
+    翻正负，翻出来的平均差就是一次重新分组。**观测到的平均差有多罕见**，就是
+    p 值。
+
+    **统计量取平均差**（后一组减前一组），与 :func:`permutation_test` 同一套
+    方向约定：正数意味着后一组更大。备择假设也因此按"后一组更大"读
+    （:attr:`Alternative.GREATER`）。
+
+    **为什么配对用平均、不配对用中位数。** 不配对的时候，两组的**水平**是比
+    较的对象，而成本水平是重尾的 —— 一次卡死的运行能把均值拖走一大截，所以
+    取中位数。配对的时候，任务的难易被**差**掉了，剩下的"每个任务上省了多
+    少"就是要估的那个效应；中位数在这里会**失去分辨力**：若每一对的差都是同
+    一个数（如每个任务都省 0.1 元），翻正负之后中位数不是 0 就是那个数本身，
+    "极端"的翻法占了七成多，于是明明有差别却报出 p ≈ 0.77 —— 那不是检验，是
+    噪声。
+
+    **中位数差仍会记在 :attr:`TestResult.detail` 里** —— 描述性的数要稳健，
+    检验的统计量要有分辨力，两者分开记。
+
+    **样本够小就精确枚举**（2ⁿ 种翻法），**够大就蒙特卡洛**（种子固定）——
+    方法名会写明是哪一种。
+    """
+    if len(first) != len(second):
+        raise ValueError("配对检验要两组一样长的数")
+    if not first:
+        raise ValueError("两组都不能是空的")
+    differences = [
+        Fraction(right) - Fraction(left) for left, right in zip(first, second, strict=True)
+    ]
+    difference_sum = sum(differences, Fraction(0))
+    observed = difference_sum / len(differences)
+
+    total_flips = 2 ** len(differences)
+    if total_flips <= options.max_exact:
+        extreme = 0
+        examined = total_flips
+        for mask in range(total_flips):
+            flipped = [
+                value if mask >> index & 1 else -value for index, value in enumerate(differences)
+            ]
+            if _extreme(sum(flipped, Fraction(0)) / len(flipped), observed, options.alternative):
+                extreme += 1
+        p_value = Fraction(extreme, examined)
+        method = "paired_permutation_exact"
+    else:
+        generator = random.Random(options.seed)
+        extreme = 0
+        examined = options.draws
+        for _ in range(options.draws):
+            flipped = [value if generator.getrandbits(1) else -value for value in differences]
+            if _extreme(sum(flipped, Fraction(0)) / len(flipped), observed, options.alternative):
+                extreme += 1
+        # +1 修正：蒙特卡洛不该报出 p=0 —— 那是"没抽到"，不是"不可能"。
+        p_value = Fraction(extreme + 1, examined + 1)
+        method = "paired_permutation_monte_carlo"
+
+    return TestResult(
+        name=options.label or "paired_permutation_test",
+        statistic=_to_decimal(observed),
+        p_value=_to_decimal(p_value),
+        method=method,
+        alternative=options.alternative,
+        alpha=options.alpha,
+        sample_size=len(differences),
+        detail={
+            "pairs": len(differences),
+            "sum_difference": _to_decimal(difference_sum),
+            "mean_difference": _to_decimal(observed),
+            "median_difference": _to_decimal(_median(differences)),
+            "flips": total_flips,
+            "permutations": examined,
+            "exact": method == "paired_permutation_exact",
+            "resolution": _to_decimal(Fraction(1, examined) if examined else Fraction(1)),
+        },
+    )
+
+
 __all__ = [
     "ALPHA",
     "DEFAULT_OPTIONS",
@@ -398,5 +613,7 @@ __all__ = [
     "compare_success_rates",
     "fisher_exact",
     "holm_adjust",
+    "mcnemar_exact",
+    "paired_permutation_test",
     "permutation_test",
 ]

@@ -1,0 +1,15 @@
+{"cost": "0.08133486", "duration": "134.113", "executed": true, "executor": "claude-code", "model": "MiniMax-M3", "succeeded": true, "task_id": "pilot-001"}
+{"cost": "0.02366166", "duration": "112.258", "executed": true, "executor": "claude-code", "model": "MiniMax-M3.1-Flash", "succeeded": true, "task_id": "pilot-001"}
+{"cost": "0.0418638", "duration": "77.873", "executed": true, "executor": "codex", "model": "MiniMax-M3", "succeeded": true, "task_id": "pilot-001"}
+{"cost": "0.016598715", "duration": "108.247", "executed": true, "executor": "codex", "model": "MiniMax-M3.1-Flash", "succeeded": true, "task_id": "pilot-001"}
+{"cost": "0.0263214", "duration": "49.907", "executed": true, "executor": "opencode", "model": "MiniMax-M3", "succeeded": true, "task_id": "pilot-001"}
+{"cost": "0.01738923", "duration": "134.843", "executed": true, "executor": "opencode", "model": "MiniMax-M3.1-Flash", "succeeded": true, "task_id": "pilot-001"}
+{"cost": "0.07254228", "duration": "123.695", "executed": true, "executor": "claude-code", "model": "MiniMax-M3", "succeeded": true, "task_id": "pilot-002"}
+{"cost": "0.02907321", "duration": "84.586", "executed": true, "executor": "claude-code", "model": "MiniMax-M3.1-Flash", "succeeded": true, "task_id": "pilot-002"}
+{"cost": "0.07879188", "duration": "152.964", "executed": true, "executor": "codex", "model": "MiniMax-M3", "succeeded": true, "task_id": "pilot-002"}
+{"cost": "0.02037699", "duration": "105.392", "executed": true, "executor": "codex", "model": "MiniMax-M3.1-Flash", "succeeded": true, "task_id": "pilot-002"}
+{"cost": "0.04557024", "duration": "186.539", "executed": true, "executor": "opencode", "model": "MiniMax-M3", "succeeded": true, "task_id": "pilot-002"}
+{"cost": "0.030844635", "duration": "262.505", "executed": true, "executor": "opencode", "model": "MiniMax-M3.1-Flash", "succeeded": true, "task_id": "pilot-002"}
+{"cost": "0.05410422", "duration": "98.24", "executed": true, "executor": "claude-code", "model": "MiniMax-M3", "succeeded": true, "task_id": "pilot-003"}
+{"cost": "0.05644143", "duration": "395.642", "executed": true, "executor": "claude-code", "model": "MiniMax-M3.1-Flash", "succeeded": true, "task_id": "pilot-003"}
+{"cost": "0.0518211", "duration": "126.436", "executed": true, "executor": "codex", "model": "MiniMax-M3", "succeeded": true, "task_id": "pilot-003"}
