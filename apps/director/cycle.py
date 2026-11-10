@@ -159,7 +159,6 @@ class ContractTemplate:
         )
 
 
-
 # --------------------------------------------------------------------------
 # 配置、配方与结果
 # --------------------------------------------------------------------------
@@ -399,6 +398,8 @@ def new_cycle_id(prefix: str = "cycle") -> str:
     """
     stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
     return f"{prefix}-{stamp}-{uuid.uuid4().hex[:6]}"
+
+
 # --------------------------------------------------------------------------
 # 端口
 # --------------------------------------------------------------------------
@@ -1616,9 +1617,7 @@ def _candidate_summary(final: LoopBState) -> tuple[tuple[str, str, str], ...]:
     discovery = final.discovery
     if discovery is None:
         return ()
-    return tuple(
-        (item.id, item.title, str(item.confidence)) for item in discovery.candidates
-    )
+    return tuple((item.id, item.title, str(item.confidence)) for item in discovery.candidates)
 
 
 def _decision_summary(final: LoopBState) -> tuple[tuple[str, str, str], ...]:
@@ -1732,9 +1731,7 @@ async def run_cycle(
         binder = DatabaseContractBinder(repository, template)
         journal = BindingJournal(EvolutionJournal(session), binder, session, cycle_refs)
         lookup = DatabaseTaskLookup(repository=repository, project_id=project_id)
-        actuals = (
-            recipe.actuals(project) if recipe.actuals is not None else pilot_actuals(project)
-        )
+        actuals = recipe.actuals(project) if recipe.actuals is not None else pilot_actuals(project)
         critic = build_critic(
             project=project,
             repo=repo,
@@ -1752,9 +1749,7 @@ async def run_cycle(
             repo=repo,
             policy=PolicyManager(project.goal.autonomy),
             gate=gate,
-            granter=HumanMergeGranter(
-                gate, approver=recipe.approver, comment=recipe.merge_comment
-            ),
+            granter=HumanMergeGranter(gate, approver=recipe.approver, comment=recipe.merge_comment),
             ledger=ledger,
             merge_message=recipe.merge_message,
         )
