@@ -41,16 +41,22 @@
 
 from __future__ import annotations
 
-import os
-import re
-import subprocess
-import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final, Protocol, runtime_checkable
 
+from apps.readers import (
+    FAILED_LINE,
+    REPORT_HEADING,
+    RuntimeProbe,
+    read_commits,
+    read_ledger,
+    read_records,
+    run_process,
+    run_pytest,
+)
 from apps.scheduler.scan_job import ScanHistory, fresh_signals
 from core.evolution.evolution_loop import TriggerSource
 from core.evolution.scan import ScanScope, ScanSignal
@@ -63,19 +69,6 @@ QUALITY_TIMEOUT_SECONDS: Final[float] = 120.0
 
 #: 运行那一路跑命令时用的超时（探针自己也可以定一个更短的）。
 RUNTIME_TIMEOUT_SECONDS: Final[float] = 60.0
-
-#: 外部报告台账里，条目标题长什么样。
-#:
-#: **只认一种形状。** 认得越宽，解析错的越多 —— 一份解析错的台账会产出
-#: 主体标识不对的事件，去重窗口于是把两件不同的事当成同一件挡掉。
-REPORT_HEADING: Final[re.Pattern[str]] = re.compile(
-    r"^###\s+(?P<id>[A-Za-z0-9][A-Za-z0-9._-]*)\s+——\s*(?P<title>.+?)\s*$"
-)
-
-#: pytest 的失败摘要行长什么样。
-#:
-#: ``-rf`` 让 pytest 打出 ``FAILED <nodeid> - <理由>``。
-FAILED_LINE: Final[re.Pattern[str]] = re.compile(r"^FAILED\s+(?P<nodeid>\S+)")
 
 
 @runtime_checkable
@@ -94,31 +87,6 @@ class TriggerSourcePort(Protocol):
     def collect(self) -> tuple[TriggerEvent, ...]:
         """现在这个来源上有哪些事。"""
         ...
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeProbe:
-    """一条要看着的命令。
-
-    :param id: 探针的身份 —— **事件的主体**。同一条命令看两次，出的事是
-        同一件。
-    :param argv: 要跑的命令。
-    :param cwd: 在哪跑。
-    :param timeout: 跑多久算超时。
-    :param env: **额外加进去的环境变量。** 跑一个装在 ``src/`` 下的包要
-        把 ``src`` 放进 ``PYTHONPATH`` —— 这一条就是给这件事用的。
-    """
-
-    #: 探针的身份。
-    id: str
-    #: 要跑的命令。
-    argv: tuple[str, ...]
-    #: 在哪跑。
-    cwd: Path | None = None
-    #: 跑多久算超时。
-    timeout: float = RUNTIME_TIMEOUT_SECONDS
-    #: 额外加进去的环境变量。
-    env: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass
@@ -217,31 +185,21 @@ class GitCommitSource:
 
     def collect(self) -> tuple[TriggerEvent, ...]:
         """读提交历史。"""
-        argv = [
-            "git",
-            "-C",
-            str(self.repo),
-            "log",
-            "--format=%H%x1f%s",
-            f"--max-count={self.limit}",
-        ]
-        if self.since:
-            argv.append(f"{self.since}..HEAD")
-        completed = _run(argv, cwd=self.repo, timeout=RUNTIME_TIMEOUT_SECONDS)
-        if completed is None or completed.returncode != 0:
-            return ()
+        entries = read_commits(
+            self.repo,
+            limit=self.limit,
+            since=self.since,
+            timeout=RUNTIME_TIMEOUT_SECONDS,
+        )
         events: list[TriggerEvent] = []
-        for line in completed.stdout.splitlines():
-            if not line.strip():
-                continue
-            sha, _, subject = line.partition("\x1f")
+        for entry in entries:
             events.append(
                 TriggerEvent(
                     source=TriggerSource.CODE,
                     event_type=TriggerEventType.CODE_COMMIT,
-                    aggregate_id=sha.strip(),
+                    aggregate_id=entry.sha,
                     project_id=self._project_id(),
-                    summary=subject.strip() or sha.strip(),
+                    summary=entry.subject or entry.sha,
                 )
             )
         return tuple(events)
@@ -315,24 +273,22 @@ class PytestFailureSource:
         **退出码 1 才算"验了，没过"。** 其余非零退出码都意味着这一轮根本没
         有测量结果 —— 按本仓库的规矩，"缺实测值"是失败，不是 0。
         """
-        argv = [sys.executable, "-m", "pytest", "-q", "--tb=no", "-rf"]
-        if self.run_xfail:
-            argv.append("--runxfail")
-        argv.extend(self.targets)
-        completed = _run(argv, cwd=self.repo, timeout=QUALITY_TIMEOUT_SECONDS)
-        if completed is None:
-            raise QualitySourceError(f"在 {self.repo} 里跑 pytest 失败 —— 命令跑不起来或超时了")
-        if completed.returncode not in (0, PYTEST_FAILED):
+        try:
+            outcome = run_pytest(
+                self.repo,
+                self.targets,
+                run_xfail=self.run_xfail,
+                timeout=QUALITY_TIMEOUT_SECONDS,
+            )
+        except RuntimeError as error:
+            raise QualitySourceError(str(error)) from error
+        if outcome.returncode not in (0, PYTEST_FAILED):
             raise QualitySourceError(
-                f"在 {self.repo} 里跑 pytest 没跑成（退出码 {completed.returncode}）—— "
+                f"在 {self.repo} 里跑 pytest 没跑成（退出码 {outcome.returncode}）—— "
                 "这不是'没有用例没过'，是这一轮没有测量结果"
             )
         events: list[TriggerEvent] = []
-        for line in completed.stdout.splitlines():
-            matched = FAILED_LINE.match(line.strip())
-            if matched is None:
-                continue
-            node_id = matched.group("nodeid")
+        for node_id in outcome.failed_node_ids:
             events.append(
                 TriggerEvent(
                     source=TriggerSource.QUALITY,
@@ -419,20 +375,15 @@ class ReportInboxSource:
 
     def collect(self) -> tuple[TriggerEvent, ...]:
         """读台账。"""
-        if not self.path.exists():
-            return ()
         events: list[TriggerEvent] = []
-        for line in self.path.read_text(encoding="utf-8").splitlines():
-            matched = REPORT_HEADING.match(line.strip())
-            if matched is None:
-                continue
+        for entry in read_ledger(self.path):
             events.append(
                 TriggerEvent(
                     source=TriggerSource.EXTERNAL,
                     event_type=TriggerEventType.EXTERNAL_REPORT,
-                    aggregate_id=matched.group("id"),
+                    aggregate_id=entry.id,
                     project_id=self.project_id,
-                    summary=matched.group("title"),
+                    summary=entry.title,
                 )
             )
         return tuple(events)
@@ -459,89 +410,41 @@ class KnowledgeRecordSource:
 
     def collect(self) -> tuple[TriggerEvent, ...]:
         """读记录。"""
-        if not self.directory.is_dir():
-            return ()
         events: list[TriggerEvent] = []
-        for path in sorted(self.directory.glob("*.md")):
-            title = _first_heading(path)
+        for entry in read_records(self.directory):
             events.append(
                 TriggerEvent(
                     source=TriggerSource.KNOWLEDGE,
                     event_type=TriggerEventType.KNOWLEDGE_UPDATE,
-                    aggregate_id=path.stem,
+                    aggregate_id=entry.stem,
                     project_id=self.project_id,
-                    summary=title or path.stem,
+                    summary=entry.title or entry.stem,
                 )
             )
         return tuple(events)
 
 
-def _run(
-    argv: list[str],
-    *,
-    cwd: Path | None,
-    timeout: float,
-    env: Mapping[str, str] | None = None,
-) -> subprocess.CompletedProcess[str] | None:
-    """跑一条命令。
-
-    **跑不起来就返回 ``None``，不抛。** 这一层的定位是"如实说发生了什么"，
-    不是"因为工具坏了就把整个系统带崩"。**跑不起来本身也是一件值得报的
-    事** —— 但它不是"这条命令失败了"，所以不产事件。
-    """
-    if not argv:
-        return None
-    try:
-        return subprocess.run(
-            argv,
-            cwd=cwd,
-            env={**os.environ, **env} if env else None,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=timeout,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        return None
-
-
 def _run_probe(probe: RuntimeProbe) -> str | None:
-    """跑一条探针。跑成了返回 ``None``，没跑成返回一句人话。"""
-    if not probe.argv:
-        return f"探针 {probe.id} 什么命令都没给"
-    env = dict(probe.env)
-    try:
-        completed = subprocess.run(
-            list(probe.argv),
-            cwd=probe.cwd,
-            env={**os.environ, **env},
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=probe.timeout,
-        )
-    except subprocess.TimeoutExpired:
+    """跑一条探针。跑成了返回 ``None``，没跑成返回一句人话。
+
+    **三态都分得清**：超时、起不来、退出码非零 —— 报给上层的话不一样，
+    补救动作也不一样。
+    """
+    outcome = run_process(
+        probe.argv,
+        cwd=probe.cwd,
+        timeout=probe.timeout,
+        env=dict(probe.env),
+    )
+    if outcome.timed_out:
         return f"命令 {probe.id} 超时（超过 {probe.timeout} 秒）"
-    except OSError as error:
-        return f"命令 {probe.id} 跑不起来：{error}"
-    if completed.returncode == 0:
+    if not outcome.started:
+        return f"命令 {probe.id} 跑不起来：{outcome.error}"
+    if outcome.returncode == 0:
         return None
-    tail = (completed.stderr or completed.stdout or "").strip().splitlines()
+    tail = (outcome.stderr or outcome.stdout or "").strip().splitlines()
     detail = tail[-1] if tail else "没有输出"
-    return f"命令 {probe.id} 退出码 {completed.returncode}：{detail}"
-
-
-def _first_heading(path: Path) -> str:
-    """文件里的一级标题。"""
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return ""
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("# "):
-            return stripped[2:].strip()
-    return ""
+    return f"命令 {probe.id} 退出码 {outcome.returncode}：{detail}"
 
 
 def _summary_of_scan(signals: tuple[ScanSignal, ...]) -> str:
