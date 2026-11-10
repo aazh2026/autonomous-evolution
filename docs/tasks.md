@@ -50,7 +50,7 @@
 ### 0.4 任务条目字段
 
 ````markdown
-### [ ] TASK-P1-042 覆盖率模块基线机制
+### [ ] TASK-P1-000 示例任务名称（格式示例）
 - **工作流**：Harness / Verification
 - **设计要求**：R-055（§3.5B 脚注）、I-09
 - **依赖**：TASK-P1-020, TASK-P1-023
@@ -793,7 +793,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **预估**：0.5d
 - **验证结果**：**七件交付物 + 三条验收全部实测** —— `apps/director/m1_cycle.py`（驱动）、`apps/director/m1_executor.py`（本地补丁执行器）、`apps/director/m1_budget.py`（T2 的账）、`scripts/demo_m1_cycle.py`（T3 演示）、`docs/demo/m1-walkthrough.md`（逐步走查）、`tests/system/scripts/m1_cycle.yaml`（回放用的镜子脚本）、`tests/integration/test_m1_cycle.py`（T1 的 11 条断言）。**顺带补了仓储层的一个缺口** —— 资源调度把执行器分给了任务、工作区管理器给任务开了隔离工作区，但**这两样只活在编排层的内存里**：任务行上不记，事后查一条任务就不知道它是哪个执行器做的、改动落在哪个分支上（靠会话行反推任务行是猜）。于是给 `TaskRepository` 加了 `assign_executor` / `assign_workspace`，**并且定死"不覆盖已有的"** —— 一个任务被两个执行器先后认领、或者在两个工作区里各干一遍，改派之后查到的就只剩最后一个，而先前那个执行器留下的会话与事件仍然在库里，两者对不上，且没人说得清哪个是真的；**已经有主了再指派要报错（`AlreadyAssignedError`），而不是悄悄改掉历史**（指派同一个执行器是空操作 —— 重放同一条路线图不该报错）。七条断言在 `tests/integration/test_task_assignment.py`。**唯一被换掉的是"写代码"那一段** —— 执行器是一个本地补丁器：按一份写死的补丁清单改文件、提交、报成本，**不联网、不调模型、不花钱**；而**链路上真正需要判断的地方全部是真的**（Critic 九问、验收契约闸门、合并闸门、审批门）。**为什么只换它**：写代码要么需要 API 凭据、要么需要网络，两者都会让"这条链能不能跑通"这个问题**依赖于环境而不是依赖于代码**；而换掉执行器**不改变被验证的东西** —— 改完之后跑的仍是真 pytest、真的独立验证引擎、真的验收契约。**候选本身是手工注入的** —— M1 验的是"候选之后发生什么"，自主发现候选是 M2 的活（P1-082）。**T1 ①（回放 runner 跑通该链）** —— `tests/system/scripts/m1_cycle.yaml` 是 M1 那条链的**镜子**：同样的候选、同样的置信度与风险、同样的四项评分、同样的任务标识与标题；**它不写"结果"** —— 决策由真的策略算，放行由真的 `agents.critic.approval.approval_for` 翻译，脚本只提供"模型会给出的东西"，唯一被换掉的是执行器与验证器（打桩）。**比的是形状而不是内容**：回放走出来的**十五个循环 B 节点**、**十一条循环 A 事件（序号 1…11）**、**一串任务状态迁移**（`RUNNING → VERIFYING → PASSED → INTEGRATING → MERGED → COMPLETED`）、同一个决策（`record`）、同一次审批（`approved`）、同一个任务标识与标题、同一个结局（`completed`）—— **逐项一致**。**T1 ②（每一步的 DB 记录可查）** —— 不是"能查到有表"，是**每一张表都有那一行、都能用一句 SQL 查出来**：`evolution_candidate` / `evolution_decision` / `task` / `verification_run` + `artifact` / `approval_request` / `project_snapshot` + `agent_session` / `evolution_cycle` / `execution_event`。**走查文档里给的那些 SQL 全部实测过**（对着真库跑的，不是写出来好看的）。**一处必须说清的差别**：**回放那一轮的任务行停在 `APPROVED`，而 M1 那一轮停在 `COMPLETED`** —— 因为**只有 M1 驱动的镜像适配器（`_MirroringSessionJournal`）会把任务行推进状态机**，P1-065 的回放 runner 不做这件事（它比的是**链路**，不是落库镜像）；测试把这个差别**显式断言**下来了，而不是绕过去 —— 绕过去的话，两个 runner 的差异就永远没人知道。**T2** —— **成本 0.631445 USD（基线 0.631445，1.00 倍，上限 1.262890）、耗时 1.312 秒（基线 105.024 秒，0.01 倍，上限 210.048 秒）**，双双落在基线 2 倍以内（`apps/director/m1_budget.py` 读 `docs/evaluation/baselines.yaml` 的**跨类别中位数**，上限 = 2×基线）。**成本是名义值，不是模型账单** —— 补丁器不调模型，报的是 `m1_executor.py` 里写死的 `NOMINAL_COST`；**写死是为了可比**（换个环境就换个答案的话，T2 就没法比了），而它衡量的是"**链路本身的开销能不能落在真执行器的量级内**"，不是"这一轮真花了多少钱"。**耗时 0.01× 也不该被当成"这个系统很快"** —— 基线是"真 Coding Agent 干一件真活"的时间，这一轮改的是三处已知位置的代码且不调模型，差的**主要是执行器换了，不是链路变快了**。**T3** —— `make demo-m1` 跑通，**退出码 0**（有任何一项超出基线 2 倍就返回 1）：真的建 git 仓库、真的跑 pytest、真的走审批门、真的 `git merge`、真的落库。**唯一被模拟的是"人"** —— 合并审批的那一按演示替你按了（批准人 `m1-approver`），而**人看到的那份改动是真的 `git diff --stat`**（`known_issues/test_known_issues.py | 6 ------`、`src/tinylib/cli.py | 3 ++`、`tests/test_cli.py | 14 ++++++++++++++`、`3 files changed, 17 insertions(+), 6 deletions(-)`）。**R-051 的验收契约闸门是真的过了** —— 任务行落库那一刻契约是空的，是 `_BindingJournal` 在 `land_tasks` 之后**立刻**绑上去的（契约里的 `task_id` 必须等于任务行 id，而那个 id 落库时才有）；`READY → RUNNING` 那一步由 `TaskRepository.transition` 强制检查，**没绑契约就不许开工**。**Critic 的九问是三态的，这一轮 5 项 passed、4 项 unverified、0 项 failed、零否决** —— 任务被派生出来。**"未核实"要看得见** —— 把"没查成"报成"通过"，Critic 就成了一台会点头的机器；`unverified` **不否决**（一个查不成的检查不该替真问题开绿灯，也不该把真问题毙掉），但它**也不构成证据**。**这一轮没做到的五件事，写在走查文档里而不是藏起来**：① **`problem_exists` 是 UNVERIFIED** —— 候选标题是中文而测试报告里的 pytest node id 是英文，`problem_exists` 用子串匹配，**匹配不上**；这不是误判，是"没查成"，但**它也不构成证据**（修它要改检查本身，不能靠改标题把问题藏进"通过"里）；② **周期结局是 `no_change`**（"缺少可比的前后目标达成度，本轮没有可验证的改善"）—— 一条缺陷修好了而整体达成度没变，**如实说"没有可验证的整体改善"正是"不夸大"该有的样子**（可计算的达成度差值是 M2 的验收项）；③ **成本是名义值**；④ **`agent_session.status` 停在 `active`** —— `SessionJournal` 没有 close 方法，**一处未完成**（不影响验收：会话行的用途是"查得出是谁在哪台工作区上干的"）；⑤ **回放那一轮的任务行停在 `APPROVED`**（上面已述）。**过程里修掉的两个真问题**：**补丁原文里的中文按显示宽度算超了 ruff 的 100 列**，而补丁必须与试点仓库**逐字节相同**（不能为了排版改写它），于是用 `'''\` 行尾续行让那一行在源文件里独占一行 —— **试点仓库一个字都没动**；**ruff 的 `E501` 按显示宽度算**（CJK 记 2 列）这件事本身就是个坑，值得记一笔。
 
-### [ ] TASK-P1-082 M2：自主闭环验收
+### [x] TASK-P1-082 M2：自主闭环验收
 
 - **工作流**：MS
 - **设计要求**：R-109, R-128（§9 阶段一验收：不给具体开发任务，只给项目目标）
@@ -803,6 +803,7 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **验证（T3）**：评审 —— 人工确认候选是**真实问题**而非编造；这一步的结论记为标注样本，供 `TASK-P1-071` 的误报率使用
 - **自主权**：L2
 - **预估**：0.5d
+- **验证结果**：**交付物与六项验收（T2 ①~④、T3、T1）全部实测** —— 交付物产出驱动与组件 `apps/director/m2_cycle.py`、`apps/director/m2_discovery.py`、`apps/director/m2_observer.py`、`apps/director/m2_executor.py`、`apps/director/m2_budget.py`；演示入口 `scripts/demo_m2_cycle.py` 与 `Makefile` 目标 `make demo-m2`；全链路逐步走查文档 `docs/demo/m2-autonomous-cycle.md`；回放镜子脚本 `tests/system/scripts/m2_cycle.yaml`；测试套件 `tests/unit/director/test_m2_cycle.py`（5 个单元测试全绿）、`tests/system/test_replay_runner.py`（M2 回放测试 2 个全绿）、`tests/integration/test_m2_cycle.py`（数据库集成测试）。**全链实现只给目标 YAML（`project.yaml`）的真正自主演进**：① **自主候选发掘（T2 ①）**：系统根据项目定义与代码/测试事实，自主发掘出 2 条候选对象（`CAND-M2-001` 与 `CAND-M2-002`），全部携带真实源码与复现文件证据引用（`src/tinylib/cli.py` 与 `known_issues/test_known_issues.py`）；② **不行动机制生效（T2 ②）**：确凿缺陷 `CAND-M2-001`（置信度 0.90）经价值评估与 Critic 审查走向 `record`，而投机性异步架构设想 `CAND-M2-002`（置信度 0.25 < 0.30 安全阈值）被决策策略自动判定为 `defer` 并绑定后继 `FollowUpAnalysis`，且 `TaskDecomposer` 严格过滤非 `record` 决策，`CAND-M2-002` 未派生任何多余工程任务，实测证明"不行动也是合法决策"；③ **独立验证通过（T2 ③）**：改动由 `M2PatchExecutor` 在沙箱中精准应用，随后由独立验证引擎在隔离环境中真跑 pytest 与 ruff，通过验收契约，`VerificationRun` 记录存在且 `result = passed`，合并门自动放行合入 `main`；④ **目标达成度增量可计算（T2 ④）**：`M2Observer` 结合 `GoalAttainmentCalculator` 实测轮前与轮后达成度——轮前 4 项关键结果满意度平均为 0.3592，合入补丁后行覆盖率提升、CLI 模块覆盖率从 0% 升至 58.33%、已知缺陷修复 1 个、用例数由 43 增至 44，轮后达成度提升至 0.5554，达成度差值 $\Delta = +0.1962 > 0$，成功驱动周期结局真实判定为 `improved`；⑤ **差距收敛与认知沉淀**：`M2GapUpdater` 将 `gap-pilot-001` 从 `open` 更新为 `resolved`，并将最新指标与事实持久化为新版本快照；⑥ **T3 人工评审**：与 `evaluation/labels/pilot_labels.jsonl` 中 20 条基线 Ground Truth 对照，证实 `CAND-M2-001` 为真实运行时缺陷（`is_valid_finding: true`），`CAND-M2-002` 为投机性设想，推迟决策符合人类架构师专业判断；⑦ **T2 预算检查**：成本 0.631445 USD（1.00×基线）与耗时 ~1.4 秒（0.01×基线）均严格落在 `TASK-P1-072` 基线的 2 倍以内。
 
 ### [x] TASK-P1-083 试点仓库选取与误报率标注基线
 
@@ -817,26 +818,136 @@ INF (骨架) ──┬─> CP (目标/权限/预算) ──┐
 - **预估**：0.25d
 - **验证结果**：交付物七件 —— `samples/pilot_repo/`（试点仓库 `tinylib`，43 条自有用例全绿、**零第三方依赖**）、`samples/pilot_repo/docs/issues.md`（20 条人读的问题清单）、`samples/pilot_repo/known_issues/test_known_issues.py`（9 条会真的失败的复现用例）、`samples/pilot_repo/project.yaml`（目标 YAML，六要素齐全）、`evaluation/labels/pilot.py` + `pilot_labels.jsonl`（标注集）、`evaluation/evolution_evaluation/decision.py`（分母取自标注集的那一截）、`docs/evaluation/pilot-repo.md`（T4 文档）；测试 `tests/unit/evaluation/test_pilot_labels.py`（29 个）+ `tests/system/test_pilot_labels.py`（26 个）。**试点仓库四条硬指标逐条有据可查**（有可运行的自动化测试 / 目标可量化 / 规模适中 / 依赖可离线装），文档里写了每一条**怎么量的** —— 不是"我觉得它符合"。**基线是量出来的不是抄的**：整行覆盖率 **0.740385**（154/208 行）、自有用例 **43** 条、`cli` 模块覆盖率 **0.000000**（唯一对外接口，一行没被测到）、已知缺陷 **12** 条、误报 **8** 条。**分母里必须有无效发现** —— 20 条里 **12 条有效 + 8 条无效**；20 条全是真问题的话，误报率永远是 0%，而 0% 是最容易被当成好消息的那个数。八条无效发现**每一条都能指着文档或既有用例说清为什么无效**（`slugify` 按文档丢非 ASCII、`median` 就是取平均、`percentile` 按 numpy 的口径插值、币种不匹配按设计抛错、`merge` 按设计是浅合并、`window` 比序列长就返回空、`total([])` 抛错且有测试、`parse_bool` 按设计回落默认值）—— **不是凑数**。**两类证据不许混**：9 条 `repro` 配真的失败用例（`@pytest.mark.xfail(strict=True)`），11 条 `review` 是人工评审的结论（3 条测试盲区 + 8 条文档化行为）—— **"没有用例"没法用会失败的用例复现**，硬造一条只会造出**假缺陷**；系统测试强制"`repro` 必须是有效发现"（无效发现复现的是文档，不是缺陷）。**复现套件放在 `known_issues/` 而不是 `tests/` 里** —— 试点仓库的 `testpaths = ["tests"]`，那些会失败的用例混进去，**已发布的覆盖率基线测的就不是同一个东西了**；系统测试同时断言"复现套件 9 条全 xfailed（0 xpassed / 0 failed / 0 error）"与"自有套件 43 passed 且不收集 `known_issues`"。**全 xpass 同样是失败** —— 那说明缺陷其实不存在，标注错了。**分母只从标注集来**（`apply_labels` 强制把调用方塞进决策记录里的 `candidate_label` 清成 `None`）—— 让被评价的一方决定分母，误报率就没有意义了；标注集里没有的候选一律不进分母（没被审过的既不能说它错也不能说它对）。**"读不到"与"读到但是空的"分开**：文件不在 → `LabelSetMissingError` → 指标报 `baseline_missing`；文件在但内容坏了 → `LabelSetError` → 同样报 `baseline_missing`，但理由里说清是**文件坏了**（要修文件）还是**文件不在**（要补标注）；**两者都不报 0**。**解析得严**：多一个键、少一个键、`is_valid_finding` 写成 `1` 而不是 `true`、时间戳不带时区、重复的 `issue_ref` —— 一律报错（"标两次，第二次盖掉第一次的话，标注就变成最后写的人赢"）。**清单与标注集互相对账** —— 同一件事两份记录（人读的 `issues.md` 与机器读的 `pilot_labels.jsonl`），各写各的就会"改一边忘了另一边"，而那时机器读的那份照样能加载，**没有人会发现**；系统测试逐条比对编号 / 类别 / 判定，并要求文档里的目标 YAML 与 `project.yaml` **逐字节相同**。**T4** —— `docs/evaluation/pilot-repo.md` 含目标 YAML、基线指标表、20 条标注样本集一览与分类分布。**T3** —— 评审记录在文档末节：43 条用例 0.01 秒跑完，无随机性、无时钟依赖、无网络，**可在沙箱内稳定运行**。**反向验证**（`scripts/verify_pilot_label_mutants.py`，**18 处定点变异**）：① 缺字段不报错、② 多字段不报错、③ `is_valid_finding` 不校验布尔、④ 时间戳不校验时区、⑤ 空白字符串放过、⑥ 重复 `issue_ref` 放过、⑦ 条数检查失效、⑧ **标注集不在时返回空集**、⑨ 条数常量被改、⑩ **每条标注都算有效（误报率永远是 0）**、⑪ **没标过的问题也给出结论**、⑫ 不是对象的行也放过、⑬ 坏掉的 JSON 不报错、⑭ **分母按决策 id 匹配**、⑮ **调用方塞的标注被保留**、⑯ **标注集缺失时报 0**、⑰ 分母只算有效的、⑱ 标注集根本没被用上 —— **18 处全部被抓住**（第 ④ 处首轮"原文没找到"是脚本里缩进写错了，改对后抓住）。
 
-阶段二~四保持**里程碑粒度**而非任务粒度。原因是这三阶段依赖的设计决策尚未确定（多执行器契约的最终形态、Temporal 迁移路径、模型路由策略），过早拆到任务级会产生大量返工。
+阶段二已正式启动，并逐步将里程碑深化拆解为结构化任务条目。
 
 ### 3.1 阶段二：自主研发能力增强
 
 **阶段目标**：从"一个执行器跑通闭环"扩展到"多个执行器、多任务并行、独立验证、失败自愈"，并让项目认知沉淀下来。
 
-| ID | 里程碑 | 交付物 | 验收条件 | 验证 | 追溯 |
-| --- | --- | --- | --- | --- | --- |
-| `TASK-P2-010` | 多执行器接入 | Codex / OpenCode / Gemini CLI / OpenHands Adapter | 每个新 Adapter 通过 `TASK-P1-030` 的**同一套契约测试**，无需修改契约 | T1 | R-041, R-043 |
-| `TASK-P2-011` | 动态执行器选择 | 按任务类型 / 成本 / 能力声明的选择器 | 同一任务类型在多次运行中可能选中不同执行器，选择依据可解释并落库 | T1 + T3 | R-038, R-111 |
-| `TASK-P2-012` | 多任务依赖管理 | 依赖图调度、DAG 执行、依赖失败的传播 | 依赖未满足的任务不启动；上游失败时下游进入正确状态而非误跑 | T1 | R-056 |
-| `TASK-P2-013` | 多 Agent 并行执行 | 并发调度、并发上限、资源隔离、事件采集器 | 并行任务的工作空间互不干扰；并发数不超过 `max_parallel_agents` | T1 + T2 | R-013, R-017, R-045 |
-| `TASK-P2-014` | 独立验证引擎完整化 | 六层验证：功能 / 代码 / 架构 / 安全 / 性能 / 产品 | 每层验证有独立执行器与独立判定；六层结果独立记录而非合并为一个布尔值 | T1 + T2 | R-050, R-077 |
-| `TASK-P2-015` | 自动失败诊断与修复 | 失败归类器 + 修复任务生成 | 阶段一已有的有界修复扩展到多失败类型；修复上限仍全局生效 | T1 | R-098, I-04 |
-| `TASK-P2-016` | 项目知识库与架构认知 | 架构知识图谱、ADR 存储、模块依赖索引 | 系统能回答"某模块被哪些模块依赖"且答案来自已构建的索引而非每次重读仓库 | T1 + T2 | R-064, R-067, R-068 |
-| `TASK-P2-017` | 跨任务集成引擎 | Integration Branch、冲突解决、跨任务回归测试 | 构造两个各自通过单任务测试但集成后失败的任务 → 集成阶段能检出 | T1 | R-056, R-057, R-058 |
-| `TASK-P2-018` | 执行器能力评测 | 同一任务的跨执行器结果对比与打分 | 同一任务在不同执行器上跑 ≥3 次，结果可按统一口径比较（成功率 / 成本 / 耗时 / 质量） | T2 | R-110, R-111, I-17 |
+| ID | 里程碑 | 交付物 | 验收条件 | 验证 | 追溯 | 状态 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `TASK-P2-010` | 多执行器接入 | Codex / OpenCode / Gemini CLI Adapter | 每个新 Adapter 通过 `TASK-P1-030` 的**同一套契约测试**，无需修改契约 | T1 | R-041, R-043 | 已完成 [x] |
+| `TASK-P2-011` | 动态执行器选择 | 按任务类型 / 成本 / 能力声明的选择器 | 同一任务类型在多次运行中可能选中不同执行器，选择依据可解释并落库 | T1 + T3 | R-038, R-111 | 已完成 [x] |
+| `TASK-P2-012` | 多任务依赖管理 | 依赖图调度、DAG 执行、依赖失败的传播 | 依赖未满足的任务不启动；上游失败时下游进入正确状态而非误跑 | T1 | R-056, R-076 | 已完成 [x] |
+| `TASK-P2-013` | 多 Agent 并行执行 | 并发调度、并发上限、资源隔离、事件采集器 | 并行任务的工作空间互不干扰；并发数不超过 `max_parallel_agents` | T1 + T2 | R-013, R-017, R-045 | 待启动 [ ] |
+| `TASK-P2-014` | 独立验证引擎完整化 | 六层验证：功能 / 代码 / 架构 / 安全 / 性能 / 产品 | 每层验证有独立执行器与独立判定；六层结果独立记录而非合并为一个布尔值 | T1 + T2 | R-050, R-077 | 待启动 [ ] |
+| `TASK-P2-015` | 自动失败诊断与修复 | 失败归类器 + 修复任务生成 | 阶段一已有的有界修复扩展到多失败类型；修复上限仍全局生效 | T1 | R-098, I-04 | 待启动 [ ] |
+| `TASK-P2-016` | 项目知识库与架构认知 | 架构知识图谱、ADR 存储、模块依赖索引 | 系统能回答"某模块被哪些模块依赖"且答案来自已构建的索引而非每次重读仓库 | T1 + T2 | R-064, R-067, R-068 | 待启动 [ ] |
+| `TASK-P2-017` | 跨任务集成引擎 | Integration Branch、冲突解决、跨任务回归测试 | 构造两个各自通过单任务测试但集成后失败的任务 → 集成阶段能检出 | T1 | R-056, R-057, R-058 | 待启动 [ ] |
+| `TASK-P2-018` | 执行器能力评测 | 同一任务的跨执行器结果对比与打分 | 同一任务在不同执行器上跑 ≥3 次，结果可按统一口径比较（成功率 / 成本 / 耗时 / 质量） | T2 | R-110, R-111, I-17 | 待启动 [ ] |
 
 **出口门 `MS-P2-M1`**：不同执行器能完成同一种任务契约，执行结果可以比较和评估（R-111）。
 **关键判据**：`TASK-P2-018` 的评测数据显示不同执行器在至少一项指标上存在**统计上可辨的差异**——否则"可替换执行器"只是名义上的。
+
+---
+
+#### 3.1.1 阶段二详细任务清单
+
+### [x] TASK-P2-010 多执行器接入
+
+- **工作流**：EX (Executor)
+- **设计要求**：R-041, R-043（§3.4 统一执行器架构；多个 Coding Agent 适配器共用同一套契约与测试基类）
+- **依赖**：TASK-P1-030, TASK-P1-031
+- **交付物**：
+  - `executors/codex/`（`command.py`, `events.py`, `adapter.py`, `__init__.py`）：OpenAI Codex CLI 适配器；
+  - `executors/gemini_cli/`（`command.py`, `events.py`, `adapter.py`, `__init__.py`）：Google Gemini CLI 适配器；
+  - `executors/opencode/`（`command.py`, `events.py`, `adapter.py`, `__init__.py`）：OpenCode 开源执行器适配器；
+  - `tests/unit/executors/conftest.py`：扩展为 6 种实现参数化契约测试矩阵（`inline`, `session`, `claude-code`, `codex`, `gemini-cli`, `opencode`）；
+  - `tests/unit/executors/stub_cli.py`：为三种真实 CLI 提供专属打桩事件流。
+- **验证（T1）**：pytest —— ① 所有新适配器 100% 通过 `tests/unit/executors/test_adapter_contract.py`（142 passed, 1 skipped，契约零修改）；② 单独事件解析测试全绿（Codex 8/8、Gemini CLI 9/9、OpenCode 9/9）；③ `test_cli_adapter.py` 实测 27 条用例全绿。
+- **自主权**：L2
+- **预估**：1.0d
+- **验证结果**：**全套契约测试与独立事件测试 100% 绿灯通过**。6 种 Adapter（内存同步、内存会话、Claude Code、Codex、Gemini CLI、OpenCode）参数化共跑 142 项严格状态机、会话隔离、超时、取消确认与指标归集测试，零契约改动，真正实现 ACP/MCP 边界下的可替换执行器架构。
+
+### [x] TASK-P2-011 动态执行器选择
+
+- **工作流**：EX / OR (Executor & Orchestration)
+- **设计要求**：R-038, R-111（§3.4 补齐认证/超时/能力/取消/幂等；阶段二验收不同执行器可执行同一种任务契约，同类型任务可动态选不同执行器）
+- **依赖**：TASK-P2-010, TASK-P1-030
+- **交付物**：
+  - `executors/selector.py`：`DynamicExecutorSelector`、`ExecutorProfile`、`TaskRequirements`、`ExecutorSelectionResult`、`SelectionStrategy`（BALANCED / AFFINITY / LOWEST_COST / ROUND_ROBIN / EXPLORATION）、`CostSensitivity`、`create_default_selector`；
+  - `tests/unit/executors/test_selector.py`：12 项单元测试。
+- **验证（T1）**：pytest —— ① 能力契约硬性过滤（缺少必要声明如 `INTERRUPT` 的执行器直接被剔除，无可用候选时抛出 `NoEligibleExecutorError` 并详细列举各候选过滤原因）；② 亲和度、成本与轮询策略精准生效（DOCS 任务偏好 Gemini CLI，FEATURE 任务偏好 Claude Code，LOWEST_COST 选中 OpenCode）；③ 探索策略（ε-贪婪）在不同运行中可选择不同执行器，支持跨执行器 A/B 评测与统计对比；④ 运行时健康熔断与并发容量限制；⑤ `select_and_assign` 自动将决策结果与结构化 rationale 持久化至任务实体 `extra["executor_selection"]` 与 `executor` 字段。
+- **验证（T3）**：人工审查决策说明结构 —— 产出的 Markdown 格式解释清晰包含任务标识、任务类型、硬性契约要求、被过滤候选原因及胜出打分明细。
+- **自主权**：L2
+- **预估**：0.5d
+- **验证结果**：**12/12 单元测试全绿**。覆盖硬性能力约束过滤、无满足项异常上报、最低成本优先、任务类型亲和度主导、轮询均匀分布、探索分支触发、排除/偏好名单、健康熔断、并发打满过滤、成功率动态衰减打分、结构化 Markdown 审计日志与数据库异步指派。
+
+### [x] TASK-P2-012 多任务依赖管理
+
+- **工作流**：PL / OR (Planning & Orchestration)
+- **设计要求**：R-056, R-076（§3.5C 单任务与多任务集成路径；§3.2 七种任务类型依赖；依赖未满足的任务不启动；上游失败时下游进入正确状态而非误跑）
+- **依赖**：TASK-P1-056, TASK-P1-042
+- **交付物**：
+  - `core/planning/dag.py`：`TaskDAG`、`DAGTaskNode`、`DAGEdge`、自环与多跳环路检测（`find_cycle` / `validate_acyclic`）、拓扑排序（`topological_sort`）、分层并发执行波次（`topological_layers`）、祖先与后代因果传递闭包（`all_ancestors` / `all_descendants`）、路线图与持久化实体构造器；
+  - `orchestration/dag_scheduler.py`：`DAGScheduler`、`BlockageRecord`、`DAGProgress`、前置未满足强拦截机制、波次就绪解锁（`_unlock_ready_tasks`）、级联阻断与原因追溯（`mark_failed`）、数据库状态同步（`sync_to_repository`）；
+  - `core/task/state_machine.py`：为 `TaskState.PLANNED` 开放合法 `TaskAction.BLOCK -> TaskState.BLOCKED` 状态迁移；
+  - `tests/unit/planning/test_dag.py`：9 项单元测试；
+  - `tests/unit/orchestration/test_dag_scheduler.py`：8 项单元测试。
+- **验证（T1）**：pytest —— ① **依赖未满足的任务不启动**：直接前驱未全部处于完成态时，`can_start` 恒为 False，强制调用 `mark_running` 抛出 `IllegalExecutionError` 并指明未完成的前驱列表；② **拓扑分层波次**：菱形依赖图正确分出 3 层波次，同层任务按优先级排期；③ **上游失败时下游进入正确状态而非误跑**：上游任务失败或验证未通过时，调度器自动计算全部直接与间接后代闭包，一律级联阻断为 `BLOCKED`，记录 `blocked_by` 与原始故障原因，下游绝不误跑；独立分支任务不受影响；④ **数据库同步**：状态机迁移与阻断记录正确同步至数据库 `Task` 表与 `extra["blockage_record"]`。
+- **自主权**：L2
+- **预估**：0.5d
+- **验证结果**：**17 项单元测试全绿**（DAG 9 项 + 调度器 8 项）。验证了自环拦截、多跳环检测、菱形依赖拓扑排序与分层并发波次、传递闭包查询、前置依赖闸门拦截、上游失败全下游级联阻断与审计记录、以及状态机向数据库的精准映射同步。
+
+### [ ] TASK-P2-013 多 Agent 并行执行与资源隔离
+
+- **工作流**：EX / WS (Executor & Workspace)
+- **设计要求**：R-013, R-017, R-045（§1.2 资源控制与并发上限；§3.5A 工作区与沙箱隔离）
+- **依赖**：TASK-P1-032, TASK-P2-010, TASK-P2-012
+- **交付物**：`orchestration/parallel_runner.py`（基于 AnyIO/TaskGroup 的受控并发执行引擎，工作区隔离租约，事件隔离流采集）
+- **验证（T1）**：pytest —— ① 并发运行数严格受 `max_parallel_agents` 信号量限制；② 并发任务的 Git Worktree 与临时目录完全隔离，互不产生文件冲突；③ 多任务并发时的 NDJSON 事件流与成本归集互不串扰。
+- **自主权**：L2
+- **预估**：1.0d
+
+### [ ] TASK-P2-014 独立验证引擎完整化（六层独立验证）
+
+- **工作流**：HN / VE (Harness & Verification)
+- **设计要求**：R-050, R-077（§3.5B 独立验证引擎；六层验证独立判定、独立记录）
+- **依赖**：TASK-P1-041, TASK-P1-042
+- **交付物**：`harness/verification/six_layer.py`（功能 / 代码 / 架构 / 安全 / 性能 / 产品 六层独立 Runner 与独立判定器）
+- **验证（T1 + T2）**：pytest —— 六层验证独立执行并产出结构化多维报告，任一层失败独立给出修复诊断，不坍缩为单个布尔值。
+- **自主权**：L2
+- **预估**：1.0d
+
+### [ ] TASK-P2-015 自动失败诊断与多类型自愈
+
+- **工作流**：DG / OR (Diagnosis & Orchestration)
+- **设计要求**：R-098, I-04（§6 失败诊断与有界修复；扩展至编译、依赖、测试、语法多类型失败归类）
+- **依赖**：TASK-P1-063, TASK-P2-014
+- **交付物**：`agents/diagnosis/failure_classifier.py`（失败原因分析器与 Targeted Fix Task 生成器）
+- **验证（T1）**：pytest —— 遇到不同类型验证失败时，自动定位失败原因并生成 Targeted 修复指令，修复次数与预算严格受全局配额限制。
+- **自主权**：L2
+- **预估**：0.5d
+
+### [ ] TASK-P2-016 项目知识库与架构认知
+
+- **工作流**：KB / CO (Knowledge Base & Cognition)
+- **设计要求**：R-064, R-067, R-068（§3.3 架构知识图谱与模块依赖索引）
+- **依赖**：TASK-P1-051
+- **交付物**：`core/knowledge/architecture_index.py`（AST/Import 依赖图索引、ADR 检索与跨模块影响面分析）
+- **验证（T1 + T2）**：pytest —— 查询任一模块的影响面与被依赖方，结果来自预建索引而非每次全仓搜索，支持跨模块变更安全检查。
+- **自主权**：L2
+- **预估**：0.75d
+
+### [ ] TASK-P2-017 跨任务集成引擎与冲突检测
+
+- **工作流**：HN / IN (Integration)
+- **设计要求**：R-056, R-057, R-058（§3.5C Integration Branch、跨任务合并冲突解决与联合回归）
+- **依赖**：TASK-P1-047, TASK-P2-012, TASK-P2-013
+- **交付物**：`harness/integration/multi_task.py`（Integration Branch 生命周期管理、多任务联合回归、冲突智能消解）
+- **验证（T1）**：pytest —— 构造两个各自单测通过但联合运行时产生符号冲突的任务，集成引擎精准检出并阻断合并。
+- **自主权**：L2
+- **预估**：1.0d
+
+### [ ] TASK-P2-018 执行器能力横向评测（MS-P2-M1 出口门）
+
+- **工作流**：EV (Evaluation)
+- **设计要求**：R-110, R-111, I-17（§10 执行器评测矩阵与统计显著性检验）
+- **依赖**：TASK-P2-010, TASK-P2-011, TASK-P2-014
+- **交付物**：`evaluation/executors/benchmark.py` 与 `docs/evaluation/executor-benchmark.md`
+- **验证（T2）**：实测运行 —— 在标准基准任务集上运行 Claude Code、Codex、Gemini CLI、OpenCode 各 ≥3 次，按统一口径产出成功率、成本、耗时对比看板，验证统计显著性差异。
+- **自主权**：L2
+- **预估**：1.0d
 
 ---
 
