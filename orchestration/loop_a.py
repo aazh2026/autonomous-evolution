@@ -56,6 +56,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from core.planning.roadmap import TaskType
 from core.task.execution_loop import (
     DEFAULT_MAX_REPAIRS,
     LOOP_A_ORDER,
@@ -199,6 +200,22 @@ class ProjectStatePort(Protocol):
     async def update(self, state: LoopAState) -> None: ...
 
 
+@runtime_checkable
+class ModelResolverPort(Protocol):
+    """给这次执行挑一个模型 —— **挑不到就报错，不猜**。
+
+    **为什么编排层要问外面。** "这个任务该用哪个模型"是**路由**的事，而路由要
+    知道当下有哪些模型、它们各自多少钱、这个项目还剩多少额度 —— 编排层一概不
+    知。所以它是个端口：路由在外面挑，挑好的模型名带进来（TASK-P4-020）。
+
+    **没有它就是"不指定模型"。** 那不是错误，是默认：执行器用它自己惯用的那个。
+    **但一旦装上了，就不许静默兜底** —— 挑不出来要报错，不能悄悄用一个没被
+    路由过的模型跑完（那正是路由要防的事）。
+    """
+
+    async def resolve(self, *, project_id: str, task_type: TaskType) -> str: ...
+
+
 @dataclass(frozen=True, slots=True)
 class LoopAHandlers:
     """循环 A 的各步处理器。
@@ -217,6 +234,10 @@ class LoopAHandlers:
     是 ``None`` —— 没有预算、没有观测配置时不记。**但它不换算**：换算在适配器
     那边做完了，这里拿到的是**已经换算好的那一个金额**，原样记进账本与观测，
     于是"三处相等"是结构上的，不是碰巧的。
+
+    :attr:`model_resolver` 是**模型路由**（TASK-P4-020）。它可以是 ``None`` ——
+    那时执行器用自己惯用的模型。装上了就由它按**任务类型**与**项目余额**挑，
+    挑好的模型名带进 :class:`~executors.base.SessionConfig`。
     """
 
     planner: TaskPlannerPort
@@ -231,6 +252,7 @@ class LoopAHandlers:
     executors: Mapping[str, ExecutorPort]
     repair_coordinator: RepairCoordinator
     cost_accountant: ExecutionCostAccountant | None = None
+    model_resolver: ModelResolverPort | None = None
 
 
 # --------------------------------------------------------------------------
@@ -350,6 +372,20 @@ async def _create_isolated_workspace(
     return update
 
 
+async def _resolve_model(state: LoopAState, handlers: LoopAHandlers) -> str | None:
+    """给这次执行挑一个模型 —— **没有路由就不指定**。
+
+    **挑不出来就报错。** 路由失败时悄悄换一个没被路由过的模型跑完，比直接报错
+    坏得多：钱照花、能力照降，而日志里什么异常都没有。
+    """
+    resolver = handlers.model_resolver
+    if resolver is None:
+        return None
+    if state.plan is None:
+        raise LoopAExecutionError("没有计划就没有任务类型，挑不了模型")
+    return await resolver.resolve(project_id=state.project_id, task_type=state.plan.task_type)
+
+
 async def _agent_executes(state: LoopAState, handlers: LoopAHandlers) -> dict[str, object]:
     """起一次执行。
 
@@ -376,7 +412,11 @@ async def _agent_executes(state: LoopAState, handlers: LoopAHandlers) -> dict[st
         instruction = state.repair_task.instruction
 
     session = await executor.create_session(
-        SessionConfig(workspace=state.workspace.path, branch=state.workspace.branch)
+        SessionConfig(
+            workspace=state.workspace.path,
+            branch=state.workspace.branch,
+            model=await _resolve_model(state, handlers),
+        )
     )
     session_ref = await handlers.journal.open_session(
         SessionRecord(
@@ -922,6 +962,7 @@ __all__ = [
     "LoopAExecutionError",
     "LoopAHandlers",
     "MergeGatePort",
+    "ModelResolverPort",
     "ProjectStatePort",
     "TaskPlannerPort",
     "VerificationPort",

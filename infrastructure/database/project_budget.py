@@ -35,12 +35,12 @@ from decimal import Decimal
 
 from core.policy.budget import (
     Budget,
+    BudgetLedger,
     BudgetMetric,
     SpendRecord,
     SpendRequest,
 )
 from core.project.scope import ProjectScope
-from infrastructure.database.budget import PostgresBudgetLedger
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,16 +103,20 @@ class ProjectSpendReport:
 class ProjectBudgetLedger:
     """按项目记账的账本 —— 底层还是那个账本。
 
-    **不另起一套账。** 记账的原子性、超限拦截、流水不可篡改都由
-    :class:`PostgresBudgetLedger` 负责（数据库行级锁 + 触发器）。这里只做
-    一件事：**把"项目"翻译成"scope"，并且让调用方没法绕过它**。
+    **不另起一套账。** 记账的原子性、超限拦截、流水不可篡改都由底层账本负责
+    （数据库版靠行级锁 + 触发器）。这里只做一件事：**把"项目"翻译成"scope"，
+    并且让调用方没法绕过它**。
+
+    **底层账本是端口（:class:`core.policy.budget.BudgetLedger`），不是具体类。**
+    数据库版与内存版都实现了它 —— 所以分项目记账这一层**在两种存储上都能用**，
+    而单元测试不必为此起一个数据库。
     """
 
-    def __init__(self, ledger: PostgresBudgetLedger) -> None:
+    def __init__(self, ledger: BudgetLedger) -> None:
         self._ledger = ledger
 
     @property
-    def ledger(self) -> PostgresBudgetLedger:
+    def ledger(self) -> BudgetLedger:
         """底层账本 —— 需要流水明细时直接用它。"""
         return self._ledger
 
