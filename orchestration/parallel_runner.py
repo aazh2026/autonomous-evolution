@@ -4,7 +4,8 @@
 运行时五类事件；Budget 含并发上限）、§3.5A（每任务独立工作空间；Git Worktree
 必选）；docs/tasks.md TASK-P2-013（交付物 ``orchestration/parallel_runner.py``；
 验收"并行任务的工作空间互不干扰；并发数不超过 ``max_parallel_agents``"）、
-R-013、R-017、R-045。
+TASK-P3-015（交付物：跨周期预算、成本归集、**并发限流**）、R-013、R-017、
+R-045。
 
 **这一层回答的是"并行"那两个字里的两件事：并得起，并不串。**
 
@@ -15,6 +16,13 @@ R-013、R-017、R-045。
 ``max_parallel_agents``（R-013：Budget 含日成本与并发上限，可配）——
 编排层不另设一个"最大并发"的参数，因为两处各有一个上限时，
 "现在到底是几"这个问题就永远答不准。
+
+**限流器是共享的，不是每批新建的。** 早先这里在每次 :meth:`ParallelRunner.run`
+里现造一个信号量 —— 于是**两批任务同时跑**，两批各有一个信号量，同时跑着的
+任务数就成了两倍上限。**上限只在单批里成立，等于没有上限。** 现在引擎持有
+一个 :class:`core.policy.resource.ConcurrencyLimiter`（默认由预算建出来，也可
+注入 :class:`core.policy.resource.ResourceGate` 手里那一个）—— **跨批次、跨周
+期都算在一处。**
 
 **并行不干扰，靠的是结构而不是约定。**
 
@@ -48,6 +56,7 @@ from uuid import uuid4
 
 from core.metrics.cost import CostAmount
 from core.policy.budget import Budget
+from core.policy.resource import ConcurrencyLimiter
 from core.task.execution_loop import WorkspaceInfo
 from core.task.outcome import ExecutionStatus
 from harness.workspace.manager import WorkspaceManager
@@ -295,6 +304,10 @@ class ParallelReport:
 
     :attr:`totals` **按币种分桶** —— 两种币种的数字加在一起是个没有意义
     的数，而"把 CNY 当 USD 加"这种错查不出来：加起来仍然是个像样的金额。
+
+    :attr:`peak_concurrency` 是**这个引擎同时跑着几个的历史最高** —— 数只有
+    一个出处，就是限流器。**它跨批次累计**：跑完第一批再跑第二批，峰值是两者
+    合起来的最高，不是第二批单独的。
     """
 
     outcomes: tuple[TaskOutcome, ...]
@@ -403,6 +416,9 @@ class ParallelRunner:
     :param events: 事件库。
     :param cost_accountant: 成本记账口。没给就只归集不记账。
     :param scratch_root: 临时目录的根。没给就用系统临时目录。
+    :param limiter: 共享的并发闸门。没给就按预算建一个。**给了闸门手里那一个，
+        就能跨引擎、跨批次、跨周期算在一处** —— 上限只在单批里成立，等于没
+        有上限。
 
     **它不落状态。** 与 :mod:`orchestration.gates` 同一套做法：算结论、
     给迁移，写状态的是调用方。
@@ -413,14 +429,13 @@ class ParallelRunner:
         "_budget",
         "_events",
         "_holder",
-        "_live",
-        "_peak",
+        "_limiter",
         "_scratch_root",
         "_workspace_lock",
         "_workspaces",
     )
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - 参数都是引擎自己的依赖，多一个就多一个坑
         self,
         *,
         budget: Budget,
@@ -428,6 +443,7 @@ class ParallelRunner:
         events: NdjsonEventStore,
         cost_accountant: ExecutionCostAccountant | None = None,
         scratch_root: Path | None = None,
+        limiter: ConcurrencyLimiter | None = None,
     ) -> None:
         self._budget = budget
         self._workspaces = workspaces
@@ -436,8 +452,7 @@ class ParallelRunner:
         self._scratch_root = scratch_root
         self._holder = f"parallel-runner-{uuid4().hex[:8]}"
         self._workspace_lock = asyncio.Lock()
-        self._peak = 0
-        self._live = 0
+        self._limiter = limiter or ConcurrencyLimiter(budget.max_parallel_agents)
 
     @property
     def limit(self) -> int:
@@ -445,9 +460,23 @@ class ParallelRunner:
         return self._budget.max_parallel_agents
 
     @property
+    def limiter(self) -> ConcurrencyLimiter:
+        """共享的并发闸门。
+
+        **同一个闸门算一处。** 引擎自带的这一个由预算建出来；注入闸门手里那
+        一个，跨引擎跨批次都算在同一个上限里。
+        """
+        return self._limiter
+
+    @property
     def peak_concurrency(self) -> int:
-        """最近一轮真正同时跑着的任务数。"""
-        return self._peak
+        """这个引擎同时跑着几个的**历史最高**。
+
+        **数只有一个出处** —— 就是限流器本身。**引擎不再自己数一遍**：两处各
+        数各的，"现在到底是几"就有两个答案，而限流器是真正在管这件事的那一
+        个。
+        """
+        return self._limiter.peak
 
     async def run(self, tasks: Sequence[ParallelTaskPort]) -> ParallelReport:
         """并发跑这些任务。
@@ -465,40 +494,32 @@ class ParallelRunner:
                 peak_concurrency=0,
                 totals={},
             )
-        semaphore = asyncio.Semaphore(self.limit)
         outcomes: list[TaskOutcome | None] = [None] * len(tasks)
-        self._peak = 0
-        self._live = 0
         async with asyncio.TaskGroup() as group:
             for index, task in enumerate(tasks):
-                group.create_task(self._run_one(task, semaphore, outcomes, index))
+                group.create_task(self._run_one(task, outcomes, index))
         finished = tuple(outcome for outcome in outcomes if outcome is not None)
         return ParallelReport(
             outcomes=finished,
             limit=self.limit,
-            peak_concurrency=self._peak,
+            peak_concurrency=self._limiter.peak,
             totals=_totals_of(finished),
         )
 
     async def _run_one(
         self,
         task: ParallelTaskPort,
-        semaphore: asyncio.Semaphore,
         outcomes: list[TaskOutcome | None],
         index: int,
     ) -> None:
         """一个任务的完整生命周期 —— **从拿到号牌到交回号牌**。
 
-        **信号量在这里面。** 拿了号牌才开始干活，所以"同时跑着几个"的上限
-        就是配置里的那个数，不会因为多了几个任务而多。
+        **号牌是共享闸门上的。** 拿了号牌才开始干活，所以"同时跑着几个"的上
+        限就是配置里的那个数，不会因为多了几个任务而多 —— **也不会因为多跑了
+        一批而多。**
         """
-        async with semaphore:
-            self._live += 1
-            self._peak = max(self._peak, self._live)
-            try:
-                outcomes[index] = await self._execute(task)
-            finally:
-                self._live -= 1
+        async with self._limiter.slot():
+            outcomes[index] = await self._execute(task)
 
     async def _execute(self, task: ParallelTaskPort) -> TaskOutcome:
         """跑一个任务：拿工作区 → 给地盘 → 干活 → 记账 → 收摊。"""
