@@ -1,9 +1,9 @@
-# 数据模型 —— 十二个核心实体 + 预算账本 + 审批请求 + 编排状态 + 事件 outbox
+# 数据模型 —— 十二个核心实体 + 预算账本 + 审批请求 + 编排状态 + 事件 outbox + 步骤账
 
 设计依据：`docs/design.md` §3.6（核心数据模型、四类存储职责分离）、
 `docs/tasks.md` TASK-P1-020（schema 与迁移）、TASK-P1-022（三表分离约束）、
 TASK-P1-024（证据 append-only）、TASK-P1-012（预算账本）、
-TASK-P1-050（决策图 checkpoint）。
+TASK-P1-050（决策图 checkpoint）、TASK-P3-016（断点恢复的步骤账）。
 
 这份文档是**从代码生成后手工整理**的，权威来源是 `core/entities/` 下的 ORM
 模型与 `migrations/versions/` 下的迁移脚本。`tests/unit/database/test_data_model_doc.py`
@@ -26,7 +26,8 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 ## 1. 实体总览
 
 十二个核心实体，四组归属；外加两张**预算账本**表（第五组）、一张**审批请求**
-表（第六组）、两张**编排状态**表（第七组）与两张**事件**表（第八组）：
+表（第六组）、两张**编排状态**表（第七组）、两张**事件**表（第八组）、一张
+**覆盖率基线**表（第九组）与一张**步骤副作用账**表（第十组）：
 
 | 组 | 实体 | 表名 | 作用 |
 | --- | --- | --- | --- |
@@ -50,6 +51,7 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 | 事件 | `OutboxEvent` | `outbox_event` | 待发布的事件（状态写入与事件发布同事务） |
 | 事件 | `ConsumedEvent` | `consumed_event` | 某个消费者已经占用过的消息（幂等消费） |
 | 标准 | `CoverageBaseline` | `coverage_baseline` | 覆盖率基线（全局地板 + 每模块基线 + 下调次数） |
+| 编排 | `TaskStepEffect` | `task_step_effect` | 一步副作用的账（做完了没有 + 租约） |
 
 > **预算那两张表不在 `docs/design.md` §3.6 的清单里** —— 那是设计文档的一处缺口，
 > 已在 `docs/tasks.md` 第 6 节列为待裁决项 8。补它们的理由很直接：TASK-P1-012
@@ -104,6 +106,7 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 | `budget_entry` | `metric` | `budget_account` | `metric` | RESTRICT |
 | `budget_entry` | `period` | `budget_account` | `period` | RESTRICT |
 | `coverage_baseline` | `project_id` | `project` | `id` | RESTRICT |
+| `task_step_effect` | `task_id` | `task` | `id` | RESTRICT |
 
 **唯一的 CASCADE** 是 `execution_event.session_id → agent_session.id`：
 会话是一次性的尝试，它的轨迹随会话一起消失是合理的。其余全部 RESTRICT ——
@@ -136,6 +139,11 @@ design.md §3.6 要求四类存储各司其职。本数据模型只覆盖其中�
 另一份基线。RESTRICT 是因为项目被删了，标准就该跟着作废，而不是变成一条
 悬空的"某处的标准是多少"。
 
+**`task_step_effect` 在上表里 —— 它挂的是任务，不是项目。**
+它记的是"这个任务的这一步副作用做完没有"，而任务没了，这本账就没有意义了
+—— 一个没有任务的"某一步做完了"没人能解释。RESTRICT 是同一个道理：账要跟着
+被记的那件事一起活着。
+
 ### 2.2 图版
 
 ```mermaid
@@ -164,6 +172,7 @@ erDiagram
     task ||--o{ artifact : "产出"
     task ||--o{ task_dependency : "前置"
     task ||--o{ task_dependency : "后继"
+    task ||--o{ task_step_effect : "步骤账"
 
     agent_session ||--o{ execution_event : "产生轨迹"
     verification_run ||--o{ artifact : "产出"
@@ -259,6 +268,15 @@ erDiagram
         string channel
         bytes value
         string serde_type
+    }
+    task_step_effect {
+        uuid id PK
+        uuid task_id FK
+        string step
+        int attempt
+        string status
+        string idempotency_key
+        datetime lease_until
     }
 ```
 
@@ -813,6 +831,54 @@ CHECK 约束：`ck_coverage_baseline_floor`（`floor >= 0.85`）、
 项目预留行，而"给每个项目预留"本身就会逼出一堆空行。JSONB 可以给 `modules` 建
 索引，需要按模块查的时候照样能查。
 
+### 6.21 `task_step_effect`
+
+| 列 | 类型 | 约束 | 说明 |
+| --- | --- | --- | --- |
+| `id` | UUID | PK | |
+| `task_id` | UUID | NOT NULL, FK → `task.id` (RESTRICT) | 属于哪个任务 |
+| `step` | VARCHAR(64) | NOT NULL | 哪一步 —— **主键的一部分** |
+| `attempt` | INTEGER | NOT NULL, DEFAULT 1 | 第几次尝试。**不参与主键** |
+| `status` | VARCHAR(16) | NOT NULL | `started` / `done` / `failed` |
+| `idempotency_key` | VARCHAR(160) | NOT NULL | `task_id:step` —— 事后对账用 |
+| `lease_until` | TIMESTAMPTZ | NULL | 租约到什么时候 —— **谁还在管这一步** |
+| `note` | TEXT | NOT NULL | 失败原因、探测结论 |
+| `created_at` | TIMESTAMPTZ | NOT NULL | |
+| `updated_at` | TIMESTAMPTZ | NOT NULL | |
+
+唯一约束：`uq_task_step_effect_task_id_step`（`task_id` + `step`）。
+索引：`ix_task_step_effect_task_id_status`（`task_id` + `status`）。
+CHECK 约束：`ck_task_step_effect_attempt_positive`（`attempt >= 1`）、
+`ck_task_step_effect_status_values`（`status IN ('started','done','failed')`）。
+
+**这张表回答的是"进程死了之后，怎么知道哪些事已经做完了"。** 它记的不是项目的
+业务事实，是**编排器自己的运行状态** —— 与 `graph_checkpoint` 同一类。区别在于
+checkpoint 保护的是**状态迁移**，而这张表保护的是**迁移之前那个副作用**：改代码的
+那一次提交、开工作区的那一次创建 —— 那些事发生过就是发生过，重做一遍不是白干，
+是**把一件已经发生过的事又发生一次**。
+
+**唯一约束里没有 `attempt`。** 一个任务里的同一步骤，副作用最多发生一次；重试的是
+**同一件事**，不是另一件事。把 `attempt` 放进唯一约束，等于允许同一个副作用发生
+两次 —— 那正是这张表要防的事。
+
+**三道数据库层的拒绝，不是应用层的"请记得检查"：**
+
+| 触发器 | 拒绝什么 | 为什么 |
+| --- | --- | --- |
+| `trg_task_step_effect_done_irreversible` | 把 `done` 改成别的状态 | 把一件已经发生过的事说成没发生过，恢复时就会**再做一遍** |
+| `trg_task_step_effect_append_only_delete` | DELETE | 抹掉之后"这一步到底跑过没有"就没人能回答了 |
+| `trg_task_step_effect_append_only_truncate` | TRUNCATE | 同上 |
+
+**`lease_until` 是这张表里最容易被忽略、却最要紧的一栏。** 它把"别人正在做这一步"
+与"上一个执行者被强杀了"分开：没有它，被强杀的那一步会永远卡在"别人正在做"
+—— 谁也不敢碰，一次崩溃就等于这个任务永久停住。
+
+**`status` 只有三档，不是两档。** "做完了"与"没做完"之间还夹着一档"**开始了，
+但不知道做完没有**" —— 进程在副作用中途被强杀就落在这里。把它并进"没做完"，
+重启之后就会把已经做完的事再做一遍；把它并进"做完了"，就会漏掉没做完的事。
+**中间那档才是断点恢复真正要处理的情况**，而它处理不了的时候只能去问外部世界
+（git 里有没有那个提交？对象存储里有没有那个对象？）—— 问不出来就停下来。
+
 ## 7. 命名的三条约定
 
 1. **表名复数、单数混乱** —— 一律单数下划线（`evolution_candidate`）。
@@ -837,6 +903,7 @@ CHECK 约束：`ck_coverage_baseline_floor`（`floor >= 0.85`）、
 | `0006` | 决策图 checkpoint 两表（`graph_checkpoint` + `graph_checkpoint_write`） |
 | `0007` | outbox 事件表 + 消费标记表（`outbox_event` + `consumed_event`） |
 | `0008` | 覆盖率基线表（`coverage_baseline`）—— 地板、每模块的基线、下调次数 |
+| `0009` | 步骤副作用账（`task_step_effect`）—— 三档状态、租约、完成不可逆 + 不可删 |
 
 迁移工具链的验证见 `tests/integration/test_migrations.py`：
 `upgrade head` → `downgrade base` → `upgrade head` 可逆；空库从零迁移 < 30s；
@@ -864,3 +931,6 @@ CHECK 约束：`ck_coverage_baseline_floor`（`floor >= 0.85`）、
 - `infrastructure/database/outbox.py` —— outbox 的落库口与 relay
 - `core/task/coverage_baseline.py` —— 覆盖率基线的口径（阈值 = max(模块基线, 全局地板)、下调要审批）
 - `infrastructure/project/coverage_baselines.py` —— 覆盖率基线的落库口
+- `core/task/resume.py` —— 断点恢复的领域契约（步骤账、占位答复、探测三档）
+- `infrastructure/database/step_effect.py` —— 步骤账的数据库实现（每次写自己提交）
+- `orchestration/resume.py` —— 可恢复的步骤执行器（先问账本，再决定要不要动手）

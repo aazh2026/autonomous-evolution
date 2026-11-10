@@ -576,7 +576,8 @@ class TestEntityCount:
 
     十二个核心实体之外还有两张预算账本表（TASK-P1-012）、一张审批请求表
     （TASK-P1-046）、两张编排状态表（TASK-P1-050）、两张事件表（TASK-P1-025）
-    与一张覆盖率基线表（TASK-P1-042）—— 它们都不在 design.md 的清单里：预算
+    、一张覆盖率基线表（TASK-P1-042）与一张步骤副作用账（TASK-P3-016）
+    —— 它们都不在 design.md 的清单里：预算
     那两张是设计文档的一处缺口，已在 docs/tasks.md 第 6 节列为待裁决项 8；
     审批那张是 §7「代码合并 = L2 需要人工
     审批」必须落到的地方；checkpoint
@@ -584,13 +585,15 @@ class TestEntityCount:
     「状态写入与事件发布同事务」（I-06）必须落到的地方 —— 没有自己的表，那条
     要求就只能靠调用方自觉；覆盖率基线那张记的是**标准**（阈值 = max(模块
     基线, 全局地板)）—— 与快照里那份**测量**不是一回事，混在一起的话"这次测
-    出来多少"与"这次按什么标准判"会互相覆盖。
+    出来多少"与"这次按什么标准判"会互相覆盖；步骤账那张记的是"这一步的副作
+    用做完没有" —— 与 checkpoint 同一类：编排器自己的运行状态，不是项目的
+    业务事实，而没有它的话"进程被强杀之后哪些事已经做完了"就没人答得上。
     """
 
     def test_twelve_core_entities_plus_the_budget_approval_checkpoint_and_event_tables_are_mapped(
         self,
     ) -> None:
-        assert len(ALL_ENTITIES) == 20
+        assert len(ALL_ENTITIES) == 21
 
     async def test_every_entity_has_a_table(self, session: AsyncSession) -> None:
         tables = await session.execute(
@@ -621,6 +624,7 @@ class TestEntityCount:
             "outbox_event",
             "consumed_event",
             "coverage_baseline",
+            "task_step_effect",
         }
 
 

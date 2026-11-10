@@ -106,7 +106,7 @@ class TestMigratedDatabase:
         的意思是：每加一个迁移，都要有人回来改这一行，因而不得不看一眼新
         迁移到底做了什么。自动读出来的话，这行永远是对的，也就永远没人看。
         """
-        assert await self._alembic_version(engine) == "0008"
+        assert await self._alembic_version(engine) == "0009"
 
     async def test_entity_tables_exist(self, engine: AsyncEngine) -> None:
         """十二个核心表 + 两张预算账本表 + 一张审批请求表 + 两张编排状态表。
@@ -126,9 +126,12 @@ class TestMigratedDatabase:
 
         最后一张是覆盖率基线（TASK-P1-042）—— 它记的是**标准**，与快照里那份
         **测量**不是一回事；它有且只有一条外键：指向项目。
+
+        再后面一张是步骤副作用账（TASK-P3-016）—— 记的是"这一步做完没有"，
+        同样只有一条外键：指向任务。
         """
         tables = await self._tables(engine)
-        assert len(tables) == 20, f"应有 20 张表，实际 {len(tables)}：{tables}"
+        assert len(tables) == 21, f"应有 21 张表，实际 {len(tables)}：{tables}"
         assert "budget_account" in tables
         assert "budget_entry" in tables
         assert "approval_request" in tables
@@ -137,12 +140,16 @@ class TestMigratedDatabase:
         assert "outbox_event" in tables
         assert "consumed_event" in tables
         assert "coverage_baseline" in tables
+        assert "task_step_effect" in tables
 
     async def test_append_only_triggers_exist(self, engine: AsyncEngine) -> None:
         """append-only 守卫覆盖全部证据表与预算表。
 
         断言**确切的触发器名集合**而不是个数 —— 个数对了但名字错了，
         说明某张表没被守卫却恰好数量对上了，那才是真正危险的情况。
+
+        **步骤账也在里面** —— 它记的"做完没有"是事实，抹掉之后没人能回答
+        "这一步到底跑过没有"。
         """
         triggers = await self._triggers(engine)
         assert set(triggers) == {
@@ -154,6 +161,8 @@ class TestMigratedDatabase:
             "trg_budget_account_append_only_truncate",
             "trg_budget_entry_append_only_update_delete",
             "trg_budget_entry_append_only_truncate",
+            "trg_task_step_effect_append_only_delete",
+            "trg_task_step_effect_append_only_truncate",
         }, f"append-only 触发器集合不符：{triggers}"
 
     async def test_budget_account_is_monotonic(self, engine: AsyncEngine) -> None:

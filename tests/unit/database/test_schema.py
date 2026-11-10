@@ -46,6 +46,7 @@ EXPECTED_TABLES = {
     "outbox_event",
     "consumed_event",
     "coverage_baseline",
+    "task_step_effect",
 }
 
 
@@ -68,7 +69,7 @@ class TestEntitySet:
     def test_twelve_core_entities_plus_the_budget_approval_checkpoint_and_event_tables_are_defined(
         self,
     ) -> None:
-        assert len(ALL_ENTITIES) == 20
+        assert len(ALL_ENTITIES) == 21
 
     def test_all_tables_are_mapped(self) -> None:
         tables = set(Base.metadata.tables) - {"alembic_version"}

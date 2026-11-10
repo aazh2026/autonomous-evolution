@@ -69,6 +69,7 @@ ALL_TABLES = (
     "execution_event",
     "agent_session",
     "task_dependency",
+    "task_step_effect",
     "task",
     "evolution_decision",
     "evolution_candidate",
@@ -96,6 +97,9 @@ APPEND_ONLY_TABLES = (
     "artifact",
     "budget_entry",
     "budget_account",
+    # 步骤账同样不可删 —— 触发器名遵循 ``trg_{table}_append_only_truncate``
+    # 约定，所以清理逻辑不用为它单独配置。
+    "task_step_effect",
 )
 
 #: 十二个核心实体 + 两张预算账本表 + 审批请求表的表名。

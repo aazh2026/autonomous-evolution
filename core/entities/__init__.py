@@ -50,6 +50,14 @@
 可靠的 outbox 需要一张自己的表，而不是靠调用方自觉地把"改状态"和"发消息"
 放在同一个事务里。
 
+还有一张**断点恢复**表：
+
+    TaskStepEffect      一步副作用的账（做完了没有）
+
+它记的是"这一步的副作用发生了吗"—— 进程被强杀之后，靠它知道哪些事已经做
+完、哪些事结果未知（见 TASK-P3-016）。它跟 GraphCheckpoint 是同一类东西：
+编排器自己的运行状态，不是项目的业务事实。
+
 导入本模块会把全部实体注册到同一个 ``Base.metadata`` —— Alembic 的
 autogenerate 与 ``create_all`` 都依赖这一点。少导入一个实体，迁移就会
 悄悄漏掉那张表。
@@ -67,14 +75,16 @@ from core.entities.evolution import EvolutionCandidate, EvolutionCycle, Evolutio
 from core.entities.execution import AgentSession, ExecutionEvent
 from core.entities.outbox import ConsumedEvent, OutboxEvent
 from core.entities.project import CoverageBaseline, Project, ProjectSnapshot
+from core.entities.resume import TaskStepEffect
 from core.entities.task import Task, TaskDependency
 
 #: 十二个核心实体 + 两张预算账本表 + 一张审批请求表 + 两张编排状态表
-#: + 两张事件表。
+#: + 两张事件表 + 一张覆盖率基线表 + 一张步骤副作用账。
 #:
 #: 前十二个的顺序与 design.md §3.6 的表格一致，便于逐条核对；后面三个是
 #: 预算账本（见模块文档与 tasks.md 第 6 节待裁决项 8）与审批请求；再后面两个
-#: 是决策图的 checkpoint；最后两个是 outbox 与幂等消费标记。
+#: 是决策图的 checkpoint；最后两个是 outbox 与幂等消费标记；覆盖率基线记的是
+#: **标准**；步骤账记的是"这一步的副作用做完没有"（见 TASK-P3-016）。
 ALL_ENTITIES = (
     Project,
     ProjectSnapshot,
@@ -96,6 +106,7 @@ ALL_ENTITIES = (
     OutboxEvent,
     ConsumedEvent,
     CoverageBaseline,
+    TaskStepEffect,
 )
 
 __all__ = [
@@ -121,6 +132,7 @@ __all__ = [
     "ProjectSnapshot",
     "Task",
     "TaskDependency",
+    "TaskStepEffect",
     "TimestampMixin",
     "UUIDPrimaryKeyMixin",
     "VerificationRun",
