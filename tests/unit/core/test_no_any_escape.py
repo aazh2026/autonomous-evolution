@@ -42,7 +42,8 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 #: - ``core.policy.autonomy`` / ``core.policy.budget`` / ``core.project.models`` /
 #:   ``core.metrics.cycle`` / ``core.evolution.assessment`` /
 #:   ``core.evolution.candidate`` / ``core.evolution.decision`` /
-#:   ``core.evolution.evidence`` / ``core.evolution.priority`` /
+#:   ``core.evolution.evidence`` / ``core.evolution.evolution_loop`` /
+#:   ``core.evolution.priority`` / ``core.evolution.scan`` /
 #:   ``core.planning.roadmap`` / ``core.planning.stages`` /
 #:   ``core.task.execution_loop`` /
 #:   ``agents.critic.checks`` /
@@ -72,6 +73,7 @@ ALLOWED_ANY_MODULES: dict[str, str] = {
     "core.evolution.evidence": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.evolution.evolution_loop": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.evolution.priority": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
+    "core.evolution.scan": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.planning.roadmap": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.planning.stages": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "core.task.execution_loop": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",

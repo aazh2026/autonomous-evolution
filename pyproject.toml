@@ -268,6 +268,7 @@ module = [
     "core.evolution.evidence",
     "core.evolution.evolution_loop",
     "core.evolution.priority",
+    "core.evolution.scan",
     "core.planning.roadmap",
     "core.planning.stages",
     "core.task.execution_loop",
