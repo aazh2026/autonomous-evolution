@@ -215,4 +215,3 @@ class TestOpenCodeResultAndSummary:
         fragments = map_event(_event({"type": "unknown_future_event", "foo": 123}))
         assert len(fragments) == 1
         assert fragments[0][0] == KIND_UNHANDLED
-

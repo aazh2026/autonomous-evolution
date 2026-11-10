@@ -201,7 +201,7 @@ class TestProgressAndPersistence:
 
         p_final = scheduler.progress()
         assert p_final.completed == 3  # t1, t6, t3
-        assert p_final.blocked == 3    # t2, t4, t5
+        assert p_final.blocked == 3  # t2, t4, t5
         assert p_final.is_finished
         assert not p_final.is_successful
 

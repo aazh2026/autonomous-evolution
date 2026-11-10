@@ -215,4 +215,3 @@ class TestGeminiResultAndSummary:
         fragments = map_event(_event({"type": "custom_extension", "val": 1}))
         assert len(fragments) == 1
         assert fragments[0][0] == KIND_UNHANDLED
-

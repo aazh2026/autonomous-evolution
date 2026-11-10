@@ -122,8 +122,7 @@ class HighRiskPolicy:
             if missing:
                 names = "、".join(sorted(scope.value for scope in missing))
                 raise ValueError(
-                    f"{kind.value} 类改动至少要 {names} 评审资格 —— 规矩只能往严里加，"
-                    "不能减"
+                    f"{kind.value} 类改动至少要 {names} 评审资格 —— 规矩只能往严里加，不能减"
                 )
         object.__setattr__(self, "reviews_by_risk", MappingProxyType(dict(self.reviews_by_risk)))
         object.__setattr__(
@@ -176,9 +175,7 @@ class ReviewerRegistry:
         name = reviewer.strip()
         if not name:
             raise ValueError("评审人不能是空字符串")
-        self._profiles[name] = ReviewerProfile(
-            reviewer=name, scopes=frozenset(scopes)
-        )
+        self._profiles[name] = ReviewerProfile(reviewer=name, scopes=frozenset(scopes))
 
     def is_registered(self, reviewer: str) -> bool:
         """这个人**在不在册**。"""
@@ -365,8 +362,7 @@ class HighRiskChange:
             if missing:
                 names = "、".join(scope.value for scope in ReviewerScope if scope in missing)
                 raise ValueError(
-                    f"{self.kind.value} 类变更至少要 {names} 评审资格 —— "
-                    "规矩只能往严里加，不能减"
+                    f"{self.kind.value} 类变更至少要 {names} 评审资格 —— 规矩只能往严里加，不能减"
                 )
         if self.status is not HighRiskStatus.DRAFT:
             raise ValueError("变更只能以草稿状态创建 —— 别的状态只能由状态机推出来")
@@ -476,14 +472,10 @@ class HighRiskChange:
         4. **要求的评审资格要有人覆盖**。
         """
         if self.status is not HighRiskStatus.APPROVED:
-            raise HighRiskStateError(
-                f"只有已批准的变更可以放行，当前状态是 {self.status.value}"
-            )
+            raise HighRiskStateError(f"只有已批准的变更可以放行，当前状态是 {self.status.value}")
         reviewers = self.approved_reviewers
         if len(reviewers) < self.required_reviews:
-            raise HighRiskStateError(
-                f"还缺 {self.required_reviews - len(reviewers)} 份独立评审"
-            )
+            raise HighRiskStateError(f"还缺 {self.required_reviews - len(reviewers)} 份独立评审")
         if self.proposed_by in reviewers:
             raise HighRiskIndependenceError("提出人不能给自己批")
         for review in self.reviews:

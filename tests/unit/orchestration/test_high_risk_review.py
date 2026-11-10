@@ -357,9 +357,7 @@ class TestIntegrity:
         """**内容被偷改 —— 那份评审就作废了。**"""
         rig = _rig()
         await _reviewed(rig, "reviewer-a", "reviewer-b")
-        rig.changes.items["c-1"] = _forged(
-            rig.changes.items["c-1"], summary="偷偷改成别的"
-        )
+        rig.changes.items["c-1"] = _forged(rig.changes.items["c-1"], summary="偷偷改成别的")
 
         with pytest.raises(HighRiskReviewError, match="这一版内容"):
             await rig.flow.release("c-1")

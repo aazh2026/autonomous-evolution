@@ -64,4 +64,3 @@ __all__ = [
     "build_command",
     "build_prompt",
 ]
-

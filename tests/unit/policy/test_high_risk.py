@@ -126,9 +126,7 @@ class TestTheFloors:
         assert REQUIRED_SCOPES_BY_KIND[ProposalKind.ARCHITECTURE_CHANGE] == (
             ReviewerScope.ARCHITECTURE,
         )
-        assert REQUIRED_SCOPES_BY_KIND[ProposalKind.DEPENDENCY_CHANGE] == (
-            ReviewerScope.SECURITY,
-        )
+        assert REQUIRED_SCOPES_BY_KIND[ProposalKind.DEPENDENCY_CHANGE] == (ReviewerScope.SECURITY,)
 
 
 class TestOnlyStricter:
@@ -324,6 +322,5 @@ class TestConsistency:
             if capability is None or capability not in HIGH_RISK_CAPABILITIES:
                 continue
             assert operation in HIGH_RISK_OPERATIONS, (
-                f"{operation.value} 用的是高风险能力 {capability.value}，"
-                "却没被列进高风险操作表"
+                f"{operation.value} 用的是高风险能力 {capability.value}，却没被列进高风险操作表"
             )

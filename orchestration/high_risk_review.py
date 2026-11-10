@@ -386,9 +386,7 @@ class HighRiskReviewFlow:
         if not reviews:
             raise HighRiskReviewError(f"变更 {change.change_id} 没有评审结论")
         if any(not review.approved for review in reviews):
-            raise HighRiskReviewError(
-                f"变更 {change.change_id} 有人拒过 —— 拒绝是终态，放行不了"
-            )
+            raise HighRiskReviewError(f"变更 {change.change_id} 有人拒过 —— 拒绝是终态，放行不了")
         if len(approvers) < change.required_reviews:
             raise HighRiskReviewError(
                 f"变更 {change.change_id} 只有 {len(approvers)} 份独立评审，"

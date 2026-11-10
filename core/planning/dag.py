@@ -223,6 +223,7 @@ class TaskDAG:
 
         # 入度表 (只统计直接前驱数量)
         in_degrees: dict[str, int] = {k: len(self._backward[k]) for k in self._nodes}
+
         # 初始入度为 0 的节点（按优先级降序、标识升序排列保持确定性）
         def node_sort_key(node_id: str) -> tuple[Decimal, str]:
             node = self._nodes[node_id]

@@ -273,4 +273,3 @@ __all__ = [
     "map_event",
     "summarize",
 ]
-

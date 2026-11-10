@@ -61,4 +61,3 @@ __all__ = [
     "UnsupportedCapabilityError",
     "create_default_selector",
 ]
-

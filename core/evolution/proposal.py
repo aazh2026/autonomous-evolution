@@ -193,18 +193,16 @@ MINIMUM_APPROVALS_BY_KIND: Final[Mapping[ProposalKind, int]] = MappingProxyType(
 #: **为什么代码与配置改动没有专门资格。** 它们要的是"看得懂这段改动"，而那正是
 #: 通用评审资格的定义。它们同样是**中风险**，一样要一份独立评审 —— 只是那份评审
 #: 不必是"架构评审人"。
-REQUIRED_SCOPES_BY_KIND: Final[Mapping[ProposalKind, tuple[ReviewerScope, ...]]] = (
-    MappingProxyType(
-        {
-            ProposalKind.CODE_CHANGE: (),
-            ProposalKind.CONFIGURATION_CHANGE: (),
-            ProposalKind.DEPENDENCY_CHANGE: (ReviewerScope.SECURITY,),
-            ProposalKind.ARCHITECTURE_CHANGE: (ReviewerScope.ARCHITECTURE,),
-            ProposalKind.ACCEPTANCE_CRITERIA_CHANGE: (ReviewerScope.GOVERNANCE,),
-            ProposalKind.POLICY_CHANGE: (ReviewerScope.GOVERNANCE,),
-            ProposalKind.GOVERNANCE_CHANGE: (ReviewerScope.GOVERNANCE,),
-        }
-    )
+REQUIRED_SCOPES_BY_KIND: Final[Mapping[ProposalKind, tuple[ReviewerScope, ...]]] = MappingProxyType(
+    {
+        ProposalKind.CODE_CHANGE: (),
+        ProposalKind.CONFIGURATION_CHANGE: (),
+        ProposalKind.DEPENDENCY_CHANGE: (ReviewerScope.SECURITY,),
+        ProposalKind.ARCHITECTURE_CHANGE: (ReviewerScope.ARCHITECTURE,),
+        ProposalKind.ACCEPTANCE_CRITERIA_CHANGE: (ReviewerScope.GOVERNANCE,),
+        ProposalKind.POLICY_CHANGE: (ReviewerScope.GOVERNANCE,),
+        ProposalKind.GOVERNANCE_CHANGE: (ReviewerScope.GOVERNANCE,),
+    }
 )
 
 
@@ -385,16 +383,13 @@ class SystemEvolutionProposal:
         required_floor = set(REQUIRED_SCOPES_BY_KIND[self.kind])
         if not self.required_scopes:
             # **没额外要求 = 用天生的下限** —— 而不是"什么都不要"。
-            object.__setattr__(
-                self, "required_scopes", REQUIRED_SCOPES_BY_KIND[self.kind]
-            )
+            object.__setattr__(self, "required_scopes", REQUIRED_SCOPES_BY_KIND[self.kind])
         else:
             missing = required_floor - set(self.required_scopes)
             if missing:
                 names = "、".join(scope.value for scope in ReviewerScope if scope in missing)
                 raise ValueError(
-                    f"{self.kind.value} 类提案至少要 {names} 评审资格 —— "
-                    "规矩只能往严里加，不能减"
+                    f"{self.kind.value} 类提案至少要 {names} 评审资格 —— 规矩只能往严里加，不能减"
                 )
         if self.status is not ProposalStatus.DRAFT:
             raise ValueError("提案只能以草稿状态创建 —— 别的状态只能由状态机推出来")
@@ -569,9 +564,7 @@ class SystemEvolutionProposal:
         missing = set(self.required_scopes) - self.covered_scopes
         if missing:
             names = "、".join(scope.value for scope in ReviewerScope if scope in missing)
-            raise ProposalScopeError(
-                f"评审资格不足：缺 {names} —— 批过的人里没有持有这些资格的"
-            )
+            raise ProposalScopeError(f"评审资格不足：缺 {names} —— 批过的人里没有持有这些资格的")
         if current_criteria_version != self.criteria_version:
             raise ProposalIntegrityError(
                 "验收标准在审批之后变了，这份批准不再成立 —— "

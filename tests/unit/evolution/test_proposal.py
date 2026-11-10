@@ -212,9 +212,7 @@ class TestScopeFloor:
         )
 
     def test_a_dependency_change_needs_a_security_reviewer(self) -> None:
-        assert REQUIRED_SCOPES_BY_KIND[ProposalKind.DEPENDENCY_CHANGE] == (
-            ReviewerScope.SECURITY,
-        )
+        assert REQUIRED_SCOPES_BY_KIND[ProposalKind.DEPENDENCY_CHANGE] == (ReviewerScope.SECURITY,)
 
     def test_a_code_change_needs_no_special_reviewer(self) -> None:
         """**代码改动要的是"看得懂这段改动"** —— 那正是通用资格的定义。"""
@@ -270,7 +268,6 @@ class TestScopeFloor:
 
 
 class TestTransitions:
-
     def test_submit_moves_it_to_submitted(self) -> None:
         assert _proposal().submit().status is ProposalStatus.SUBMITTED
 

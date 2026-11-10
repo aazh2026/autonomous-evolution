@@ -215,9 +215,7 @@ class DynamicExecutorSelector:
                 filtered_out[p.name] = "执行器当前不健康或已熔断"
                 continue
             if p.current_load >= p.max_concurrency:
-                filtered_out[p.name] = (
-                    f"已达最大并发上限 ({p.current_load}/{p.max_concurrency})"
-                )
+                filtered_out[p.name] = f"已达最大并发上限 ({p.current_load}/{p.max_concurrency})"
                 continue
             missing_caps = requirements.required_capabilities - p.capabilities
             if missing_caps:
@@ -350,19 +348,9 @@ class DynamicExecutorSelector:
         success_score = profile.success_rate
 
         if strategy == SelectionStrategy.LOWEST_COST:
-            return (
-                0.60 * cost_eff
-                + 0.20 * success_score
-                + 0.10 * free_ratio
-                + 0.10 * pref_bonus
-            )
+            return 0.60 * cost_eff + 0.20 * success_score + 0.10 * free_ratio + 0.10 * pref_bonus
         if strategy == SelectionStrategy.AFFINITY:
-            return (
-                0.40 * affinity
-                + 0.35 * success_score
-                + 0.15 * free_ratio
-                + 0.10 * pref_bonus
-            )
+            return 0.40 * affinity + 0.35 * success_score + 0.15 * free_ratio + 0.10 * pref_bonus
 
         # 默认 BALANCED
         if requirements.cost_sensitivity == CostSensitivity.HIGH:

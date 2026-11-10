@@ -80,4 +80,3 @@ class OpenCodeAdapter(CliAdapter):
 
 
 __all__ = ["DEFAULT_BINARY", "OpenCodeAdapter", "OpenCodeInvocation"]
-
