@@ -301,6 +301,12 @@ object.__setattr__(clone, "status", ProposalStatus.APPROVED)  # 伪造"已审批
 3. **审批人是谁，这里只当字符串处理。** "谁有资格批"这一层（权限）**不在这
    一层里** —— 这一层只保证"批的人 ≠ 提的人"。**两个不同的人，其中一个有权限
    一个没有，这一层看不出来。**
+   > **TASK-P4-060 把这一层补上了，但补在另一条路上。** 高风险变更那一条路
+   > （`core/policy/high_risk.py` + `orchestration/high_risk_review.py`）**有
+   > 一份名册** —— 资格只认名册，通用资格顶不了专门资格。而**这一层（提案层）
+   > 的资格是自报的**（`ProposalApproval.scopes`），流程只核对"存下来的那份
+   > 审批声明了什么资格"对不对得上下限，**不查这个人到底会不会**。**两道
+   > 闸的严格程度不一样** —— 这是诚实的说法，不是笔误。
 4. **独立测试是"有独立测试报告"这件事，不是"真的独立跑了测试"。** 测试报告由
    端口给；这个端口背后跑的是什么，**这一层不关心也不验证** —— 那是
    `TASK-P4-060`（高风险变更治理）要接的东西。
@@ -318,39 +324,46 @@ object.__setattr__(clone, "status", ProposalStatus.APPROVED)  # 伪造"已审批
 
 | 要求 | 落在哪 | 怎么验 |
 | --- | --- | --- |
-| TASK-P4-070 ①（``SystemEvolutionProposal`` 实体） | `core/evolution/proposal.py` | 31 条 |
-| TASK-P4-070 ②（独立测试 + 审批后发布） | `orchestration/self_evolution.py` | 14 条 |
+| TASK-P4-070 ①（``SystemEvolutionProposal`` 实体） | `core/evolution/proposal.py` | 40 条 |
+| TASK-P4-070 ②（独立测试 + 审批后发布） | `orchestration/self_evolution.py` | 16 条 |
 | TASK-P4-070 ③（**不存在绕过审批的发布路径**） | 实体状态机（纵深防御）+ 流程层对**审批存储**的重新核对（真闸） | §9.2 的四条伪造用例 |
-| R-102（不得自主修改控制自身的系统） | 四条硬约束 + 下限钉死；**只能提提案** | 31 + 9 条 |
-| R-103（自我修改需独立测试与审批） | §2、§7 | 45 条 |
+| R-102（不得自主修改控制自身的系统） | 四条硬约束 + 下限钉死；**只能提提案** | 40 + 9 条 |
+| R-103（自我修改需独立测试与审批） | §2、§7 | 55 条 |
 | R-104（防止系统自改验收标准） | §5 —— **标准版本治理外置 + 审批绑版本 + 改标准要两份审批** | §9.1 的 `TestCriteriaVersion` |
-| design.md §7 | §1、§2 的四条硬约束 | 54 条 |
+| design.md §7 | §1、§2 的四条硬约束 | 65 条 |
 | TASK-P1-011（治理外置 + 变更需审批） | `CriteriaPort` —— **版本不住在策略对象里** | 9 条 |
-| TASK-P4-060（高风险变更治理） | §6 的**下限**、**资格下限**与"只许更严"；**独立评审的那一端在 `docs/architecture/high-risk-review.md`** | 65 条 + 那边�� 47 条 |
+| TASK-P4-060（高风险变更治理） | §6 的**下限**、**资格下限**与"只许更严"；**独立评审的那一端在 `docs/architecture/high-risk-review.md`** | 65 条 + 那边 47 条 |
 
 ## 12. 复现
 
 ```bash
-# 实体与状态机（31 条）
+# 实体与状态机（40 条）
 .venv/bin/python -m pytest tests/unit/evolution/test_proposal.py -q
 
 # 规矩（9 条）
 .venv/bin/python -m pytest tests/unit/policy/test_self_evolution.py -q
 
-# 流程（14 条）
+# 流程（16 条）
 .venv/bin/python -m pytest tests/unit/orchestration/test_self_evolution.py -q
 
-# 三个一起（54 条）
+# 三个一起（65 条）
 .venv/bin/python -m pytest tests/unit/evolution/test_proposal.py \
   tests/unit/policy/test_self_evolution.py \
   tests/unit/orchestration/test_self_evolution.py -q
 
 # 类型与规范
-.venv/bin/python -m ruff check core/evolution/proposal.py core/evolution/placeholders.py \
+.venv/bin/python -m ruff check core/evolution/common.py core/evolution/risk.py \
+  core/evolution/proposal.py core/evolution/placeholders.py \
   core/policy/self_evolution.py orchestration/self_evolution.py
-.venv/bin/python -m mypy core/evolution/proposal.py core/evolution/placeholders.py \
+.venv/bin/python -m mypy core/evolution/common.py core/evolution/risk.py \
+  core/evolution/proposal.py core/evolution/placeholders.py \
   core/policy/self_evolution.py orchestration/self_evolution.py
 ```
 
 **还没写的部分**（§10）：数据库版仓储与审批存储、真的跑测试的独立测试端口、
 审计的持久化、并发控制。**这些是 TASK-P4-060 与 TASK-P4-050 的活。**
+
+> **TASK-P4-060 的独立评审那一端已经写了** —— 在 `core/policy/high_risk.py`
+> （规矩与实体）与 `orchestration/high_risk_review.py`（放行流程），见
+> `docs/architecture/high-risk-review.md`。**但它还没接进
+> `apps/director/cycle.py`** —— 真实路径上跑的仍是旧的单审批门。
