@@ -290,6 +290,7 @@ module = [
     "executors.base",
     "harness.verification.contract",
     "infrastructure.config.settings",
+    "apps.api.control",
 ]
 disallow_any_explicit = false
 

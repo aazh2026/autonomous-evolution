@@ -1,0 +1,1394 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="h-full bg-slate-950 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ASES 自主软件演进控制舱 | Cockpit</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8' },
+            slate: { 850: '#111827', 950: '#030712' }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- PDF.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    @keyframes pulse-slow { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+    .animate-pulse-slow { animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: #0f172a; }
+    .split-resizing { user-select: none; pointer-events: none; }
+    .gutter-col { cursor: col-resize; transition: background 0.2s; }
+    .gutter-col:hover, .gutter-col.active { background: #3b82f6 !important; }
+    .gutter-row { cursor: row-resize; transition: background 0.2s; }
+    .gutter-row:hover, .gutter-row.active { background: #3b82f6 !important; }
+    @keyframes dash { to { stroke-dashoffset: -40; } }
+    .trace-path-anim { stroke-dasharray: 6, 4; animation: dash 1.5s linear infinite; }
+  </style>
+</head>
+<body class="h-full flex flex-col font-sans select-none overflow-hidden relative">
+
+  <!-- 全屏动态 SVG 视觉溯源连线图层 (Visual Traceability Overlay) -->
+  <svg id="traceabilityOverlay" class="pointer-events-none fixed inset-0 w-full h-full z-50 overflow-visible">
+    <defs>
+      <linearGradient id="traceGradSuccess" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#10b981" stop-opacity="0.9" />
+        <stop offset="100%" stop-color="#3b82f6" stop-opacity="0.9" />
+      </linearGradient>
+      <linearGradient id="traceGradWarning" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.9" />
+        <stop offset="100%" stop-color="#ec4899" stop-opacity="0.9" />
+      </linearGradient>
+      <filter id="glowFilter" x="-20%" y="-20%" width="140%" height="140%">
+        <feGaussianBlur stdDeviation="3" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur"/>
+          <feMergeNode in="SourceGraphic"/>
+        </feMerge>
+      </filter>
+    </defs>
+    <g id="traceLinesContainer"></g>
+  </svg>
+
+  <!-- 顶部控制条 (TOP BAR: 安全与状态控制中枢) -->
+  <header class="h-14 border-b border-slate-800 bg-slate-900/90 backdrop-blur px-4 flex items-center justify-between shrink-0 z-20">
+    <div class="flex items-center space-x-3">
+      <div class="h-8 w-8 rounded-lg bg-blue-600 flex items-center justify-center font-black tracking-wider text-white shadow-lg shadow-blue-500/30">
+        AE
+      </div>
+      <div>
+        <div class="flex items-center space-x-2">
+          <span class="font-bold text-sm tracking-wide text-white">ASES 控制舱</span>
+          <span class="text-xs px-2 py-0.5 rounded bg-blue-900/50 text-blue-300 border border-blue-700/50 font-mono" id="projectBadge">pilot-tinylib</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 中部：自主权等级切换 (L0 ~ L3) -->
+    <div class="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-1 text-xs">
+      <span class="text-slate-400 px-2 font-medium">自主权:</span>
+      <button onclick="setAutonomy('L0')" id="btn-L0" class="px-2.5 py-1 rounded transition-colors text-slate-400 hover:text-white">L0 手动</button>
+      <button onclick="setAutonomy('L1')" id="btn-L1" class="px-2.5 py-1 rounded transition-colors text-slate-400 hover:text-white">L1 监督</button>
+      <button onclick="setAutonomy('L2')" id="btn-L2" class="px-2.5 py-1 rounded transition-colors bg-blue-600 text-white font-semibold shadow">L2 半自主</button>
+      <button onclick="setAutonomy('L3')" id="btn-L3" class="px-2.5 py-1 rounded transition-colors text-slate-400 hover:text-white">L3 全自主</button>
+    </div>
+
+    <!-- 右侧：溯源开关、焦点全屏、预算与急停熔断 -->
+    <div class="flex items-center space-x-2.5 text-xs">
+      <button onclick="toggleFocusMode()" id="btnFocusMode" class="px-2.5 py-1.5 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:text-white transition flex items-center space-x-1.5" title="快捷键: Cmd/Ctrl + \">
+        <i data-lucide="maximize-2" class="w-3.5 h-3.5 text-cyan-400"></i>
+        <span id="focusModeLabel">焦点分屏</span>
+      </button>
+
+      <button onclick="togglePinTrace()" id="btnPinTrace" class="px-2.5 py-1.5 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:text-white transition flex items-center space-x-1.5">
+        <i data-lucide="git-commit" class="w-3.5 h-3.5 text-blue-400"></i>
+        <span id="pinTraceLabel">视觉溯源连线</span>
+      </button>
+
+      <div class="flex items-center space-x-2 bg-slate-800/60 px-3 py-1.5 rounded-md border border-slate-700/50">
+        <i data-lucide="wallet" class="w-4 h-4 text-emerald-400"></i>
+        <span class="text-slate-400">本日预算:</span>
+        <span class="font-mono font-semibold text-emerald-400" id="budgetUsage">$1.26 / $5.00</span>
+      </div>
+
+      <div class="flex items-center space-x-2">
+        <button id="pauseBtn" onclick="togglePause()" class="px-3 py-1.5 rounded-md bg-amber-600/20 text-amber-300 border border-amber-600/40 hover:bg-amber-600/30 transition flex items-center space-x-1 font-medium">
+          <i data-lucide="pause" class="w-3.5 h-3.5"></i>
+          <span id="pauseLabel">暂停闭环</span>
+        </button>
+        <button onclick="emergencyStop()" class="px-3 py-1.5 rounded-md bg-rose-600 text-white hover:bg-rose-700 transition flex items-center space-x-1 font-bold shadow-lg shadow-rose-900/30">
+          <i data-lucide="octagon-alert" class="w-3.5 h-3.5"></i>
+          <span>急停熔断</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- BODY: 可拖拽分屏工作区 (Resizable Split Panes) -->
+  <div class="flex-1 flex flex-col overflow-hidden relative" id="mainContainer">
+    
+    <!-- 上部主要区域 (Left Pane + Center Stage + Right Pane) -->
+    <div class="flex-1 flex overflow-hidden" id="upperPaneRow">
+
+      <!-- LEFT: 周期导航与模块切换 (Width: 240px) -->
+      <aside class="w-60 border-r border-slate-800 bg-slate-900/40 flex flex-col shrink-0 z-10" id="sidebarPane">
+        <div class="p-3 border-b border-slate-800">
+          <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">演进周期历程 (Cycles)</div>
+          <div class="space-y-1.5" id="cycleList">
+            <div class="p-2.5 rounded-md bg-blue-950/40 border border-blue-500/40 cursor-pointer">
+              <div class="flex items-center justify-between text-xs font-semibold">
+                <span class="text-white">Cycle #014</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-700/50 font-mono">Δ +0.1962</span>
+              </div>
+              <div class="text-[11px] text-slate-400 mt-1 flex justify-between">
+                <span>状态: <span class="text-emerald-400">improved</span></span>
+                <span>耗费: $0.63</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <nav class="flex-1 p-2 space-y-1 overflow-y-auto custom-scrollbar">
+          <div class="text-[11px] font-semibold text-slate-500 px-3 py-1 uppercase tracking-wider">控制舱视图</div>
+          <button onclick="switchTab('dashboard')" id="nav-dashboard" class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-md text-xs font-medium text-white bg-slate-800 transition">
+            <i data-lucide="activity" class="w-4 h-4 text-blue-400"></i>
+            <span>双环态势与目标达成</span>
+          </button>
+          <button onclick="switchTab('sandbox')" id="nav-sandbox" class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-md text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition">
+            <i data-lucide="scale" class="w-4 h-4 text-purple-400"></i>
+            <span>演进决策沙盘</span>
+          </button>
+          <button onclick="switchTab('dag')" id="nav-dag" class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-md text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition">
+            <i data-lucide="git-merge" class="w-4 h-4 text-cyan-400"></i>
+            <span>DAG 多任务调度流</span>
+          </button>
+          <button onclick="switchTab('verify')" id="nav-verify" class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-md text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition">
+            <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+            <span>六层验证与代码差异</span>
+          </button>
+          <button onclick="switchTab('governance')" id="nav-governance" class="w-full flex items-center space-x-2.5 px-3 py-2 rounded-md text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800/60 transition">
+            <i data-lucide="landmark" class="w-4 h-4 text-amber-400"></i>
+            <span>高风险审批法庭</span>
+            <span id="pendingApprovalCount" class="ml-auto px-1.5 py-0.2 rounded-full text-[10px] bg-amber-500/20 text-amber-400 font-bold">1</span>
+          </button>
+        </nav>
+
+        <!-- 左下：执行器集群状态一览 -->
+        <div class="p-3 border-t border-slate-800 bg-slate-900/60 text-xs">
+          <div class="text-[11px] font-semibold text-slate-400 mb-2 flex items-center justify-between">
+            <span>执行器集群舰队</span>
+            <span class="text-[10px] text-blue-400 font-mono">并发 3/4</span>
+          </div>
+          <div class="space-y-1.5" id="execFleetSummary">
+            <!-- 动态生成 -->
+          </div>
+        </div>
+      </aside>
+
+      <!-- CENTER: 核心交互工作台 (可拖拽宽度) -->
+      <main class="flex-1 flex flex-col bg-slate-950 overflow-hidden min-w-[380px]" id="centerStagePane">
+
+        <!-- TAB 1: 双环态势与目标达成 -->
+        <section id="tab-dashboard" class="flex-1 p-5 overflow-y-auto custom-scrollbar space-y-5">
+          <div>
+            <h2 class="text-base font-bold text-white flex items-center space-x-2">
+              <i data-lucide="activity" class="w-4 h-4 text-blue-400"></i>
+              <span>自主演进双环态势看板</span>
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">循环 B（宏观机会发现与规划）与 循环 A（微观受控执行与独立六层验证）实时联动。</p>
+          </div>
+
+          <!-- 关键指标卡片 -->
+          <div class="grid grid-cols-4 gap-3">
+            <div class="p-3.5 rounded-lg bg-slate-900 border border-slate-800">
+              <div class="text-[11px] text-slate-400 font-medium">目标达成度 (Attainment)</div>
+              <div class="text-xl font-bold font-mono text-emerald-400 mt-1 flex items-baseline space-x-1.5">
+                <span>0.5554</span>
+                <span class="text-xs text-emerald-500 font-semibold">▲ +0.1962</span>
+              </div>
+              <div class="text-[10px] text-slate-500 mt-1.5">轮前: 0.3592 ➔ 轮后: 0.5554</div>
+            </div>
+
+            <div class="p-3.5 rounded-lg bg-slate-900 border border-slate-800">
+              <div class="text-[11px] text-slate-400 font-medium">已知缺陷收敛</div>
+              <div class="text-xl font-bold font-mono text-white mt-1 flex items-baseline space-x-1.5">
+                <span>1 / 20</span>
+                <span class="text-xs text-blue-400 font-semibold">5% 解决</span>
+              </div>
+              <div class="text-[10px] text-slate-500 mt-1.5">已修复: --slug/--limit 互斥</div>
+            </div>
+
+            <div class="p-3.5 rounded-lg bg-slate-900 border border-slate-800">
+              <div class="text-[11px] text-slate-400 font-medium">行覆盖率</div>
+              <div class="text-xl font-bold font-mono text-white mt-1 flex items-baseline space-x-1.5">
+                <span>85.4%</span>
+                <span class="text-xs text-emerald-400 font-semibold">+3.2%</span>
+              </div>
+              <div class="text-[10px] text-slate-500 mt-1.5">有效用例: 44 passed (0 xpass)</div>
+            </div>
+
+            <div class="p-3.5 rounded-lg bg-slate-900 border border-slate-800">
+              <div class="text-[11px] text-slate-400 font-medium">单位增益成本</div>
+              <div class="text-xl font-bold font-mono text-white mt-1">
+                <span>$0.63</span>
+              </div>
+              <div class="text-[10px] text-slate-500 mt-1.5">在基线 2.0x 预算内，耗时 1.3s</div>
+            </div>
+          </div>
+
+          <!-- 双环流转状态图 -->
+          <div class="p-4 rounded-lg bg-slate-900 border border-slate-800">
+            <div class="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3 flex items-center justify-between">
+              <span>双环闭环流转状态图 (Dual-Loop Architecture)</span>
+              <span class="text-emerald-400 flex items-center space-x-1">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span class="text-[10px]">闭环健康巡航中</span>
+              </span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+              <!-- 循环 B -->
+              <div class="p-3 rounded-lg bg-slate-950 border border-purple-900/40">
+                <div class="flex items-center space-x-1.5 text-purple-400 font-bold text-xs uppercase mb-2">
+                  <i data-lucide="compass" class="w-3.5 h-3.5"></i>
+                  <span>循环 B：宏观演进发现环 (Macro)</span>
+                </div>
+                <ol class="space-y-1.5 text-xs text-slate-300">
+                  <li class="flex items-center space-x-2">
+                    <span class="w-4 h-4 rounded-full bg-purple-900/60 text-purple-300 flex items-center justify-center font-bold text-[9px]">1</span>
+                    <span><strong>认知</strong>: 扫描代码、历史快照与缺陷基线</span>
+                  </li>
+                  <li class="flex items-center space-x-2">
+                    <span class="w-4 h-4 rounded-full bg-purple-900/60 text-purple-300 flex items-center justify-center font-bold text-[9px]">2</span>
+                    <span><strong>诊断</strong>: 发掘 2 项候选，提取代码行证据</span>
+                  </li>
+                  <li class="flex items-center space-x-2">
+                    <span class="w-4 h-4 rounded-full bg-purple-900/60 text-purple-300 flex items-center justify-center font-bold text-[9px]">3</span>
+                    <span><strong>决策沙盘</strong>: Critic 9 问质询，1 项立项，1 项推迟</span>
+                  </li>
+                  <li class="flex items-center space-x-2">
+                    <span class="w-4 h-4 rounded-full bg-purple-900/60 text-purple-300 flex items-center justify-center font-bold text-[9px]">4</span>
+                    <span><strong>规划</strong>: 拆解为波次 DAG 拓扑图</span>
+                  </li>
+                </ol>
+              </div>
+
+              <!-- 循环 A -->
+              <div class="p-3 rounded-lg bg-slate-950 border border-blue-900/40">
+                <div class="flex items-center space-x-1.5 text-blue-400 font-bold text-xs uppercase mb-2">
+                  <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
+                  <span>循环 A：微观任务执行环 (Micro)</span>
+                </div>
+                <ol class="space-y-1.5 text-xs text-slate-300">
+                  <li class="flex items-center space-x-2">
+                    <span class="w-4 h-4 rounded-full bg-blue-900/60 text-blue-300 flex items-center justify-center font-bold text-[9px]">1</span>
+                    <span><strong>调度选择</strong>: 匹配 Codex / Claude Code 亲和度</span>
+                  </li>
+                  <li class="flex items-center space-x-2">
+                    <span class="w-4 h-4 rounded-full bg-blue-900/60 text-blue-300 flex items-center justify-center font-bold text-[9px]">2</span>
+                    <span><strong>工作区隔离</strong>: Git Worktree 独立租约保护</span>
+                  </li>
+                  <li class="flex items-center space-x-2">
+                    <span class="w-4 h-4 rounded-full bg-blue-900/60 text-blue-300 flex items-center justify-center font-bold text-[9px]">3</span>
+                    <span><strong>六层独立验证</strong>: 功能、质量、架构、安全、性能、契约</span>
+                  </li>
+                  <li class="flex items-center space-x-2">
+                    <span class="w-4 h-4 rounded-full bg-blue-900/60 text-blue-300 flex items-center justify-center font-bold text-[9px]">4</span>
+                    <span><strong>收敛集成</strong>: 自动合入主分支并更新项目差距快照</span>
+                  </li>
+                </ol>
+              </div>
+            </div>
+          </div>
+
+          <!-- 跨周期 7 天趋势看板 (4 层 8 核心指标 + 2 诊断量, 诚实缺失态渲染) -->
+          <div class="p-4 rounded-lg bg-slate-900 border border-slate-800 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-xs font-semibold text-slate-200 uppercase tracking-wider flex items-center space-x-2">
+                  <i data-lucide="trending-up" class="w-4 h-4 text-emerald-400"></i>
+                  <span>跨周期 7 天四层累计趋势看板 (Four-Layer Cumulative Trend Board)</span>
+                </div>
+                <p class="text-[11px] text-slate-400 mt-0.5">
+                  符号 <code class="text-amber-300 font-bold">—</code> 表示<strong>算不出来</strong>（基线未建立 <code class="text-amber-400">baseline_missing</code> / 尚未采样 <code class="text-purple-400">no_samples</code>），<strong>绝不混同为 0</strong>。
+                </p>
+              </div>
+              <span class="text-[10px] px-2 py-1 rounded bg-rose-950/70 text-rose-300 border border-rose-700/50 font-mono">
+                R-117 已拦截虚荣量: task_count / token_count / commit_count
+              </span>
+            </div>
+
+            <div class="overflow-x-auto custom-scrollbar">
+              <table class="w-full text-left border-collapse text-[11px]">
+                <thead>
+                  <tr class="border-b border-slate-800 text-slate-400 font-mono" id="trendTableHead">
+                    <th class="py-1.5 px-2">层级</th>
+                    <th class="py-1.5 px-2">指标名称</th>
+                    <th class="py-1.5 px-2">口径状态</th>
+                  </tr>
+                </thead>
+                <tbody id="trendTableBody" class="divide-y divide-slate-800/60 font-mono">
+                  <!-- 动态渲染 8 + 2 趋势行 -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- TAB 2: 演进决策沙盘 (含置信度分级、行内编辑与 Actionable Risk) -->
+        <section id="tab-sandbox" class="flex-1 p-5 overflow-y-auto custom-scrollbar space-y-5 hidden">
+          <div>
+            <h2 class="text-base font-bold text-white flex items-center space-x-2">
+              <i data-lucide="scale" class="w-4 h-4 text-purple-400"></i>
+              <span>演进决策沙盘 (Decision Sandbox)</span>
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">置信度三级分级渲染、行内编辑提取结果，并提供 Accept / Fix / Ignore 可执行风险闭环。</p>
+          </div>
+
+          <div class="space-y-4" id="candidatesContainer">
+            <!-- 动态生成候选卡片 -->
+          </div>
+        </section>
+
+        <!-- TAB 3: DAG 多任务调度流 -->
+        <section id="tab-dag" class="flex-1 p-5 overflow-y-auto custom-scrollbar space-y-5 hidden">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-base font-bold text-white flex items-center space-x-2">
+                <i data-lucide="git-merge" class="w-4 h-4 text-cyan-400"></i>
+                <span>DAG 多任务调度拓扑流</span>
+              </h2>
+              <p class="text-xs text-slate-400 mt-0.5">按波次分层并发调度；依赖未满足不启动；上游失败下游全量级联阻断。</p>
+            </div>
+            <div class="flex items-center space-x-2 text-[11px]">
+              <span class="flex items-center space-x-1"><span class="w-2 h-2 rounded-full bg-emerald-500"></span><span class="text-slate-300">完成</span></span>
+              <span class="flex items-center space-x-1"><span class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span><span class="text-slate-300">运行</span></span>
+              <span class="flex items-center space-x-1"><span class="w-2 h-2 rounded-full bg-slate-500"></span><span class="text-slate-300">就绪</span></span>
+              <span class="flex items-center space-x-1"><span class="w-2 h-2 rounded-full bg-rose-500"></span><span class="text-slate-300">阻断</span></span>
+            </div>
+          </div>
+
+          <div class="space-y-4" id="dagWavesContainer">
+            <!-- 动态渲染各波次卡片 -->
+          </div>
+        </section>
+
+        <!-- TAB 4: 六层独立验证矩阵与派发修复 -->
+        <section id="tab-verify" class="flex-1 p-5 overflow-y-auto custom-scrollbar space-y-5 hidden">
+          <div>
+            <h2 class="text-base font-bold text-white flex items-center space-x-2">
+              <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+              <span>独立六层验证结果矩阵</span>
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">六层独立判定记录，类型级隔离自我报告。单项不通过可一键派发定向修复任务。</p>
+          </div>
+
+          <div id="verificationCardsContainer" class="space-y-4">
+            <!-- 动态渲染 -->
+          </div>
+        </section>
+
+        <!-- TAB 5: 高风险审批法庭 -->
+        <section id="tab-governance" class="flex-1 p-5 overflow-y-auto custom-scrollbar space-y-5 hidden">
+          <div>
+            <h2 class="text-base font-bold text-white flex items-center space-x-2">
+              <i data-lucide="landmark" class="w-4 h-4 text-amber-400"></i>
+              <span>高风险变更与治理审批法庭 (Governance Court)</span>
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">双轴风险推导、名册资格核验、SHA-256 防篡改内容锁与双签放行。</p>
+          </div>
+
+          <div class="space-y-4" id="approvalsContainer">
+            <!-- 动态加载审批卡片 -->
+          </div>
+        </section>
+
+      </main>
+
+      <!-- 中间水平可拖拽分割条 (Col Splitter Gutter) -->
+      <div id="dragGutterCol" class="w-1 bg-slate-800 gutter-col z-20 hover:bg-blue-500"></div>
+
+      <!-- RIGHT: 高保真证据与源码溯源窗 (PDF.js + Monaco Diff Dual Viewer) -->
+      <aside class="w-[480px] min-w-[340px] border-l border-slate-800 bg-slate-900/40 flex flex-col shrink-0" id="rightViewerPane">
+        
+        <!-- Viewer 顶部切换 Tab -->
+        <div class="h-10 px-3 bg-slate-900/90 border-b border-slate-800 flex items-center justify-between text-xs shrink-0">
+          <div class="flex items-center space-x-1">
+            <button onclick="switchRightTab('pdf')" id="btn-tab-pdf" class="px-2.5 py-1 rounded bg-slate-800 text-white font-semibold flex items-center space-x-1.5 transition">
+              <i data-lucide="file-text" class="w-3.5 h-3.5 text-blue-400"></i>
+              <span>PDF 规范高保真渲染 (PDF.js)</span>
+            </button>
+            <button onclick="switchRightTab('code')" id="btn-tab-code" class="px-2.5 py-1 rounded text-slate-400 hover:text-white flex items-center space-x-1.5 transition">
+              <i data-lucide="code" class="w-3.5 h-3.5 text-cyan-400"></i>
+              <span>源码与 Diff 对比</span>
+            </button>
+          </div>
+
+          <!-- PDF 控制工具栏 -->
+          <div class="flex items-center space-x-1 text-slate-400" id="pdfControls">
+            <button onclick="zoomPdf(-0.15)" class="p-1 hover:text-white rounded hover:bg-slate-800" title="缩小"><i data-lucide="zoom-out" class="w-3.5 h-3.5"></i></button>
+            <span id="pdfZoomLabel" class="text-[10px] font-mono px-1">100%</span>
+            <button onclick="zoomPdf(0.15)" class="p-1 hover:text-white rounded hover:bg-slate-800" title="放大"><i data-lucide="zoom-in" class="w-3.5 h-3.5"></i></button>
+            <span class="text-slate-600">|</span>
+            <button onclick="changePdfPage(-1)" class="p-1 hover:text-white rounded hover:bg-slate-800" title="上一页"><i data-lucide="chevron-left" class="w-3.5 h-3.5"></i></button>
+            <span id="pdfPageNum" class="text-[10px] font-mono px-1">1/1</span>
+            <button onclick="changePdfPage(1)" class="p-1 hover:text-white rounded hover:bg-slate-800" title="下一页"><i data-lucide="chevron-right" class="w-3.5 h-3.5"></i></button>
+          </div>
+        </div>
+
+        <!-- TAB A: PDF.js 渲染容器 -->
+        <div id="viewer-pdf" class="flex-1 overflow-auto custom-scrollbar p-4 flex flex-col items-center bg-slate-950 relative">
+          <div id="pdfCanvasContainer" class="relative shadow-2xl border border-slate-700/60 bg-white rounded-sm overflow-hidden">
+            <canvas id="pdfCanvas"></canvas>
+            <!-- 视觉溯源矩形高亮框 (Bounding Box Overlay) -->
+            <div id="pdfBoundingBox" class="absolute pointer-events-none transition-all duration-300 border-2 border-emerald-500 bg-emerald-500/20 rounded shadow-[0_0_12px_rgba(16,185,129,0.5)] hidden">
+              <div class="absolute -top-5 left-0 px-1.5 py-0.2 rounded bg-emerald-600 text-white font-mono text-[9px] font-bold tracking-wider uppercase">
+                规范证据锚点
+              </div>
+            </div>
+          </div>
+          <div class="text-[11px] text-slate-500 mt-3 font-mono">
+            文档源: <code>/api/v1/artifacts/spec.pdf</code> (RFC-014 架构契约)
+          </div>
+        </div>
+
+        <!-- TAB B: 源码 Diff 容器 -->
+        <div id="viewer-code" class="flex-1 flex flex-col overflow-hidden hidden bg-slate-950">
+          <div class="px-3 py-1.5 bg-slate-900 border-b border-slate-800 text-xs font-semibold text-slate-300 flex items-center justify-between">
+            <span class="font-mono text-[11px]">src/tinylib/cli.py (Worktree 隔离区)</span>
+            <span class="text-[10px] text-emerald-400 font-mono">+11 / -2 lines</span>
+          </div>
+          <div class="flex-1 p-3 text-xs font-mono overflow-auto custom-scrollbar text-slate-300 leading-relaxed relative" id="codeDiffContainer">
+            <div class="text-slate-500">@@ -58,8 +58,17 @@ def main(args=None):</div>
+            <div>&nbsp; &nbsp; &nbsp;if args.command == "text":</div>
+            <div class="text-rose-400 bg-rose-950/30">- &nbsp; &nbsp; &nbsp; &nbsp;if args.slug:</div>
+            <div class="text-rose-400 bg-rose-950/30">- &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;print(slugify(args.input))</div>
+            <div id="codeAnchorLine" class="text-emerald-400 bg-emerald-950/40 border-l-2 border-emerald-400 pl-1 relative">
+              + &nbsp; &nbsp; &nbsp; &nbsp;# 修复互斥校验缺失 (PILOT-001)
+              <span class="absolute right-2 top-0.5 text-[9px] px-1 rounded bg-emerald-900 text-emerald-300 font-bold">代码证据行 :61</span>
+            </div>
+            <div class="text-emerald-400 bg-emerald-950/40 border-l-2 border-emerald-400 pl-1">+ &nbsp; &nbsp; &nbsp; &nbsp;if args.slug and args.limit is not None:</div>
+            <div class="text-emerald-400 bg-emerald-950/40 border-l-2 border-emerald-400 pl-1">+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;return _usage_error("--slug 与 --limit 不能同时给出，请只给其中一个。")</div>
+            <div class="text-emerald-400 bg-emerald-950/40 border-l-2 border-emerald-400 pl-1">+</div>
+            <div class="text-emerald-400 bg-emerald-950/40 border-l-2 border-emerald-400 pl-1">+ &nbsp; &nbsp; &nbsp; &nbsp;if args.slug:</div>
+            <div class="text-emerald-400 bg-emerald-950/40 border-l-2 border-emerald-400 pl-1">+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;print(slugify(args.input))</div>
+            <div class="text-emerald-400 bg-emerald-950/40 border-l-2 border-emerald-400 pl-1">+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;return 0</div>
+            <div class="text-emerald-400 bg-emerald-950/40 border-l-2 border-emerald-400 pl-1">+ &nbsp; &nbsp; &nbsp; &nbsp;if args.limit is not None:</div>
+            <div class="text-emerald-400 bg-emerald-950/40 border-l-2 border-emerald-400 pl-1">+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;print(truncate(args.input, args.limit))</div>
+            <div class="text-emerald-400 bg-emerald-950/40 border-l-2 border-emerald-400 pl-1">+ &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;return 0</div>
+          </div>
+        </div>
+
+      </aside>
+    </div>
+
+    <!-- 中间垂直可拖拽分割条 (Row Splitter Gutter) -->
+    <div id="dragGutterRow" class="h-1 bg-slate-800 gutter-row z-20 hover:bg-blue-500"></div>
+
+    <!-- BOTTOM: 实时 NDJSON 遥测事件流水抽屉 (Height: 180px, 可拖拽高度) -->
+    <footer class="h-44 min-h-[90px] border-t border-slate-800 bg-slate-950 flex flex-col shrink-0 z-10" id="bottomDrawerPane">
+      <div class="px-3 py-1.5 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-xs shrink-0">
+        <div class="flex items-center space-x-2">
+          <i data-lucide="terminal" class="w-3.5 h-3.5 text-blue-400"></i>
+          <span class="font-semibold text-slate-300">实时遥测流 (Telemetry NDJSON Stream)</span>
+        </div>
+        <div class="flex items-center space-x-3 text-[11px] text-slate-400">
+          <span class="flex items-center space-x-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>流式遥测监听中</span>
+          </span>
+          <button onclick="fetchEvents()" class="hover:text-white transition flex items-center space-x-1">
+            <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+            <span>刷新</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="flex-1 p-3 font-mono text-[11px] overflow-y-auto custom-scrollbar space-y-1 bg-slate-950" id="telemetryStream">
+        <!-- 动态事件行 -->
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- JAVASCRIPT: 交互控制、PDF.js、分屏、视觉溯源、行内编辑与 Actionable Risk -->
+  <script>
+    let currentTab = 'sandbox'; // 默认进入沙盘方便查看候选
+    let rightViewerTab = 'pdf';
+    let systemStatus = {};
+    let candidates = [];
+    let decisions = [];
+    let traceabilityAnchors = {};
+    let pinnedTraceId = null;
+    let isFocusMode = false;
+
+    // PDF.js 状态
+    let pdfDoc = null;
+    let pdfPage = 1;
+    let pdfScale = 1.0;
+
+    async function init() {
+      setupSplitters();
+      await refreshAll();
+      initPdfViewer();
+      switchTab('sandbox');
+      lucide.createIcons();
+      setInterval(fetchEvents, 3500);
+
+      window.addEventListener('resize', () => {
+        if (pinnedTraceId) renderTraceLine(pinnedTraceId);
+      });
+
+      window.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === '\\') {
+          e.preventDefault();
+          toggleFocusMode();
+        }
+      });
+    }
+
+    function toggleFocusMode() {
+      isFocusMode = !isFocusMode;
+      const sidebar = document.getElementById('sidebarPane');
+      const bottom = document.getElementById('bottomDrawerPane');
+      const gutterRow = document.getElementById('dragGutterRow');
+      const label = document.getElementById('focusModeLabel');
+      if (isFocusMode) {
+        sidebar.classList.add('hidden');
+        bottom.classList.add('hidden');
+        gutterRow.classList.add('hidden');
+        label.textContent = '退出焦点';
+      } else {
+        sidebar.classList.remove('hidden');
+        bottom.classList.remove('hidden');
+        gutterRow.classList.remove('hidden');
+        label.textContent = '焦点分屏';
+      }
+      if (pinnedTraceId) setTimeout(() => renderTraceLine(pinnedTraceId), 30);
+    }
+
+    async function refreshAll() {
+      await Promise.all([
+        fetchStatus(),
+        fetchTrends(),
+        fetchCandidatesAndDecisions(),
+        fetchDag(),
+        fetchVerifications(),
+        fetchApprovals(),
+        fetchExecutors(),
+        fetchEvents()
+      ]);
+      lucide.createIcons();
+    }
+
+    async function fetchTrends() {
+      try {
+        const res = await fetch('/api/v1/trends');
+        if (!res.ok) return;
+        const data = await res.json();
+        const headRow = document.getElementById('trendTableHead');
+        const body = document.getElementById('trendTableBody');
+        headRow.innerHTML = `
+          <th class="py-1.5 px-2">层级</th>
+          <th class="py-1.5 px-2">指标名称</th>
+          <th class="py-1.5 px-2">口径状态</th>
+          ${data.days.map(d => `<th class="py-1.5 px-2 text-right">${d}</th>`).join('')}
+        `;
+        body.innerHTML = data.metrics.map(m => {
+          let statusBadge = '<span class="px-1.5 py-0.2 rounded bg-emerald-950 text-emerald-400 border border-emerald-700/50 text-[9px]">computed</span>';
+          if (m.status === 'baseline_missing') {
+            statusBadge = `<span class="px-1.5 py-0.2 rounded bg-amber-950 text-amber-400 border border-amber-700/50 text-[9px]" title="${m.missing_reason}">baseline_missing</span>`;
+          } else if (m.status === 'no_samples') {
+            statusBadge = `<span class="px-1.5 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-700/50 text-[9px]" title="${m.missing_reason}">no_samples</span>`;
+          }
+          const cells = m.points.map(pt => {
+            if (pt === null || pt === undefined) {
+              return `<td class="py-1.5 px-2 text-right text-amber-400/80 font-bold" title="${m.missing_reason || '算不出来 ≠ 0'}">—</td>`;
+            }
+            const formatted = m.metric_id === 'cumulative_cost_usd' ? `$${pt.toFixed(2)}` : pt.toFixed(2);
+            return `<td class="py-1.5 px-2 text-right text-slate-200">${formatted}</td>`;
+          }).join('');
+          return `
+            <tr class="hover:bg-slate-800/40">
+              <td class="py-1.5 px-2 text-slate-400">${m.layer_label}</td>
+              <td class="py-1.5 px-2 font-semibold text-white">${m.label}</td>
+              <td class="py-1.5 px-2">${statusBadge}</td>
+              ${cells}
+            </tr>
+          `;
+        }).join('');
+      } catch (e) {
+        console.error('Fetch trends failed:', e);
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 1. PDF.js 文档渲染引擎 (带 Canvas + TextLayer + 离线兜底)
+    // -------------------------------------------------------------
+    function initPdfViewer() {
+      const url = '/api/v1/artifacts/spec.pdf';
+      if (window.pdfjsLib) {
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        pdfjsLib.getDocument(url).promise.then(doc => {
+          pdfDoc = doc;
+          renderPdfPage(pdfPage);
+        }).catch(err => {
+          console.warn('PDF.js remote fetch degraded, fallback to vector renderer:', err);
+          renderFallbackPdf();
+        });
+      } else {
+        renderFallbackPdf();
+      }
+    }
+
+    function renderPdfPage(num) {
+      if (!pdfDoc) {
+        renderFallbackPdf();
+        return;
+      }
+      pdfDoc.getPage(num).then(page => {
+        const viewport = page.getViewport({ scale: pdfScale });
+        const canvas = document.getElementById('pdfCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+
+        const renderContext = { canvasContext: ctx, viewport: viewport };
+        page.render(renderContext).promise.then(() => {
+          document.getElementById('pdfPageNum').textContent = `${num}/${pdfDoc.numPages}`;
+          document.getElementById('pdfZoomLabel').textContent = `${Math.round(pdfScale * 100)}%`;
+        });
+      });
+    }
+
+    function renderFallbackPdf() {
+      const canvas = document.getElementById('pdfCanvas');
+      const ctx = canvas.getContext('2d');
+      const w = 420 * pdfScale;
+      const h = 560 * pdfScale;
+      canvas.width = w;
+      canvas.height = h;
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, w, h);
+
+      // Header
+      ctx.fillStyle = '#0f172a';
+      ctx.font = `bold ${14 * pdfScale}px sans-serif`;
+      ctx.fillText('ASES 架构规范 RFC-014 (pilot-tinylib)', 20 * pdfScale, 35 * pdfScale);
+
+      // Section 1
+      ctx.fillStyle = '#1e3a8a';
+      ctx.font = `bold ${11 * pdfScale}px sans-serif`;
+      ctx.fillText('Section 1: CLI Mutex Constraints [CAND-001 Anchor]', 20 * pdfScale, 80 * pdfScale);
+      ctx.fillStyle = '#334155';
+      ctx.font = `${9.5 * pdfScale}px monospace`;
+      ctx.fillText('• --slug 与 --limit CLI 参数严格互斥。', 25 * pdfScale, 102 * pdfScale);
+      ctx.fillText('• 两者同时给出时必须抛出用法错误 UsageError(code=2)。', 25 * pdfScale, 120 * pdfScale);
+      ctx.fillText('• 静默丢值属于高危回归行为，必须被独立验收契约阻断。', 25 * pdfScale, 138 * pdfScale);
+
+      // Section 2
+      ctx.fillStyle = '#1e3a8a';
+      ctx.font = `bold ${11 * pdfScale}px sans-serif`;
+      ctx.fillText('Section 2: String Concurrency Policy [CAND-002 Anchor]', 20 * pdfScale, 185 * pdfScale);
+      ctx.fillStyle = '#334155';
+      ctx.font = `${9.5 * pdfScale}px monospace`;
+      ctx.fillText('• tinylib/strings.py 为纯 CPU 密集短文本处理逻辑。', 25 * pdfScale, 207 * pdfScale);
+      ctx.fillText('• 严禁无基准数据证明时引入 asyncio 协程管道。', 25 * pdfScale, 225 * pdfScale);
+
+      // Section 3
+      ctx.fillStyle = '#1e3a8a';
+      ctx.font = `bold ${11 * pdfScale}px sans-serif`;
+      ctx.fillText('Section 3: Config Loading Safe Defaults', 20 * pdfScale, 275 * pdfScale);
+      ctx.fillStyle = '#334155';
+      ctx.font = `${9.5 * pdfScale}px monospace`;
+      ctx.fillText('• 空键与未定义环境变量必须 fail-closed 阻断。', 25 * pdfScale, 297 * pdfScale);
+
+      document.getElementById('pdfPageNum').textContent = `1/1`;
+      document.getElementById('pdfZoomLabel').textContent = `${Math.round(pdfScale * 100)}%`;
+    }
+
+    function zoomPdf(delta) {
+      pdfScale = Math.max(0.6, Math.min(1.8, pdfScale + delta));
+      renderPdfPage(pdfPage);
+      if (pinnedTraceId) setTimeout(() => renderTraceLine(pinnedTraceId), 50);
+    }
+
+    function changePdfPage(delta) {
+      if (!pdfDoc) return;
+      pdfPage = Math.max(1, Math.min(pdfDoc.numPages, pdfPage + delta));
+      renderPdfPage(pdfPage);
+    }
+
+    function highlightPdfBbox(bbox) {
+      const box = document.getElementById('pdfBoundingBox');
+      if (!bbox) {
+        box.classList.add('hidden');
+        return;
+      }
+      box.classList.remove('hidden');
+      box.style.left = `${bbox[0] * pdfScale * 0.7}px`;
+      box.style.top = `${bbox[1] * pdfScale * 0.7}px`;
+      box.style.width = `${bbox[2] * pdfScale * 0.7}px`;
+      box.style.height = `${bbox[3] * pdfScale * 0.7}px`;
+    }
+
+    function switchRightTab(tab) {
+      rightViewerTab = tab;
+      if (tab === 'pdf') {
+        document.getElementById('viewer-pdf').classList.remove('hidden');
+        document.getElementById('viewer-code').classList.add('hidden');
+        document.getElementById('btn-tab-pdf').className = 'px-2.5 py-1 rounded bg-slate-800 text-white font-semibold flex items-center space-x-1.5 transition';
+        document.getElementById('btn-tab-code').className = 'px-2.5 py-1 rounded text-slate-400 hover:text-white flex items-center space-x-1.5 transition';
+      } else {
+        document.getElementById('viewer-pdf').classList.add('hidden');
+        document.getElementById('viewer-code').classList.remove('hidden');
+        document.getElementById('btn-tab-code').className = 'px-2.5 py-1 rounded bg-slate-800 text-white font-semibold flex items-center space-x-1.5 transition';
+        document.getElementById('btn-tab-pdf').className = 'px-2.5 py-1 rounded text-slate-400 hover:text-white flex items-center space-x-1.5 transition';
+      }
+      lucide.createIcons();
+      if (pinnedTraceId) renderTraceLine(pinnedTraceId);
+    }
+
+    // -------------------------------------------------------------
+    // 2. 可拖拽分屏面板实现 (Resizable Split Panes)
+    // -------------------------------------------------------------
+    function setupSplitters() {
+      // 左右分屏拖拽 (Col Gutter)
+      const gutterCol = document.getElementById('dragGutterCol');
+      const rightPane = document.getElementById('rightViewerPane');
+      let isDraggingCol = false;
+
+      gutterCol.addEventListener('mousedown', (e) => {
+        isDraggingCol = true;
+        document.body.classList.add('split-resizing');
+        gutterCol.classList.add('active');
+      });
+
+      // 上下分屏拖拽 (Row Gutter)
+      const gutterRow = document.getElementById('dragGutterRow');
+      const bottomDrawer = document.getElementById('bottomDrawerPane');
+      let isDraggingRow = false;
+
+      gutterRow.addEventListener('mousedown', (e) => {
+        isDraggingRow = true;
+        document.body.classList.add('split-resizing');
+        gutterRow.classList.add('active');
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (isDraggingCol) {
+          const containerWidth = document.getElementById('mainContainer').offsetWidth;
+          const newRightWidth = Math.max(300, Math.min(containerWidth - 450, window.innerWidth - e.clientX));
+          rightPane.style.width = `${newRightWidth}px`;
+          if (pinnedTraceId) renderTraceLine(pinnedTraceId);
+        }
+        if (isDraggingRow) {
+          const newHeight = Math.max(90, Math.min(450, window.innerHeight - e.clientY));
+          bottomDrawer.style.height = `${newHeight}px`;
+          if (pinnedTraceId) renderTraceLine(pinnedTraceId);
+        }
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (isDraggingCol || isDraggingRow) {
+          isDraggingCol = false;
+          isDraggingRow = false;
+          document.body.classList.remove('split-resizing');
+          gutterCol.classList.remove('active');
+          gutterRow.classList.remove('active');
+        }
+      });
+
+      // 双击重置
+      gutterCol.addEventListener('dblclick', () => {
+        rightPane.style.width = '480px';
+        if (pinnedTraceId) renderTraceLine(pinnedTraceId);
+      });
+      gutterRow.addEventListener('dblclick', () => {
+        bottomDrawer.style.height = '176px';
+        if (pinnedTraceId) renderTraceLine(pinnedTraceId);
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 3. 跨面板 SVG 视觉溯源连线 (Visual Traceability Overlay)
+    // -------------------------------------------------------------
+    function triggerTraceability(candId, targetTab = 'pdf') {
+      pinnedTraceId = candId;
+      const cand = candidates.find(c => c.id === candId);
+      if (!cand) return;
+
+      if (targetTab === 'code') {
+        switchRightTab('code');
+        highlightPdfBbox(null);
+      } else {
+        switchRightTab('pdf');
+        highlightPdfBbox(cand.pdf_anchor ? cand.pdf_anchor.bbox : [50, 100, 320, 50]);
+      }
+
+      setTimeout(() => renderTraceLine(candId), 40);
+    }
+
+    function clearTraceLines() {
+      pinnedTraceId = null;
+      document.getElementById('traceLinesContainer').innerHTML = '';
+      highlightPdfBbox(null);
+    }
+
+    function togglePinTrace() {
+      if (pinnedTraceId) {
+        clearTraceLines();
+        document.getElementById('pinTraceLabel').textContent = '视觉溯源连线';
+      } else {
+        triggerTraceability('CAND-001');
+        document.getElementById('pinTraceLabel').textContent = '已钉住连线 (Pin)';
+      }
+    }
+
+    function renderTraceLine(candId) {
+      const container = document.getElementById('traceLinesContainer');
+      const startEl = document.getElementById(`anchor-btn-${candId}`);
+      let endEl = null;
+
+      if (rightViewerTab === 'pdf') {
+        endEl = document.getElementById('pdfBoundingBox');
+      } else {
+        endEl = document.getElementById('codeAnchorLine');
+      }
+
+      if (!startEl || !endEl) {
+        container.innerHTML = '';
+        return;
+      }
+
+      const r1 = startEl.getBoundingClientRect();
+      const r2 = endEl.getBoundingClientRect();
+
+      const x1 = r1.right;
+      const y1 = r1.top + r1.height / 2;
+      const x2 = r2.left;
+      const y2 = r2.top + r2.height / 2;
+
+      const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
+      const pathData = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+
+      container.innerHTML = `
+        <path d="${pathData}" fill="none" stroke="url(#traceGradSuccess)" stroke-width="3" filter="url(#glowFilter)" class="trace-path-anim" />
+        <circle cx="${x1}" cy="${y1}" r="4" fill="#10b981" />
+        <circle cx="${x2}" cy="${y2}" r="5" fill="#3b82f6" />
+      `;
+    }
+
+    // -------------------------------------------------------------
+    // 4. 行内编辑功能实现 (Inline Editing for Extraction Results)
+    // -------------------------------------------------------------
+    function enableInlineEdit(candId, field) {
+      const cand = candidates.find(c => c.id === candId);
+      if (!cand) return;
+
+      const displayEl = document.getElementById(`display-${candId}-${field}`);
+      const editorEl = document.getElementById(`editor-${candId}-${field}`);
+      const inputEl = document.getElementById(`input-${candId}-${field}`);
+
+      if (displayEl && editorEl && inputEl) {
+        displayEl.classList.add('hidden');
+        editorEl.classList.remove('hidden');
+        inputEl.value = cand[field] || '';
+        inputEl.focus();
+      }
+    }
+
+    function cancelInlineEdit(candId, field) {
+      document.getElementById(`display-${candId}-${field}`).classList.remove('hidden');
+      document.getElementById(`editor-${candId}-${field}`).classList.add('hidden');
+    }
+
+    async function saveInlineEdit(candId, field) {
+      const inputEl = document.getElementById(`input-${candId}-${field}`);
+      const newVal = inputEl.value.trim();
+      const payload = { [field]: newVal, reviewer: 'chief-architect' };
+
+      try {
+        const res = await fetch(`/api/v1/candidates/${candId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const idx = candidates.findIndex(c => c.id === candId);
+          if (idx !== -1) candidates[idx] = data.candidate;
+          renderCandidates();
+        } else {
+          alert('保存修改失败');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 5 & 6. 置信度分级渲染与 Actionable Risk (Accept/Fix/Ignore)
+    // -------------------------------------------------------------
+    async function fetchCandidatesAndDecisions() {
+      const [resCand, resDec] = await Promise.all([
+        fetch('/api/v1/candidates'),
+        fetch('/api/v1/decisions')
+      ]);
+      candidates = await resCand.json();
+      decisions = await resDec.json();
+      renderCandidates();
+    }
+
+    function renderCandidates() {
+      const container = document.getElementById('candidatesContainer');
+      container.innerHTML = candidates.map(c => {
+        let gradeBadge = '';
+        let borderClass = 'border-slate-800';
+        if (c.confidence >= 0.8) {
+          borderClass = 'border-emerald-700/60';
+          gradeBadge = `
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-500/50 font-bold flex items-center space-x-1">
+              <i data-lucide="shield-check" class="w-3 h-3"></i>
+              <span>确凿级 (Verified ${c.confidence.toFixed(2)})</span>
+            </span>
+          `;
+        } else if (c.confidence >= 0.3) {
+          borderClass = 'border-amber-700/60';
+          gradeBadge = `
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-amber-950 text-amber-400 border border-amber-500/50 font-bold flex items-center space-x-1">
+              <i data-lucide="alert-triangle" class="w-3 h-3"></i>
+              <span>待核级 (Review ${c.confidence.toFixed(2)})</span>
+            </span>
+          `;
+        } else {
+          borderClass = 'border-rose-800/60 opacity-90';
+          gradeBadge = `
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-rose-950 text-rose-400 border border-rose-500/50 font-bold flex items-center space-x-1">
+              <i data-lucide="x-circle" class="w-3 h-3"></i>
+              <span>投机级 (Speculative ${c.confidence.toFixed(2)})</span>
+            </span>
+          `;
+        }
+
+        const isEdited = c.revisions && c.revisions.length > 0;
+        const b = c.priority_breakdown || { value: 0.5, impact: 0.5, confidence: c.confidence, urgency: 0.5, effort: 0.5, risk: 0.5 };
+        const dec = decisions.find(d => d.candidate_id === c.id);
+        const criticChecks = dec ? dec.critic_checks : [];
+
+        return `
+          <div class="p-4 rounded-lg bg-slate-900 border ${borderClass} flex flex-col justify-between transition hover:border-slate-700 relative">
+            <div>
+              <!-- 顶部编号与置信度 -->
+              <div class="flex items-center justify-between">
+                <div class="flex items-center space-x-2">
+                  <span class="text-xs font-mono font-bold text-white px-1.5 py-0.5 rounded bg-slate-800">${c.id}</span>
+                  <span class="text-[10px] px-2 py-0.5 rounded bg-slate-800/80 text-slate-300 font-mono uppercase">${c.category}</span>
+                  ${isEdited ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-blue-900 text-blue-300 border border-blue-600 font-semibold">已人工修订 (${c.revisions.length})</span>` : ''}
+                </div>
+                ${gradeBadge}
+              </div>
+
+              <!-- 标题 (支持双击行内编辑) -->
+              <div class="mt-2.5">
+                <div id="display-${c.id}-title" ondblclick="enableInlineEdit('${c.id}', 'title')" class="group flex items-start justify-between cursor-pointer" title="双击行内编辑标题">
+                  <h3 class="text-sm font-semibold text-white group-hover:text-blue-300 transition">${c.title}</h3>
+                  <button onclick="enableInlineEdit('${c.id}', 'title')" class="text-slate-500 hover:text-slate-300 p-0.5 opacity-0 group-hover:opacity-100 transition"><i data-lucide="pencil" class="w-3 h-3"></i></button>
+                </div>
+                <div id="editor-${c.id}-title" class="hidden mt-1 flex space-x-1.5">
+                  <input id="input-${c.id}-title" type="text" class="flex-1 bg-slate-950 border border-blue-500 rounded px-2 py-1 text-xs text-white focus:outline-none" />
+                  <button onclick="saveInlineEdit('${c.id}', 'title')" class="px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] font-bold">✓</button>
+                  <button onclick="cancelInlineEdit('${c.id}', 'title')" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[11px]">✕</button>
+                </div>
+              </div>
+
+              <!-- 演进假设与预期结果 (均支持双击行内编辑) -->
+              <div class="mt-2 p-2.5 rounded bg-slate-950 border border-slate-850 space-y-2 text-xs">
+                <div>
+                  <div id="display-${c.id}-hypothesis" ondblclick="enableInlineEdit('${c.id}', 'hypothesis')" class="group flex items-start justify-between cursor-pointer" title="双击行内编辑假设">
+                    <div>
+                      <span class="text-purple-400 font-semibold text-[11px]">假设:</span>
+                      <span class="text-slate-300 leading-relaxed group-hover:text-blue-200">${c.hypothesis || c.rationale}</span>
+                    </div>
+                    <button onclick="enableInlineEdit('${c.id}', 'hypothesis')" class="text-slate-500 hover:text-slate-300 p-0.5 opacity-0 group-hover:opacity-100 transition shrink-0"><i data-lucide="pencil" class="w-3 h-3"></i></button>
+                  </div>
+                  <div id="editor-${c.id}-hypothesis" class="hidden mt-1 flex space-x-1.5">
+                    <input id="input-${c.id}-hypothesis" type="text" class="flex-1 bg-slate-900 border border-purple-500 rounded px-2 py-1 text-xs text-white focus:outline-none" />
+                    <button onclick="saveInlineEdit('${c.id}', 'hypothesis')" class="px-2 py-0.5 rounded bg-purple-600 text-white text-[11px] font-bold">✓</button>
+                    <button onclick="cancelInlineEdit('${c.id}', 'hypothesis')" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[11px]">✕</button>
+                  </div>
+                </div>
+
+                <div>
+                  <div id="display-${c.id}-expected_outcome" ondblclick="enableInlineEdit('${c.id}', 'expected_outcome')" class="group flex items-start justify-between cursor-pointer" title="双击行内编辑预期收益">
+                    <div>
+                      <span class="text-emerald-400 font-semibold text-[11px]">预期收益:</span>
+                      <span class="text-slate-300 leading-relaxed group-hover:text-blue-200">${c.expected_outcome || '消除隐式缺陷，达成契约'}</span>
+                    </div>
+                    <button onclick="enableInlineEdit('${c.id}', 'expected_outcome')" class="text-slate-500 hover:text-slate-300 p-0.5 opacity-0 group-hover:opacity-100 transition shrink-0"><i data-lucide="pencil" class="w-3 h-3"></i></button>
+                  </div>
+                  <div id="editor-${c.id}-expected_outcome" class="hidden mt-1 flex space-x-1.5">
+                    <input id="input-${c.id}-expected_outcome" type="text" class="flex-1 bg-slate-900 border border-emerald-500 rounded px-2 py-1 text-xs text-white focus:outline-none" />
+                    <button onclick="saveInlineEdit('${c.id}', 'expected_outcome')" class="px-2 py-0.5 rounded bg-emerald-600 text-white text-[11px] font-bold">✓</button>
+                    <button onclick="cancelInlineEdit('${c.id}', 'expected_outcome')" class="px-2 py-0.5 rounded bg-slate-800 text-slate-400 text-[11px]">✕</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 启发式六维分数条 (Priority Heuristic Breakdown) -->
+              <div class="mt-2.5 p-2 rounded bg-slate-950/60 border border-slate-850">
+                <div class="text-[10px] text-slate-400 font-semibold uppercase mb-1.5 flex justify-between">
+                  <span>多维启发评分分解 (Priority Formula: V×I×C×U / E×(1+R))</span>
+                  <span class="text-blue-400 font-mono">得分: ${(b.value * b.impact * b.confidence * b.urgency / (b.effort * (1 + b.risk))).toFixed(3)}</span>
+                </div>
+                <div class="grid grid-cols-6 gap-1.5 text-[9px] font-mono text-center">
+                  <div class="bg-slate-900 p-1 rounded">V 价值: <span class="text-emerald-400">${b.value}</span></div>
+                  <div class="bg-slate-900 p-1 rounded">I 影响: <span class="text-emerald-400">${b.impact}</span></div>
+                  <div class="bg-slate-900 p-1 rounded">C 置信: <span class="text-emerald-400">${b.confidence}</span></div>
+                  <div class="bg-slate-900 p-1 rounded">U 紧迫: <span class="text-emerald-400">${b.urgency}</span></div>
+                  <div class="bg-slate-900 p-1 rounded">E 成本: <span class="text-amber-400">${b.effort}</span></div>
+                  <div class="bg-slate-900 p-1 rounded">R 风险: <span class="text-rose-400">${b.risk}</span></div>
+                </div>
+              </div>
+
+              <!-- Critic 独立质询核验清单 -->
+              ${criticChecks.length > 0 ? `
+                <div class="mt-2.5 p-2 rounded bg-slate-950/80 border border-slate-800/80">
+                  <div class="text-[10px] font-semibold text-purple-300 mb-1 flex items-center justify-between">
+                    <span>Critic 独立事实核验 (${dec.decision_id})</span>
+                    <span class="font-mono text-[9px] text-slate-400">裁决: <strong class="text-white uppercase">${dec.action}</strong></span>
+                  </div>
+                  <div class="grid grid-cols-2 gap-1 text-[10px]">
+                    ${criticChecks.map(chk => `
+                      <div class="flex items-center space-x-1 ${chk.passed ? 'text-slate-300' : 'text-rose-400'}">
+                        <span>${chk.passed ? '✓' : '✕'}</span>
+                        <span class="truncate">${chk.question}</span>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              ` : ''}
+
+              <!-- 证据链接与视觉溯源触发器 -->
+              <div class="mt-2.5 flex items-center justify-between text-xs">
+                <div class="text-[11px] text-slate-400 font-mono flex items-center space-x-1">
+                  <i data-lucide="link" class="w-3 h-3 text-slate-500"></i>
+                  <span>证据: ${c.evidence_ref}</span>
+                </div>
+                <div class="flex items-center space-x-1.5">
+                  <button id="anchor-btn-${c.id}" onclick="triggerTraceability('${c.id}', 'pdf')" class="px-2 py-1 rounded bg-blue-950 text-blue-300 border border-blue-700/50 hover:bg-blue-900 transition flex items-center space-x-1 text-[10px] font-medium">
+                    <i data-lucide="file-text" class="w-3 h-3 text-blue-400"></i>
+                    <span>连线 PDF 规范</span>
+                  </button>
+                  <button onclick="triggerTraceability('${c.id}', 'code')" class="px-2 py-1 rounded bg-cyan-950 text-cyan-300 border border-cyan-700/50 hover:bg-cyan-900 transition flex items-center space-x-1 text-[10px] font-medium">
+                    <i data-lucide="code" class="w-3 h-3 text-cyan-400"></i>
+                    <span>连线源码行</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 底部 Actionable Risk 工作流按钮组 (Accept / Fix / Ignore) -->
+            <div class="mt-3.5 pt-2.5 border-t border-slate-800 flex items-center justify-between text-xs">
+              <span class="text-slate-400">当前状态: <strong class="text-white uppercase font-mono">${c.status}</strong></span>
+              <div class="flex items-center space-x-2">
+                <button onclick="handleWorkflow('${c.id}', 'accept')" class="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] transition flex items-center space-x-1">
+                  <i data-lucide="check" class="w-3 h-3"></i>
+                  <span>采纳 (Accept)</span>
+                </button>
+                <button onclick="handleWorkflow('${c.id}', 'fix')" class="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white font-semibold text-[11px] transition flex items-center space-x-1">
+                  <i data-lucide="wrench" class="w-3 h-3"></i>
+                  <span>修订 (Fix)</span>
+                </button>
+                <button onclick="handleWorkflow('${c.id}', 'ignore')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-[11px] transition flex items-center space-x-1">
+                  <i data-lucide="x" class="w-3 h-3"></i>
+                  <span>推迟 (Ignore)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      lucide.createIcons();
+    }
+
+    async function handleWorkflow(candId, action) {
+      let reason = '';
+      let instruction = '';
+      if (action === 'ignore') {
+        reason = prompt(`请输入推迟/忽略 ${candId} 的审计理由:`, '非当前核心演进目标，推迟至后续阶段');
+        if (!reason) return;
+      } else if (action === 'fix') {
+        instruction = prompt(`请输入派发修复指令与修约要求:`, '强化互斥边界用例，补充 AST 守约校验');
+      }
+
+      const res = await fetch(`/api/v1/candidates/${candId}/workflow`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, reason, fix_instruction: instruction, reviewer: 'chief-architect' })
+      });
+      if (res.ok) {
+        await refreshAll();
+      } else {
+        alert('工作流执行失败');
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 基础 API 与视图切换
+    // -------------------------------------------------------------
+    async function fetchStatus() {
+      try {
+        const res = await fetch('/api/v1/status');
+        systemStatus = await res.json();
+        document.getElementById('projectBadge').textContent = systemStatus.project_id;
+        document.getElementById('budgetUsage').textContent = `$${systemStatus.budget_spent_usd} / $${systemStatus.budget_daily_cap_usd}`;
+        updateAutonomyButtons(systemStatus.autonomy_level);
+
+        const pBtn = document.getElementById('pauseBtn');
+        const pLabel = document.getElementById('pauseLabel');
+        if (systemStatus.is_paused) {
+          pBtn.classList.replace('bg-amber-600/20', 'bg-emerald-600/20');
+          pBtn.classList.replace('text-amber-300', 'text-emerald-300');
+          pLabel.textContent = '恢复演进';
+        } else {
+          pBtn.classList.replace('bg-emerald-600/20', 'bg-amber-600/20');
+          pBtn.classList.replace('text-emerald-300', 'text-amber-300');
+          pLabel.textContent = '暂停闭环';
+        }
+      } catch (e) {
+        console.error('Fetch status failed:', e);
+      }
+    }
+
+    function updateAutonomyButtons(level) {
+      ['L0', 'L1', 'L2', 'L3'].forEach(lvl => {
+        const btn = document.getElementById(`btn-${lvl}`);
+        if (lvl === level) {
+          btn.className = 'px-2.5 py-1 rounded transition-colors bg-blue-600 text-white font-semibold shadow';
+        } else {
+          btn.className = 'px-2.5 py-1 rounded transition-colors text-slate-400 hover:text-white';
+        }
+      });
+    }
+
+    async function setAutonomy(lvl) {
+      await fetch('/api/v1/autonomy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autonomy_level: lvl })
+      });
+      await fetchStatus();
+    }
+
+    async function togglePause() {
+      await fetch('/api/v1/autonomy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_paused: !systemStatus.is_paused })
+      });
+      await fetchStatus();
+    }
+
+    async function emergencyStop() {
+      if (confirm('警告：是否确认触发物理级急停熔断？系统将立即中断全部执行器并冻结租约！')) {
+        await fetch('/api/v1/autonomy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_paused: true })
+        });
+        alert('已成功触发急停熔断。');
+        await fetchStatus();
+      }
+    }
+
+    function switchTab(tabId) {
+      ['dashboard', 'sandbox', 'dag', 'verify', 'governance'].forEach(t => {
+        document.getElementById(`tab-${t}`).classList.add('hidden');
+        document.getElementById(`nav-${t}`).classList.remove('bg-slate-800', 'text-white');
+        document.getElementById(`nav-${t}`).classList.add('text-slate-400');
+      });
+      document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+      document.getElementById(`nav-${tabId}`).classList.add('bg-slate-800', 'text-white');
+      document.getElementById(`nav-${tabId}`).classList.remove('text-slate-400');
+      currentTab = tabId;
+      lucide.createIcons();
+      if (pinnedTraceId) renderTraceLine(pinnedTraceId);
+    }
+
+    async function fetchDag() {
+      const res = await fetch('/api/v1/tasks/dag');
+      const data = await res.json();
+      const container = document.getElementById('dagWavesContainer');
+
+      container.innerHTML = data.waves.map((waveTasks, idx) => {
+        const nodes = data.nodes.filter(n => waveTasks.includes(n.task_id));
+        return `
+          <div class="p-3.5 rounded-lg bg-slate-900 border border-slate-800">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center justify-between">
+              <span>Wave ${idx} 并发执行波次</span>
+              <span class="text-[10px] text-slate-500 font-mono">${nodes.length} 个任务槽位</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2.5">
+              ${nodes.map(n => {
+                let badgeClass = 'bg-slate-800 text-slate-300 border-slate-700';
+                if (n.status === 'COMPLETED') badgeClass = 'bg-emerald-950 text-emerald-400 border-emerald-700/60';
+                if (n.status === 'RUNNING') badgeClass = 'bg-blue-950 text-blue-400 border-blue-700/60 animate-pulse';
+                if (n.status === 'BLOCKED') badgeClass = 'bg-rose-950 text-rose-400 border-rose-700/60';
+
+                return `
+                  <div class="p-2.5 rounded bg-slate-950 border border-slate-800 flex items-center justify-between">
+                    <div>
+                      <div class="flex items-center space-x-1.5">
+                        <span class="text-xs font-mono font-bold text-white">${n.task_id}</span>
+                        <span class="text-[9px] px-1.5 py-0.2 rounded border font-semibold ${badgeClass}">${n.status}</span>
+                      </div>
+                      <div class="text-xs text-slate-300 mt-0.5">${n.title}</div>
+                      <div class="text-[10px] text-slate-500 mt-1 flex items-center space-x-2">
+                        <span>执行器: <strong class="text-blue-400 font-mono">${n.executor}</strong></span>
+                        <span>优先级: ${n.priority}</span>
+                      </div>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        `;
+      }).join('');
+      lucide.createIcons();
+    }
+
+    async function fetchVerifications() {
+      const res = await fetch('/api/v1/verifications');
+      const data = await res.json();
+      const container = document.getElementById('verificationCardsContainer');
+
+      container.innerHTML = data.map(v => `
+        <div class="p-4 rounded-lg bg-slate-900 border border-slate-800">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div class="flex items-center space-x-2">
+              <span class="text-xs font-mono font-bold text-white">${v.task_id}</span>
+              <span class="text-xs text-slate-300">变更: <span class="font-mono text-emerald-400">${v.diff_summary}</span></span>
+            </div>
+            <div class="flex items-center space-x-2">
+              <span class="text-[10px] px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-700 font-bold uppercase">${v.overall_result}</span>
+              <button onclick="dispatchRepair('${v.task_id}')" class="px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white font-semibold text-[11px] transition flex items-center space-x-1">
+                <i data-lucide="wrench" class="w-3 h-3"></i>
+                <span>派发定向修复</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-2.5 mt-3">
+            ${v.layers.map(l => `
+              <div class="p-2.5 rounded bg-slate-950 border border-slate-800">
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] font-semibold text-slate-200">${l.label}</span>
+                  <span class="text-[10px] text-emerald-400 font-mono font-bold">${l.result}</span>
+                </div>
+                <div class="text-[10px] text-slate-400 mt-1 truncate">${l.details}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `).join('');
+      lucide.createIcons();
+    }
+
+    async function dispatchRepair(taskId) {
+      const instruction = prompt(`请输入派发针对 ${taskId} 的定向修复指令:`, '针对异常测试断言补充保护性分支');
+      if (!instruction) return;
+      const res = await fetch(`/api/v1/verifications/${taskId}/repair`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction, reviewer: 'chief-architect' })
+      });
+      if (res.ok) {
+        const d = await res.json();
+        alert(d.message);
+        await refreshAll();
+      }
+    }
+
+    async function fetchApprovals() {
+      const res = await fetch('/api/v1/governance/approvals');
+      const data = await res.json();
+      const container = document.getElementById('approvalsContainer');
+      const pending = data.filter(a => a.status === 'pending');
+      document.getElementById('pendingApprovalCount').textContent = pending.length;
+
+      container.innerHTML = data.map(app => `
+        <div class="p-4 rounded-lg bg-slate-900 border border-amber-900/40">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <span class="text-xs font-mono font-bold text-amber-400">${app.request_id}</span>
+              <span class="text-xs text-slate-300">目标任务: <strong>${app.task_id}</strong></span>
+            </div>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-700/50 font-bold uppercase">${app.risk_level} RISK</span>
+          </div>
+
+          <div class="mt-2.5 text-xs space-y-1 text-slate-300">
+            <div>改动摘要: <span class="font-mono text-emerald-400">${app.diff_summary}</span></div>
+            <div>资格要求: <span class="font-semibold text-amber-300">${app.required_scopes.join(', ')}</span> (已满足: <span class="font-mono text-emerald-400">${(app.covered_scopes || []).join(', ')}</span>)</div>
+            <div>防篡改哈希: <span class="font-mono text-[10px] text-slate-400">${app.content_digest}</span></div>
+            <div>当前状态: <strong class="${app.status === 'approved' ? 'text-emerald-400' : 'text-amber-400'}">${app.status}</strong></div>
+          </div>
+
+          ${app.status === 'pending' ? `
+            <div class="mt-3 pt-2.5 border-t border-slate-800 flex items-center space-x-2">
+              <button onclick="reviewApproval('${app.request_id}', 'approve', '${app.content_digest}')" class="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition">签名放行 (Approve)</button>
+              <button onclick="reviewApproval('${app.request_id}', 'reject', '${app.content_digest}')" class="px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs transition">驳回合并 (Reject)</button>
+            </div>
+          ` : ''}
+        </div>
+      `).join('');
+      lucide.createIcons();
+    }
+
+    async function reviewApproval(reqId, action, contentDigest) {
+      await fetch(`/api/v1/governance/approvals/${reqId}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          reviewer: 'chief-architect',
+          scopes: ['architecture', 'governance'],
+          comment: '指挥官核验 SHA-256 指纹与双轴资格通过',
+          content_digest: contentDigest
+        })
+      });
+      alert(`审批请求 ${reqId} 已处理: ${action}`);
+      await refreshAll();
+    }
+
+    async function fetchExecutors() {
+      const res = await fetch('/api/v1/executors');
+      const data = await res.json();
+      const container = document.getElementById('execFleetSummary');
+      container.innerHTML = data.map(e => `
+        <div class="flex items-center justify-between text-[11px] text-slate-300">
+          <span class="flex items-center space-x-1.5">
+            <span class="w-1.5 h-1.5 rounded-full ${e.current_load > 0 ? 'bg-emerald-500' : 'bg-slate-500'}"></span>
+            <span>${e.label}</span>
+          </span>
+          <span class="text-slate-400 font-mono">${e.current_load > 0 ? `${e.current_load} 活跃` : '空闲'} (${Math.round(e.success_rate * 100)}%)</span>
+        </div>
+      `).join('');
+    }
+
+    async function fetchEvents() {
+      try {
+        const res = await fetch('/api/v1/telemetry/events');
+        const data = await res.json();
+        const container = document.getElementById('telemetryStream');
+        container.innerHTML = data.map(ev => `
+          <div class="flex items-center space-x-2 text-slate-400 leading-tight">
+            <span class="text-slate-600">[${ev.timestamp}]</span>
+            <span class="text-blue-400 font-semibold">${ev.task_id}</span>
+            <span class="px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800 text-[10px] text-purple-300">${ev.type}</span>
+            <span class="text-slate-300">${ev.message}</span>
+          </div>
+        `).join('');
+      } catch (e) {
+        console.error('Fetch events failed:', e);
+      }
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>

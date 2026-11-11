@@ -92,6 +92,7 @@ ALLOWED_ANY_MODULES: dict[str, str] = {
     "harness.verification.contract": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "infrastructure.config.settings": "Pydantic BaseSettings —— 继承自 BaseModel.__init__ 的 Any",
     "infrastructure.storage.object_store": "aioboto3 / botocore 无类型标记，客户端方法面是动态的",
+    "apps.api.control": "Pydantic 模型 —— 继承自 BaseModel.__init__ 的 Any",
     "tests.*": "测试用 Any 造动态结构的假数据 —— 被断言的对象本身就是动态的",
 }
 

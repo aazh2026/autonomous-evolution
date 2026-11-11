@@ -20,6 +20,7 @@ from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from apps.api.control import router as control_router
 from apps.api.health import CheckResult, check_database, check_object_store
 from infrastructure.config.settings import Settings, get_settings
 from infrastructure.database.engine import dispose_engine, get_engine
@@ -84,6 +85,7 @@ def create_app(
         version="0.1.0",
         lifespan=lifespan,
     )
+    app.include_router(control_router)
 
     #: 进程级单例。健康检查每次都新建一个 aioboto3 会话是纯浪费 ——
     #: 后端本来就该被复用。

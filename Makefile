@@ -118,6 +118,10 @@ ps: ## 查看本地全栈状态
 health: ## 查看 API 健康检查结果
 	@curl -sS http://localhost:$${API_PORT:-8000}/healthz | $(PY) -m json.tool
 
+.PHONY: ui
+ui: ## 一键启动 ASES 前端控制舱与本地 API（自动打开浏览器 /ui）
+	./scripts/start_cockpit.sh
+
 .PHONY: reset
 reset: ## 停止并清空本地数据卷
 	$(COMPOSE) down -v
