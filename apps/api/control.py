@@ -15,11 +15,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
-from pathlib import Path
 from typing import cast
 
 from fastapi import APIRouter, HTTPException, Query, Response
-from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from core.planning.roadmap import TaskType
@@ -1068,24 +1066,3 @@ async def list_telemetry_events(
 ) -> list[JsonObject]:
     """获取最新 NDJSON 遥测事件流。"""
     return _STORE.telemetry_events[-limit:]
-
-
-# --------------------------------------------------------------------------
-# Web 控制台单页应用 UI 渲染 (/ui 与 /)
-# --------------------------------------------------------------------------
-
-_HTML_FILE = Path(__file__).parent / "control.html"
-
-
-def get_html_content() -> str:
-    """读取控制舱 HTML 模版。"""
-    if _HTML_FILE.exists():
-        return _HTML_FILE.read_text(encoding="utf-8")
-    return "<html><body><h3>ASES Control UI Not Found</h3></body></html>"
-
-
-@router.get("/ui", response_class=HTMLResponse)
-@router.get("/", response_class=HTMLResponse)
-async def serve_control_ui() -> HTMLResponse:
-    """提供集成 6 项 UX 增强的自主演进控制舱 UI。"""
-    return HTMLResponse(content=get_html_content(), status_code=200)

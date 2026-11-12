@@ -17,10 +17,20 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 import pytest
 
 from apps.api.main import create_app
+
+#: 指一条不存在的目录 —— 强制走"内嵌旧控制舱"的降级分支。
+#:
+#: 前端现在是独立构建的 SPA（``apps/dashboard/dist``）。本地跑过
+#: ``make dashboard-build`` 之后那个目录就存在了，根路径会变成新 SPA ——
+#: 那会让"内嵌界面长什么样"的断言变得**取决于谁最后构建过**。
+#: 所以老界面的测试显式指着一条不存在的路径，两边互不干扰。
+MISSING_DIST = Path("/tmp/ases-no-such-dashboard-dist")
 
 
 @pytest.fixture
@@ -31,10 +41,18 @@ def client() -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=transport, base_url="http://test")
 
 
+@pytest.fixture
+def legacy_client() -> httpx.AsyncClient:
+    """强制走降级分支（前端没构建）的客户端。"""
+    app = create_app(dashboard_dist=MISSING_DIST)
+    transport = httpx.ASGITransport(app=app)
+    return httpx.AsyncClient(transport=transport, base_url="http://test")
+
+
 @pytest.mark.asyncio
-async def test_ui_page_rendering_and_ux_features(client: httpx.AsyncClient) -> None:
+async def test_ui_page_rendering_and_ux_features(legacy_client: httpx.AsyncClient) -> None:
     """验证 /ui 与 / 渲染 HTML 页面且包含全部 6 项 UX 优化特性与核心看板。"""
-    res_ui = await client.get("/ui")
+    res_ui = await legacy_client.get("/ui")
     assert res_ui.status_code == 200
     assert "text/html" in res_ui.headers["content-type"]
     html = res_ui.text
@@ -78,7 +96,7 @@ async def test_ui_page_rendering_and_ux_features(client: httpx.AsyncClient) -> N
     assert "Four-Layer Cumulative Trend Board" in html
     assert "R-117" in html
 
-    res_root = await client.get("/")
+    res_root = await legacy_client.get("/")
     assert res_root.status_code == 200
     assert "ASES 控制舱" in res_root.text
 

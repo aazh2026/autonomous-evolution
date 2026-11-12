@@ -1,0 +1,113 @@
+# 控制舱前端的 nginx 配置。
+#
+# 三件事：发静态文件、反代 /api、SPA 回退。
+#
+# **这是一个模板，不是普通配置。** nginx 官方镜像启动时会把
+# ``/etc/nginx/templates/*.template`` 里的 ``${VAR}`` 换成**容器里确实
+# 定义了的**环境变量，渲染结果写进 ``/etc/nginx/conf.d/``。
+# 所以 ``${API_UPSTREAM}`` 是**部署时**决定的后端地址 —— 换个 compose
+# 服务名、或者指到别的机器，不用重新构建镜像。
+#
+# envsubst **不支持** ``${VAR:-默认值}``（那是 shell 的语法，不是 envsubst
+# 的），所以默认值没法写进模板 —— 只能由 Dockerfile 的 ``ENV`` 或 compose
+# 的 ``environment`` 给。
+#
+# 顺带一个坑：envsubst 只替换**已定义**的变量，所以配置里那些 nginx 自己的
+# 变量（``$host``、``$request_uri``…）只要没有同名的环境变量就原样保留。
+# 但也别给环境变量起 ``host`` 这种名字 —— 起了它，``$host`` 就会被换成那个
+# 值，而且是静悄悄地换。
+#
+# **关于安全响应头**：它们在 ``security-headers.conf`` 里，
+# 由每个自己写了 ``add_header`` 的 location 显式 include。
+# 原因见那个文件的注释 —— nginx 的 ``add_header`` 继承规则有个坑，
+# 在 location 里写了 ``add_header`` 就会把上层的头**悄悄丢掉**。
+
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # **请求时**解析后端地址，而不是启动时。
+    #
+    # nginx 默认在**启动时**解析 proxy_pass 里的主机名，解析不到就直接
+    # 起不来；而且一旦解析成功就把 IP 记一辈子 —— 后端容器重启换了 IP，
+    # nginx 还在傻等那个旧地址，控制舱从此一片 502。
+    #
+    # 把主机名放进变量里，解析就变成**每个请求**都做的事（``valid=10s``
+    # 是 DNS 记录的缓存时间）。代价是 ``proxy_pass`` 带了变量之后，
+    # nginx 不再做 URI 前缀替换 —— 请求路径要自己带全（用
+    # ``$request_uri``，它含查询串）。
+    #
+    # 127.0.0.11 是 Docker 内嵌 DNS 的地址（compose 默认的桥接网络里）。
+    # 这个前端容器是**给 compose 用的** —— 换到裸机上跑的话，resolver 要
+    # 换成那个环境自己的 DNS。
+    resolver 127.0.0.11 valid=10s ipv6=off;
+    set $api_backend "${API_UPSTREAM}";
+
+    # 构建产物的文件名带内容哈希（index-DCRnknEy.js）——
+    # 内容变了文件名就变，所以可以放心地长期缓存。
+    # index.html 本身**不能**长期缓存：它指着带哈希的资源名，
+    # 缓存久了会一直加载旧版本。
+    #
+    # **用 add_header 而不是 expires。** ``expires 1y`` 自己会发一个
+    # ``Cache-Control: max-age=31536000``，再叠上 ``add_header`` 就是
+    # **两个** Cache-Control 头。浏览器会把它们合并起来用，结果没错，
+    # 但"这个响应到底带了几条 Cache-Control"从此是个需要人去数的题。
+    # 合成一条更省心。
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        include /etc/nginx/snippets/security-headers.conf;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache" always;
+        include /etc/nginx/snippets/security-headers.conf;
+    }
+
+    # PDF.js 的 worker。文件名带哈希，同样可以长期缓存。
+    location ~* \.mjs$ {
+        add_header Cache-Control "public, max-age=31536000, immutable" always;
+        include /etc/nginx/snippets/security-headers.conf;
+    }
+
+    # 反代给后端。
+    #
+    # **反代之后前后端同源，于是完全不需要 CORS。**
+    # 真的要把前端放到独立域名时，这里可以改成反代到那个域名，
+    # 或者打开后端的 CORS 白名单（ASES_CORS_ALLOWED_ORIGINS）。
+    #
+    # 后端服务名默认是 compose 里的 `api` —— 容器之间用服务名通信。
+    location /api/ {
+        proxy_pass http://$api_backend$request_uri;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # SSE / NDJSON 之类的长连接要关掉缓冲，否则事件会攒着不发。
+        proxy_buffering off;
+        proxy_read_timeout 300s;
+    }
+
+    # 健康检查也反代过去 —— 运维不用记两个地址。
+    location = /healthz {
+        proxy_pass http://$api_backend/healthz;
+        proxy_set_header Host $host;
+    }
+
+    # SPA 回退：前端没有前端路由（视图切换走应用状态，不是 URL），
+    # 所以任意未知路径都该回 index.html，而不是 404。
+    # 留着这条是为了将来加前端路由时不用改配置。
+    location / {
+        try_files $uri $uri/ /index.html;
+        include /etc/nginx/snippets/security-headers.conf;
+    }
+
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+}

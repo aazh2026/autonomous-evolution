@@ -4,7 +4,7 @@
 - `docs/design.md` §1.2 态势感知与自主权分级控制、§3.2 任务拆解与 DAG 依赖图、§3.4 多执行器监控与实时事件流、§3.5B 独立六层验证结果矩阵、§7 治理审批门与防篡改审计、§8 工程目录结构（`apps/dashboard/`）；
 - `docs/architecture/trend-board.md` 跨周期趋势看板（四层指标曲线、诚实缺失态、R-117 虚荣指标结构性拒绝）；
 - `docs/architecture/high-risk-review.md` 高风险变更治理（操作 × 种类双轴风险、名册资格核验、SHA-256 内容指纹锁定）；
-- `apps/api/control.py` 控制面 REST API 与内嵌单页控制台（`/ui`）。
+- `apps/api/control.py` 控制面 REST API、`apps/api/static_frontend.py` 前端托管与降级、`apps/dashboard/` 独立前端工程。
 
 ---
 
@@ -24,7 +24,7 @@ ASES 前端不是传统的「聊天对话框」或「CI 任务列表」，而是
 
 ## 二、 整体布局与可拖拽分屏架构（Resizable Split Panes）
 
-控制舱采用全视口无页面级滚动（`100vh × 100vw, overflow-hidden`）的 **四区可拖拽分屏架构**，基于 `react-resizable-panels`（或原生拖拽分割条）实现面板比例自由伸缩与布局持久化：
+控制舱采用全视口无页面级滚动（`100vh × 100vw, overflow-hidden`）的 **四区可拖拽分屏架构**，基于自研的 `useResizableSplit`（原生拖拽分割条，见 §5.2）实现面板比例自由伸缩与布局持久化：
 
 ```mermaid
 flowchart TD
@@ -39,7 +39,7 @@ flowchart TD
         direction LR
         LeftPane["左侧栏: 演进周期时间轴 & 导航<br/>(默认 260px, 可折叠)"]
         CenterPane["中左工作窗: 决策沙盘 / DAG 拓扑 / 验证矩阵<br/>(最小 30%, 默认 50%)"]
-        RightPane["中右溯源窗: PDF.js 规范渲染器 & Monaco 代码 Diff<br/>(最小 25%, 默认 50%)"]
+        RightPane["中右溯源窗: PDF.js 规范渲染器 & 代码 Diff<br/>(最小 25%, 默认 50%)"]
         LeftPane --- CenterPane
         CenterPane <==> |"SVG 动态贝塞尔视觉溯源连线"| RightPane
     end
@@ -56,6 +56,12 @@ flowchart TD
 ---
 
 ## 三、 六大核心 UX 优化机制详细设计
+
+> **本节写的是设计目标，不是当前实现。** 已落地的部分与现状见 §五
+> （当前实现里 PDF.js 证据渲染已完成；Monaco Diff 视图、跨分屏 SVG 溯源连线、
+> 双击行内编辑尚未接入 —— 它们的验收口径与数据结构已经定好，但代码还没写）。
+> 分清这两者很重要：把设计目标写成"已经做完了"，下一次读这份文档的人
+> 会去找一个不存在的功能。
 
 ### 1. 高保真文档与证据渲染（PDF.js + Monaco Dual Viewer）
 在右侧「证据与源码溯源窗」内置双模渲染引擎：
@@ -102,6 +108,11 @@ AI 提取的演进机会或生成的验收契约往往需要人类架构师微�
 
 ## 四、 五大核心业务视图与交互设计
 
+> **本节同样写的是设计目标。** 五个视图的骨架、交互与数据来源都已落地
+> （见 §5.3 的目录与 §六 的接口矩阵），但视图里点名的一些**交互细节**
+> —— 跨分屏 SVG 溯源连线、双击行内编辑、Monaco 级别的源码 Diff ——
+> 代码还没写。与 §三 一样，这些是验收口径，不是现状。
+
 ### 视图 1：双环态势与跨周期趋势看板（Dual-Loop & Trend Board）
 - **顶部 4+2 指标卡与 7 天累计趋势图**：
   - 严格对齐 `docs/architecture/trend-board.md`，展示 **4 层 8 项核心指标**（自主发现层：有效发现率/重复发现率；决策质量层：采纳率/误报率；工程交付层：任务成功率/返工率/回归缺陷率；项目演进层：目标达成度差值 $\Delta$）+ **2 项诊断量**（验收通过率、累计花费）。
@@ -117,14 +128,14 @@ AI 提取的演进机会或生成的验收契约往往需要人类架构师微�
   - 经由 SVG 视觉溯源连线，直接定位到触发该候选的 PDF 需求文档页码区域或测试失败文件行号。
 
 ### 视图 3：DAG 多任务调度与执行器舰队（DAG Topology & Executor Fleet）
-- **分层波次 DAG 画布（React Flow）**：
+- **分层波次 DAG 画布（手写 SVG）**：
   - 按 `Execution Wave 0 -> Wave 1 -> Wave 2` 从左至右渲染有向无环图（对接 `GET /api/v1/tasks/dag`）。
   - **级联阻断因果高亮**：当上游节点失败导致下游进入 `BLOCKED` 状态时，连线变为红色虚线并显示阻断根因徽标（`blocked_by: TASK-xxx`）。
 - **多执行器动态选择器透视**：
   - 在任务节点上展示由 `executors/` 路由分配的执行器徽标（`claude-code`、`codex`、`gemini-cli`、`opencode`），Hover 显示选择依据（亲和度 `affinity`、成功率、当前并发槽位负载与成本档位）。
 
 ### 视图 4：独立六层验证矩阵与工作区 Diff（Six-Layer Verification）
-- **左半屏（Monaco Worktree Diff & PDF 报告）**：展示隔离沙箱 Git Worktree 产生的代码变更 Diff 及构建产物。
+- **左半屏（Worktree Diff & PDF 报告）**：展示隔离沙箱 Git Worktree 产生的代码变更 Diff 及构建产物。
 - **右半屏（独立六层验证矩阵）**：
   - 对接 `GET /api/v1/verifications`，独立展示 6 个验证层卡片：**① 功能层 (Pytest)**、**② 代码质量 (Ruff/Mypy)**、**③ 架构守约 (AST)**、**④ 安全扫描 (Bandit/Secret Gate)**、**⑤ 性能基线 (Bench)**、**⑥ 产品契约 (Contract)**。
   - 任一层失败时，展示该层对应的 Actionable Risk 操作：**[Fix 派发定向修复]**、**[查看详细日志 Artifact]**，并绘制连线指向左半屏触发报错的具体代码行。
@@ -137,62 +148,145 @@ AI 提取的演进机会或生成的验收契约往往需要人类架构师微�
 
 ---
 
-## 五、 前端技术栈与工程目录规划
+## 五、 前端技术栈与工程目录
 
-项目采用**双轨演进策略**：
-1. **轻量内嵌态（已就绪）**：`apps/api/control.py` 直接通过 `/ui` 与 `/` 提供零外部构建依赖的响应式控制舱单页 UI（Tailwind CDN + Lucide Icons + 原生 Fetch 轮询），开箱即用。
-2. **完整工程态（`apps/dashboard/` 独立前端工程）**：对应 `docs/design.md` 规划的 `apps/dashboard/`，技术选型与目录结构如下：
+### 1. 运行形态：三种，同一份代码
 
-### 1. 技术选型清单
-| 领域 | 技术选型 | 核心用途 |
+前后端分离之后，**前端是一份代码、三种跑法**。区别只在"谁来发那几百 KB 的静态文件"：
+
+| 形态 | 静态文件由谁托管 | 浏览器看到的 API 地址 | 什么时候用 |
+| :--- | :--- | :--- | :--- |
+| **本地开发** | vite dev server（`localhost:3000`） | `/api/v1/...`（vite 代理到 `localhost:8000`） | 改前端代码时 |
+| **本地一体化** | 后端自己（`apps/api/static_frontend.py` 托管 `apps/dashboard/dist`） | 同源 `/api/v1/...` | `make ui` —— 一条命令起全栈 |
+| **全栈容器** | nginx 容器（compose 的 `dashboard` 服务） | 同源 `/api/v1/...`（nginx 反代到 `api:8000`） | `make up` / 部署 |
+
+**三种形态下浏览器看到的请求都是同源的 `/api/v1/...`，于是完全不需要 CORS。**
+这不是巧合，是刻意的：跨域白名单配错时，浏览器会拦掉响应而 `curl` 完全正常，
+于是"后端没问题"这句话会被反复重复，直到有人去翻浏览器控制台。
+真要把前端放到独立域名时，再打开后端的 CORS 白名单（`ASES_CORS_ALLOWED_ORIGINS`）。
+
+### 2. 技术选型清单（**实际在用的**）
+
+| 领域 | 选型 | 核心用途 |
 | :--- | :--- | :--- |
-| **核心框架** | Next.js 15 (App Router) + React 19 + TypeScript | 类型安全的组件化架构，严格映射后端 Pydantic Schema |
-| **分屏与布局** | `react-resizable-panels` + Tailwind CSS | 实现高密度可拖拽多栏分屏、暗色工程主题（`slate-950`） |
-| **文档与代码渲染** | `pdfjs-dist` (PDF.js) + `@monaco-editor/react` | PDF 规范/报告高保真渲染与 Bounding Box 标注；Git Diff 行级对比 |
-| **拓扑与溯源连线** | `@xyflow/react` (React Flow) + 自定义 SVG Overlay | 渲染多波次任务 DAG 拓扑图，以及跨面板证据视觉溯源连线 |
-| **趋势图表** | `recharts` / `@visx/visx` | 渲染 7 天四层累计趋势曲线，支持 `no_samples` 断线与 `—` 缺失态定制 |
-| **状态与实时流** | TanStack Query v5 + Zustand + SSE/WebSocket | 服务端状态缓存、乐观更新（行内编辑）与 NDJSON 实时遥测流订阅 |
+| **构建** | Vite 6 | 产物是纯静态文件，dev server 自带 `/api` 代理 |
+| **框架** | React 19 + TypeScript 5.7（`strict` + `noUncheckedIndexedAccess`） | 类型安全的组件化架构，映射后端 Pydantic Schema |
+| **样式** | Tailwind CSS 3 | 高密度多栏布局、暗色工程主题（`slate-950`） |
+| **图标** | `lucide-react` | 顶栏与导航图标 |
+| **文档渲染** | `pdfjs-dist` (PDF.js) | 决策沙盘的规范 PDF 渲染（单独成块，不拖累首屏） |
+| **趋势图表** | **手写 SVG** | 4 层 8 指标累计趋势曲线 —— 见下方「为什么手写」 |
+| **分屏** | **手写 `useResizableSplit`** | 三向可拖拽分割条 —— 见下方「为什么手写」 |
+| **状态** | React 内置（`useCockpitData` + `useAsyncAction`） | 服务端状态拉取与写操作 |
+| **测试** | vitest 4 + @testing-library/react + jsdom | 前端单测（46 个） |
+| **契约** | `src/types/control-plane.ts` + `tests/unit/api/test_frontend_contract.py` | 两端不漂移的**机制**，见下方 §5.4 |
 
-### 2. `apps/dashboard/` 组件目录结构
+#### 为什么不用 Next.js（设计稿原先写的是 Next.js 15 App Router）
+
+1. **控制舱是内网工具，没有 SEO 需求** —— SSR 带来的收益是零，代价是一整个 Node 运行时。
+   前端分离的产物应该是**纯静态文件**：nginx 一把梭就能发，运行镜像里没有 Node、
+   没有 `node_modules`，攻击面小得多，冷启动也快得多。
+2. **视图切换走应用状态，不是 URL** —— 六个工作视图是 Tab，不是六个路由。
+   Next.js 的 App Router 在这里没有对应物，硬套只会多出一层没用的路由树。
+3. **前后端分离的重点是"后端不再是前端的宿主"** —— 一个 Node 运行时把这件事又拧回去了：
+   前端镜像要自己起服务、要自己监听、要处理优雅退出。
+
+#### 为什么趋势图表与分屏是手写的
+
+- **趋势图**：库（recharts / visx）按「每个点都有值」设计，而本项目的硬约束恰恰相反 ——
+  **算不出来 ≠ 0**。缺失点必须是「空心虚线圆点 + `—`」，而且**折线要在缺失处断开**
+  （连过去等于把"没测到"说成"没变化"）。这套语义在图表库里要么没有、要么得靠 hack 绕。
+  手写 SVG 反倒更短也更直白：`scalePoints` 保持与输入**逐位对齐**，
+  `splitSegments` 在缺失处断开。
+  （这条约束有专门的回归测试：`TrendBoard.test.tsx` 断言 polyline 段数。）
+- **分屏**：`react-resizable-panels` 能用，但控制舱只需要三个分割条、
+  一套「双击复位 50:50」的交互 —— 三十行 hook 与一个第三方依赖的取舍，
+  在这里不值得多背一个依赖。
+
+### 3. `apps/dashboard/` 目录结构（实际）
+
 ```text
 apps/dashboard/
+├── Dockerfile                    # 多阶段：node 构建 → nginx 运行
+├── nginx.conf.template           # 发静态文件 + 反代 /api + SPA 回退（${API_UPSTREAM} 部署时注入）
+├── security-headers.conf         # 安全响应头片段（被各 location 显式 include）
 ├── src/
-│   ├── app/                          # Next.js 路由与全局布局
-│   │   ├── layout.tsx                # 顶部 TopBar + 底部 TelemetryDrawer 骨架
-│   │   └── page.tsx                  # 主工作舞台 (ResizablePanelGroup 容器)
+│   ├── main.tsx                  # 挂载点
+│   ├── App.tsx                   # 顶栏 + 主舞台 + 底部遥测抽屉的骨架与视图切换
+│   ├── api/
+│   │   ├── client.ts             # 唯一的 HTTP 出口：类型化 fetch + ApiError
+│   │   └── client.test.ts        # 46 个前端测试的一部分
 │   ├── components/
-│   │   ├── cockpit/
-│   │   │   ├── TopControlBar.tsx     # L0-L3 自主权切换、预算水位、急停熔断开关
-│   │   │   ├── CycleTimelineSidebar.tsx # 左侧 Cycle 历史与达成度 Δ 列表
-│   │   │   └── TelemetryDrawer.tsx   # 底部 NDJSON 实时事件流与审计日志
-│   │   ├── traceability/
-│   │   │   ├── TraceabilityCanvas.tsx # 跨分屏 SVG 贝塞尔连线渲染层
-│   │   │   ├── PdfEvidenceViewer.tsx # 基于 PDF.js 的高保真文档渲染与区域高亮
-│   │   │   └── MonacoDiffViewer.tsx  # Worktree 代码变更与源码行锚点定位
-│   │   ├── sandbox/
-│   │   │   ├── CandidateCard.tsx     # 含置信度分级徽标、双击行内编辑、Accept/Fix/Ignore
-│   │   │   └── CriticChecklist.tsx   # Critic 9 问核验明细与证据跳转
-│   │   ├── dag/
-│   │   │   ├── DagWaveCanvas.tsx     # React Flow 分层波次拓扑与级联阻断高亮
-│   │   │   └── ExecutorFleetWidget.tsx # 多执行器负载、成功率与亲和度画像
-│   │   ├── verification/
-│   │   │   └── SixLayerMatrix.tsx    # 独立六层验证矩阵与定向修复派发触发器
-│   │   ├── governance/
-│   │   │   └── ApprovalCourtCard.tsx # 双轴风险审批、资格名册槽位与 SHA-256 签名放行
-│   │   └── trends/
-│   │       └── FourLayerTrendBoard.tsx # 4 层 8 指标累计趋势图（内置 R-117 禁用量拦截）
+│   │   ├── TopBar.tsx            # L0-L3 自主权切换、预算水位、急停熔断开关
+│   │   ├── Sidebar.tsx           # 左侧 Cycle 历史与导航
+│   │   ├── TelemetryDrawer.tsx   # 底部事件流与审计日志
+│   │   ├── shared/
+│   │   │   ├── TrendBoard.tsx    # 4 层 8 指标累计趋势图（诚实缺失态）
+│   │   │   └── Primitives.tsx    # 徽标 / 卡片 / 空态等基础件
+│   │   └── views/
+│   │       ├── DualLoopDashboard.tsx   # 双环态势
+│   │       ├── DecisionSandbox.tsx     # 决策沙盘（Accept / Fix / Ignore）
+│   │       ├── DagTopology.tsx         # 多波次 DAG 拓扑与级联阻断高亮
+│   │       ├── VerificationMatrix.tsx   # 独立六层验证矩阵
+│   │       ├── GovernanceCourt.tsx      # 双轴风险审批与 SHA-256 签名放行
+│   │       └── EvidenceViewer.tsx       # PDF.js 规范渲染
 │   ├── hooks/
-│   │   ├── useTraceabilityLinks.ts   # 计算左右分屏 DOM 锚点坐标并重绘连线
-│   │   └── useTelemetryStream.ts     # 订阅 /api/v1/telemetry/events 实时事件
+│   │   ├── useCockpitData.ts     # 拉取各视图数据
+│   │   ├── useAsyncAction.ts     # 写操作（立项 / 审批 / 派发修复）
+│   │   └── useResizableSplit.ts  # 三向分屏
+│   ├── lib/
+│   │   ├── confidence.ts         # 置信度分级映射
+│   │   └── format.ts             # 金额 / 百分比 / 时间的诚实格式化
 │   └── types/
-│       └── control-plane.ts          # 与 apps/api/control.py 严格对齐的 TypeScript 接口
+│       └── control-plane.ts      # 与 apps/api/control.py 对齐的 TypeScript 接口
+└── tests（后端侧）：tests/unit/api/test_frontend_contract.py
 ```
+
+### 4. 两端怎么保证不漂移
+
+**类型契约是一份，两头各自检查**：
+
+- `apps/dashboard/src/types/control-plane.ts` —— 前端侧的类型声明；
+- `tests/unit/api/test_frontend_contract.py` —— 后端侧的**门禁**。它解析上面那个 TS 文件，
+  拿**活的 API 响应**逐字段对账，四种漂移都会被抓到：
+
+  | 漂移 | 后果 | 门禁怎么抓 |
+  | :--- | :--- | :--- |
+  | 后端多给了字段 | 前端静默丢掉这份数据 | 断言响应键 ⊆ 契约字段 |
+  | TS 声明必填、后端没给 | 前端渲染成「缺失」 | 断言必填字段都在响应里 |
+  | 类型对不上（number vs string） | 前端拿到 `undefined` | 按契约逐字段断言类型 |
+  | 嵌套结构对不上 | 深层字段取不到 | 递归对账嵌套对象 |
+
+  外加两条专项断言：`Decimal` 字段（Pydantic v2 序列化成**字符串**）
+  与决策 id **不可推导**（`DEC-001`/`DEC-002` 这种猜法在有第三个候选时必然覆盖错对象）。
+
+  这条门禁的价值在于：**它不需要前端跑起来**。改后端响应结构而忘了改前端，
+  CI 会直接红。
+
+- `apps/dashboard/src/api/client.test.ts` —— 前端侧的回归测试。其中一条专门锁死
+  「决策覆盖用的就是调用方给的 `decision_id`，不会自己去猜」——
+  早期版本按候选 id 硬编码推导决策 id，第三个候选永远覆盖到错的决策上。
+
+### 5. 降级路径：内嵌单页
+
+`apps/api/control.html` 是分离之前的单文件控制舱（Tailwind CDN + 原生 Fetch）。
+它**保留**下来了，而且是**显式的降级路径**而不是死代码：
+
+- 后端在 `apps/dashboard/dist` 不存在时，自动回落到托管它（`/ui` 与 `/` 都可用）；
+- 原因很实际：控制舱是一个**值班用的界面** —— 操作员半夜被叫醒时，
+  不该因为「前端没构建」而什么都看不到。
+
+降级路径同样有测试（`tests/unit/api/test_static_frontend.py`），
+两个分支都被覆盖，避免「本地构建过一次之后，测试就再也测不到降级分支了」。
 
 ---
 
 ## 六、 前后端 API 对接矩阵
 
-前端所有视图与交互动作均与 `apps/api/control.py` 中的 REST 端点一一对应：
+前端所有视图与交互动作均与 `apps/api/control.py` 中的 REST 端点一一对应。
+
+**所有请求都从 `apps/dashboard/src/api/client.ts` 出去** —— 组件里不出现裸 `fetch`。
+这不只是"整洁"：错误处理、金额格式化、`Decimal` 的字符串序列化都在那一处处理，
+散开写就会漏掉一处，而漏掉一处的症状是「某个数字莫名其妙变成 —」。
 
 | 前端模块 / 交互动作 | HTTP 方法与端点 | 后端处理函数 |
 | :--- | :--- | :--- |
@@ -205,3 +299,20 @@ apps/dashboard/
 | 独立六层验证矩阵与 Diff 摘要 | `GET /api/v1/verifications` | `list_verifications` |
 | 高风险审批列表与双签放行/驳回 | `GET / POST /api/v1/governance/approvals...` | `list_approvals`、`review_approval` |
 | 执行器集群画像与底部实时遥测流 | `GET /api/v1/executors` & `GET /api/v1/telemetry/events` | `list_executors`、`list_telemetry_events` |
+
+### API 基址怎么定
+
+默认**相对路径** `/api/v1`（`apps/dashboard/src/api/client.ts` 里的 `API_BASE`）。
+三种运行形态（本地开发 / 本地一体化 / 全栈容器）下浏览器看到的都是同源，
+所以**同一个构建产物**在三种形态里都能跑，不需要为部署改代码。
+
+只有前端要放到**独立域名**时，才设 `VITE_API_BASE_URL` 指到后端绝对地址，
+并给后端配 `ASES_CORS_ALLOWED_ORIGINS`：
+
+```bash
+# .env
+ASES_CORS_ALLOWED_ORIGINS=https://cockpit.example.com
+```
+
+写死绝对地址的坏处很具体：镜像会绑死在某个域名上，换域名就得重新构建镜像 ——
+而镜像发版通常比改一行环境变量慢得多。

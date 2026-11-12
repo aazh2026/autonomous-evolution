@@ -6,6 +6,7 @@
 #
 #   基础设施    postgres / minio —— 数据与产物
 #   应用        migrate / api / worker —— ASES 自己的进程
+#   控制舱      dashboard —— 前端静态资源（nginx），前后端分离的那一半
 #   可观测性    langfuse 及其依赖 —— **可选**，用 profile 隔开
 #
 # **为什么把 Langfuse 放进 profile**：TASK-P1-007 的 T2 要求"从零到全栈就绪
@@ -16,7 +17,7 @@
 # 而且 Langfuse 是**观测**设施，不是运行依赖：它挂了主流程照跑
 # （TASK-P1-005 已实现降级）。让观测设施拖累主流程的启动预算，方向就反了。
 #
-#   make up                核心栈（postgres + minio + api + worker）
+#   make up                核心栈（postgres + minio + api + worker + dashboard）
 #   make up-observability  核心栈 + Langfuse
 #
 # 密钥一律从环境注入，不写死在文件里。默认值（minioadmin/minioadmin）
@@ -288,6 +289,64 @@ services:
       timeout: 5s
       retries: 6
       start_period: 20s
+    restart: unless-stopped
+
+  # ---------------- 控制舱前端 ----------------
+  #
+  # 前后端分离之后，前端是一个**独立的静态资源服务**：nginx 发静态文件，
+  # 并把 /api 反代给 api 容器。
+  #
+  # **反代之后前后端同源 —— 于是完全不需要 CORS。** 这是这个部署形态
+  # 最大的好处：白名单配错时浏览器会拦响应而 curl 完全正常，
+  # 于是"后端没问题"这句话会被反复重复，直到有人去翻浏览器控制台。
+  # 真的要把前端放到独立域名时，再打开后端的 CORS 白名单
+  # （ASES_CORS_ALLOWED_ORIGINS）。
+  #
+  # **为什么前端不进 api 容器。** api 镜像里没有 Node、没有 node_modules，
+  # 只放编译好的静态文件的话，静态文件会跟着后端镜像一起发版 ——
+  # 于是"改一行前端样式"要重建整个 Python 镜像。前后端分开之后，
+  # 前端改动只重建这一个几 MB 的镜像。
+  #
+  # **这个服务是可选的。** 不启动它的话，用 `make ui`（本地模式）
+  # 或者直接访问 api 容器的 8000 端口 —— 后端在检测到
+  # apps/dashboard/dist 存在时会自己托管 SPA（见 apps/api/static_frontend.py）。
+  dashboard:
+    image: ases-dashboard:latest
+    pull_policy: never
+    build:
+      # 上下文是前端工程自己，不是整个仓库 —— 前端的 Dockerfile 只
+      # 需要 apps/dashboard 里的东西。
+      context: ./apps/dashboard
+      dockerfile: Dockerfile
+    container_name: ases-dashboard
+    environment:
+      # 后端地址。nginx 启动时把配置模板里的 ${API_UPSTREAM} 换成它。
+      # 容器之间用**服务名**通信，不是 localhost。
+      API_UPSTREAM: "api:8000"
+    ports:
+      # 刻意不用 3000 —— 那个是 vite 开发服务器的默认端口，
+      # 而 langfuse 那个 profile 也占着 3000（observability 一开就撞）。
+      - "${DASHBOARD_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      # 查的是**反代过去的** /healthz，不是静态页面。
+      #
+      # 静态页面能打开不代表控制舱能用 —— 前端拿到静态文件之后还要
+      # 调 API 才能显示数据。只查静态页面的健康检查会在"后端挂了、
+      # 前端好好的"时报健康，而从操作员的角度看，控制舱已经废了。
+      #
+      # busybox wget（alpine 自带）只认这几个参数：``--spider`` 有，
+      # ``--no-verbose`` / ``--tries`` **没有** —— 写了会直接报错退出，
+      # 于是容器永远不健康，而命令看起来"在跑"。
+      test:
+        - CMD-SHELL
+        - wget -q --spider http://127.0.0.1/healthz || exit 1
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
     restart: unless-stopped
 
   # ---------------- 可观测性（可选，profile 隔开） ----------------

@@ -14,6 +14,7 @@ docs/tasks.md TASK-P1-002。
 
 from __future__ import annotations
 
+import json
 from enum import StrEnum
 from functools import cache
 from pathlib import Path
@@ -24,6 +25,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_GOVERNANCE_DIR = REPO_ROOT / "config" / "governance"
+#: 控制舱 SPA 的构建产物目录。前后端分离后，前端是独立构建的静态资源。
+DEFAULT_DASHBOARD_DIST_DIR = REPO_ROOT / "apps" / "dashboard" / "dist"
 
 
 class Environment(StrEnum):
@@ -100,8 +103,39 @@ class Settings(BaseSettings):
     #: 单次输出的 token 上限。
     model_max_tokens: int = Field(default=4096, ge=1)
 
-    # ---------- 观测 ----------
+    # ---------- HTTP / 前端 ----------
 
+    #: 控制舱 SPA 的构建产物目录。
+    #:
+    #: 前后端分离之后，前端是独立构建的静态资源（``make dashboard-build``）。
+    #: 后端可以顺手把它托管起来（``/``），也可以不托管 —— 不托管时前端由
+    #: nginx 之类的静态服务器提供，两者靠 CORS 沟通。目录不存在就回落到
+    #: 内嵌的旧控制舱界面。
+    dashboard_dist_dir: Path = DEFAULT_DASHBOARD_DIST_DIR
+
+    #: 允许跨域访问的前端来源。
+    #:
+    #: **前后端分离之后 CORS 成了部署配置，不是代码常量。**
+    #:
+    #: - 同源部署（后端托管 SPA，或 nginx 反代到同一个域名）→ **不需要**
+    #:   CORS，这里留空即可；
+    #: - 前端独立域名 → 把那个域名显式列进来。
+    #:
+    #: 默认值是 Vite dev server 的地址，作为"不走代理直接连后端"的兜底。
+    #: 正常开发走 ``vite.config.ts`` 里的代理，前后端同源，用不上这些。
+    cors_allowed_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
+    #: 是否允许跨域请求携带凭证（Cookie / Authorization）。
+    #:
+    #: 只有在来源是**显式列举**时才可能为真 —— 规范禁止
+    #: ``Access-Control-Allow-Origin: *`` 与 ``Allow-Credentials: true``
+    #: 同时出现。填了 ``*`` 的情况下后端会自动关掉这个开关。
+    cors_allow_credentials: bool = True
+
+    # ---------- 观测 ----------
     otel_enabled: bool = False
     otel_endpoint: str = "http://localhost:4318"
     langfuse_enabled: bool = False
@@ -146,6 +180,27 @@ class Settings(BaseSettings):
     def _upper_log_level(cls, value: object) -> object:
         if isinstance(value, str):
             return value.upper()
+        return value
+
+    @field_validator("cors_allowed_origins", mode="before")
+    @classmethod
+    def _split_cors_origins(cls, value: object) -> object:
+        """接受逗号分隔的字符串，也接受 JSON 数组。
+
+        环境变量里写 ``ASES_CORS_ALLOWED_ORIGINS=https://a.com,https://b.com``
+        比写 JSON 数组顺手得多 —— 运维改配置不该需要先理解 JSON 语法。
+        pydantic-settings 只在**环境变量**这一条路上会尝试 JSON 解析，
+        直接构造 ``Settings(...)`` 时不会，所以这里两种格式都自己处理。
+        """
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return []
+            if stripped.startswith("["):
+                # 格式不对就让 json 抛 —— pydantic 会把它包成校验错误，
+                # 比悄悄解析出一堆垃圾来源要好。
+                return json.loads(stripped)
+            return [item.strip() for item in stripped.split(",") if item.strip()]
         return value
 
     @model_validator(mode="after")

@@ -30,6 +30,53 @@ jobs:
       - name: mypy
         run: uv run mypy .
 
+  # 前后端分离之后，前端是**自己的工程**——有自己的依赖、自己的测试、
+  # 自己的构建。它不会因为 Python 那边全绿就自动变绿。
+  #
+  # 单开一个 job 而不是塞进 quality job：工具链完全不同（node vs uv），
+  # 缓存也是两套（npm cache vs uv cache）。混在一起的话，为了前端那几十秒
+  # 要把整个 Python 环境也拉起来。
+  #
+  # **这个 job 里必须验镜像。** 前端的 nginx 配置是**模板**，
+  # 里面有 ${API_UPSTREAM} 这种只有容器启动时才会被替换的占位符 ——
+  # 它在宿主机上根本没法校验。而模板渲染错了、或者 include 路径写错了，
+  # 症状是**容器起来了但页面 404**，在 CI 上不验就只能等到部署才发现。
+  frontend:
+    name: 前端
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          # npm 的缓存键跟着 lock 文件走 —— 依赖没变就不重下。
+          cache: npm
+          cache-dependency-path: apps/dashboard/package-lock.json
+      - name: 安装依赖
+        run: npm ci
+      - name: 类型检查
+        run: npm run typecheck
+      - name: 前端测试
+        run: npm run test
+      - name: 构建
+        run: npm run build
+      # 镜像要单独建一次：本地开发用的是 vite dev server，
+      # 而部署用的是 nginx 静态服务 —— 两者能跑不代表部署形态能跑。
+      - name: 构建前端镜像
+        run: docker build -t ases-dashboard:ci .
+      # **渲染之后再验一次配置。** `docker run` 会先跑镜像的 entrypoint
+      # （把 ${API_UPSTREAM} 换成环境变量），再执行 nginx -t ——
+      # 于是这一步验的是**容器里真正会用的那份配置**。
+      #
+      # 只在宿主机上验是不够的：宿主机上没有模板渲染这一步，
+      # `${API_UPSTREAM}` 在那儿是**非法变量名**（nginx 会在启动时报
+      # "unknown variable" 而拒绝启动）。
+      - name: 校验 nginx 配置
+        run: docker run --rm ases-dashboard:ci nginx -t
+
   unit:
     name: 单元测试
     runs-on: ubuntu-latest

@@ -939,6 +939,11 @@ L1
 | 代码管理       | Git + GitHub/GitLab             | 必选   |
 | 前端         | Next.js                         | 可选   |
 
+> **实现说明（2026-11）**：前端最终**没有**用 Next.js，而是 Vite 6 + React 19 +
+> TypeScript 的纯静态 SPA。控制舱是内网工具，没有 SEO 需求，SSR 的收益是零而代价是一整个
+> Node 运行时；前后端分离的产物应当是 nginx 一把梭就能发的静态文件。
+> 理由与取舍见 [`docs/architecture/frontend-design.md` §5](architecture/frontend-design.md)。
+
 相关项目：
 
 - LangGraph：[GitHub](https://github.com/langchain-ai/langgraph?utm_source=chatgpt.com)

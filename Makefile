@@ -90,12 +90,16 @@ COMPOSE_WAIT_TIMEOUT ?= 120
 #
 # 依赖层是缓的（Dockerfile 先拷依赖清单再拷源码），所以改一行业务代码
 # 的重建只要十几秒。
+#
+# **这里会重建两个镜像**：后端（ases-app）和前端（ases-dashboard）。
+# 两者是分开的 —— 改了前端只需要重建几 MB 的那个，不用拖着 Python 镜像
+# 一起重跑依赖层。
 .PHONY: build
 build: ## 重建应用镜像（**改过源码之后必须先跑这个**）
 	$(COMPOSE) build
 
 .PHONY: up
-up: ## 启动本地全栈（PG + MinIO + API + worker）—— 不重建镜像，源码改过先 make build
+up: ## 启动本地全栈（PG + MinIO + API + worker + 控制舱前端）—— 不重建镜像，源码改过先 make build
 	$(COMPOSE) up -d --wait --wait-timeout $(COMPOSE_WAIT_TIMEOUT)
 
 .PHONY: up-observability
@@ -119,8 +123,45 @@ health: ## 查看 API 健康检查结果
 	@curl -sS http://localhost:$${API_PORT:-8000}/healthz | $(PY) -m json.tool
 
 .PHONY: ui
-ui: ## 一键启动 ASES 前端控制舱与本地 API（自动打开浏览器 /ui）
+ui: ## 一键启动 ASES 控制舱与本地 API
 	./scripts/start_cockpit.sh
+
+# ---------- 前端独立工程（apps/dashboard）----------
+#
+# 前后端分离之后，前端是**自己的工程**：自己的依赖、自己的测试、自己的构建。
+# 它有自己的 package.json，所以这些目标都要先 cd 进去。
+#
+# **npm ci 而不是 npm install。** 锁文件（package-lock.json）在版本库里，
+# ci 严格按它装 —— 版本可复现，与 CI、Docker 镜像里装出来的是同一份。
+# install 会顺手改锁文件，那是"要升级依赖"时才该做的事。
+
+.PHONY: dashboard-install
+dashboard-install: ## 安装前端独立工程依赖 (apps/dashboard)
+	cd apps/dashboard && npm ci
+
+# 依赖没装时先装上。
+#
+# 少了这一步，"make dashboard-test" 报出来的是"vitest: command not found" ——
+# 一个跟代码毫无关系的错，白花一次排查。
+.PHONY: dashboard-deps
+dashboard-deps:
+	@cd apps/dashboard && [ -d node_modules ] || npm ci
+
+.PHONY: dashboard-dev
+dashboard-dev: ## 启动前端独立开发服务器 (http://localhost:3000)
+	cd apps/dashboard && npm run dev
+
+.PHONY: dashboard-build
+dashboard-build: dashboard-deps ## 构建打包独立前端工程 (apps/dashboard/dist)
+	cd apps/dashboard && npm run build
+
+.PHONY: dashboard-test
+dashboard-test: dashboard-deps ## 运行前端独立工程测试 (apps/dashboard)
+	cd apps/dashboard && npm run test
+
+.PHONY: dashboard-typecheck
+dashboard-typecheck: dashboard-deps ## 前端类型检查 (apps/dashboard)
+	cd apps/dashboard && npm run typecheck
 
 .PHONY: reset
 reset: ## 停止并清空本地数据卷

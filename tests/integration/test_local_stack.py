@@ -50,6 +50,9 @@ STACK_DSN = f"postgresql://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{STACK_DB
 
 API_BASE_URL = os.environ.get("ASES_STACK_API_URL", "http://localhost:8000")
 
+#: 控制舱前端容器的地址（compose 的 dashboard 服务，nginx + 静态文件 + /api 反代）。
+DASHBOARD_URL = os.environ.get("ASES_STACK_DASHBOARD_URL", "http://localhost:8080")
+
 #: T2 的上限（秒）。docs/tasks.md TASK-P1-007 规定 < 90s。
 STARTUP_BUDGET_SECONDS = 90.0
 
@@ -186,6 +189,41 @@ def test_readyz_is_also_available() -> None:
 
     assert status_code == 200, payload
     assert payload["status"] == "ok", payload
+
+
+@pytest.mark.usefixtures("stack")
+def test_dashboard_serves_the_cockpit_and_proxies_the_api() -> None:
+    """控制舱前端起来了，并且它**真的**把 /api 反代到了后端。
+
+    **为什么单开一条，而不是并进上面的健康检查。** 前后端分离之后，
+    最容易出的错是「两边各自都活着，但连不上」：
+    nginx 起来了、静态文件发得出去，api 容器也 healthy ——
+    而反代那一行写错了，于是前端打开是一片白屏。
+
+    而"前端打开是一片白屏"这件事**不会**让任何已有的检查变红：
+    后端的 /healthz 好好的，容器状态也是 healthy。
+    所以必须有一条检查**穿过反代**去问后端。
+
+    断言三件事：
+      1. ``/`` 是控制舱的页面（HTML，而且不是 nginx 的默认欢迎页）；
+      2. ``/api/v1/status`` 穿过反代能拿到**后端的 JSON**；
+      3. ``/healthz`` 同样穿过去（compose 的健康检查就查它）。
+    """
+    root = httpx.get(f"{DASHBOARD_URL}/", timeout=10.0, follow_redirects=True)
+    assert root.status_code == 200, f"控制舱根路径返回 {root.status_code}"
+    assert "text/html" in root.headers.get("content-type", ""), root.headers
+    # nginx 官方镜像的默认页是 "Welcome to nginx!" —— 那说明我们自己的
+    # 配置没生效（default.conf 没删掉，或者模板渲染结果没被用上）。
+    assert "Welcome to nginx" not in root.text, "拿到的是 nginx 默认欢迎页，不是控制舱"
+
+    proxied = httpx.get(f"{DASHBOARD_URL}/api/v1/status", timeout=10.0)
+    assert proxied.status_code == 200, f"反代的 /api/v1/status 返回 {proxied.status_code}"
+    payload = proxied.json()
+    assert isinstance(payload, dict), payload
+    assert "autonomy_level" in payload, payload
+
+    health = httpx.get(f"{DASHBOARD_URL}/healthz", timeout=10.0)
+    assert health.status_code == 200, f"反代的 /healthz 返回 {health.status_code}"
 
 
 async def _insert_project(project_id: str) -> None:
