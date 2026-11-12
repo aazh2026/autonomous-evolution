@@ -1,0 +1,82 @@
+{
+  "decisions": [
+    {
+      "candidate_id": "CAND-0001",
+      "decision": "record",
+      "id": "EVD-cycle-0007-001",
+      "rationale": "价值 0.7、置信度 0.8、成本 0.3、风险 0.2 均达到门槛，按优先级推进",
+      "requested_analysis": []
+    }
+  ],
+  "execution": [
+    {
+      "accepted": true,
+      "outcome": "completed",
+      "reason": "",
+      "task_id": "task-row-1",
+      "task_key": "T-0001"
+    }
+  ],
+  "journal_calls": {
+    "close_cycle": 1,
+    "land_tasks": 1,
+    "open_cycle": 1,
+    "record_candidates": 1,
+    "record_decisions": 1,
+    "record_snapshot": 1
+  },
+  "knowledge": {
+    "cycle_ref": "cycle-row-1",
+    "snapshot_ref": "snap-row-1",
+    "snapshot_version": 4,
+    "status": "completed"
+  },
+  "next_gaps": {
+    "gap_ids[]": [
+      "gap-1"
+    ],
+    "overall_status": "evolving",
+    "snapshot": "snap-2"
+  },
+  "outcome": {
+    "attainment_after": "0.7",
+    "attainment_before": "0.6",
+    "status": "completed",
+    "verdict": "improved",
+    "verdict_reason": "目标达成度从 0.6 提升到 0.7（差值 +0.1）"
+  },
+  "pending_analysis": [],
+  "roadmap": {
+    "execution_order": [
+      "T-0001"
+    ],
+    "skipped": [],
+    "tasks": [
+      {
+        "candidate_id": "CAND-0001",
+        "decision_id": "EVD-cycle-0007-001",
+        "key": "T-0001",
+        "task_type": "feature",
+        "title": "把演进循环的落库口补齐"
+      }
+    ]
+  },
+  "visited_nodes": [
+    "observe_project",
+    "build_project_snapshot",
+    "analyze_goal_gap",
+    "discover_candidates",
+    "gather_evidence",
+    "evaluate_value_risk_cost",
+    "worth_doing",
+    "record_defer_reject",
+    "generate_evolution_plan",
+    "decompose_into_tasks",
+    "dependency_and_resource_scheduling",
+    "execute_engineering_cycle",
+    "evaluate_actual_outcome",
+    "update_project_knowledge",
+    "update_goal_gap"
+  ],
+  "worth_doing": true
+}

@@ -42,6 +42,29 @@ test-all: ## 全部测试（含 integration，需先 make up）
 test-cov: ## 覆盖率报告
 	uv run pytest --cov --cov-report=term-missing --cov-report=html
 
+# ---------- 金标与变异验证 ----------
+
+# 重新生成金标。
+#
+# **只在确实想改预期行为的时候跑。** 这条命令会把采集到的事实直接写进
+# tests/golden/expected/ —— 跑完的 diff 就是"这一轮到底变了什么"，
+# 拿那个 diff 去评审，别拿金标本身去评审。
+.PHONY: golden-update
+golden-update: ## 重新生成金标期望产物（确认是预期改动再跑）
+	ASES_GOLDEN_UPDATE=1 uv run pytest tests/golden -v
+
+# 金标矩阵的变异验证 —— **每个变异体都必须被抓住**。
+#
+# 验的不是"测试绿不绿"，是"测试绿得有没有意义"。每一行真的改坏一次，
+# 看那条断言会不会红。**红不了，就说明那条断言是在装饰。**
+#
+# 改坏发生在 **git 工作树副本**里 —— 主仓库一个字节都不动。
+#
+# 这一步红了，**不要**改金标来"修好"它 —— 先问：这条要求还有人守吗？
+.PHONY: verify-golden-mutants
+verify-golden-mutants: ## 金标变异验证（每个变异体都必须被抓住）
+	uv run python -m scripts.verify_golden_mutants
+
 # ---------- 演示 ----------
 
 # 审批门演示（TASK-P1-046 的 T3 验收）：真的建 git 仓库、真的跑测试、真的合并。

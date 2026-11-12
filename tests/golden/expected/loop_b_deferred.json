@@ -1,0 +1,68 @@
+{
+  "decisions": [
+    {
+      "candidate_id": "CAND-0001",
+      "decision": "defer",
+      "id": "EVD-cycle-0007-001",
+      "rationale": "证据还不够，先补一次测量",
+      "requested_analysis": [
+        {
+          "description": "对候选做一次可复现的测量，确认问题是否存在",
+          "kind": "measurement"
+        }
+      ]
+    }
+  ],
+  "execution": [],
+  "journal_calls": {
+    "close_cycle": 1,
+    "open_cycle": 1,
+    "record_candidates": 1,
+    "record_decisions": 1,
+    "record_snapshot": 1
+  },
+  "knowledge": {
+    "cycle_ref": "cycle-row-1",
+    "snapshot_ref": "snap-row-1",
+    "snapshot_version": 4,
+    "status": "completed"
+  },
+  "next_gaps": {
+    "gap_ids[]": [
+      "gap-1"
+    ],
+    "overall_status": "evolving",
+    "snapshot": "snap-2"
+  },
+  "outcome": {
+    "attainment_after": "0.7",
+    "attainment_before": "0.6",
+    "status": "completed",
+    "verdict": "stalled",
+    "verdict_reason": "本轮没有任何任务完成，没有落地任何产出"
+  },
+  "pending_analysis": [
+    {
+      "description": "对候选做一次可复现的测量，确认问题是否存在",
+      "kind": "measurement"
+    }
+  ],
+  "roadmap": {
+    "execution_order": [],
+    "skipped": [],
+    "tasks": []
+  },
+  "visited_nodes": [
+    "observe_project",
+    "build_project_snapshot",
+    "analyze_goal_gap",
+    "discover_candidates",
+    "gather_evidence",
+    "evaluate_value_risk_cost",
+    "worth_doing",
+    "record_defer_reject",
+    "update_project_knowledge",
+    "update_goal_gap"
+  ],
+  "worth_doing": false
+}

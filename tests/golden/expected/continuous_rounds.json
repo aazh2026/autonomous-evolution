@@ -1,0 +1,16 @@
+{
+  "blocked": true,
+  "cycle_count": 2,
+  "cycles": [
+    "cycle-1",
+    "cycle-2"
+  ],
+  "daily_spend": "3.000000",
+  "reason": "daily_cost 今天已经撞过一次上限（3.000000 / 5）—— 今天不再开新周期",
+  "seen_cycles": [
+    "cycle-1",
+    "cycle-2"
+  ],
+  "stopped": true,
+  "total": "3.000000"
+}

@@ -185,3 +185,32 @@ jobs:
         run: uv sync --all-extras
       - name: 全栈启动与验收
         run: uv run pytest tests/integration/test_local_stack.py -v
+
+  # 金标矩阵的变异验证 —— **每个变异体都必须被抓住**。
+  #
+  # 为什么单开一个 job：它要在 **git 工作树副本**里改坏生产代码再跑测试，
+  # 主仓库一个字节都不动。塞进 unit job 的话，一次变异写坏会把别的 job
+  # 弄脏（虽然最后会还原，但"还原"这一步要是没跑到，主仓库就脏了）。
+  #
+  # **它验的不是"测试是不是绿的"，是"测试绿得有没有意义"。** 一个从没失败过
+  # 的断言证明不了任何事 —— 这里把每一行真的改坏一次，看那条断言会不会红。
+  # 红不了，就说明那条断言是在装饰。
+  #
+  # 这一步红了，**不要**改金标来"修好"它 —— 先问：这条要求还有人守吗？
+  golden-mutants:
+    name: 金标变异验证
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: 安装依赖
+        run: uv sync --all-extras
+      # 这一步要在**工作树副本**里跑，所以需要 git。
+      #
+      # actions/checkout 默认是浅克隆（fetch-depth: 1）—— 浅克隆里
+      # `git worktree add --detach HEAD` 照样能用：它只要求 HEAD 在场，
+      # 不要求历史完整。所以这里不必额外拉历史（拉了也只是慢一点）。
+      - name: 变异体验证
+        run: uv run python -m scripts.verify_golden_mutants
