@@ -74,9 +74,8 @@ class TunableParameters:
             raise ValueError(
                 f"容差 tolerance={self.tolerance} 超出安全边界 [{MIN_TOLERANCE}, {MAX_TOLERANCE}]"
             )
-        is_explore_valid = (
-            self.explore_every == 0
-            or (MIN_EXPLORE_EVERY <= self.explore_every <= MAX_EXPLORE_EVERY)
+        is_explore_valid = self.explore_every == 0 or (
+            MIN_EXPLORE_EVERY <= self.explore_every <= MAX_EXPLORE_EVERY
         )
         if not is_explore_valid:
             raise ValueError(
